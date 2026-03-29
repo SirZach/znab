@@ -56,7 +56,7 @@ export const accountRouter = router({
           category: true,
           subTransactions: { with: { category: true } },
         },
-        orderBy: (t, { desc }) => [desc(t.date), desc(t.createdAt)],
+        orderBy: (t, { asc }) => [asc(t.date), asc(t.createdAt)],
         limit: input.limit,
         offset: input.offset,
       });

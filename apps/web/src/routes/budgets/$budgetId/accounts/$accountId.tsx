@@ -38,16 +38,11 @@ function AccountRegisterPage() {
     );
   }
 
-  // Compute running balance (newest first → reverse for running total)
-  const sorted = [...(transactions ?? [])].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-  );
   let running = 0;
-  const withBalance = sorted.map((t) => {
+  const withBalance = (transactions ?? []).map((t) => {
     running += parseFloat(t.amount);
     return { ...t, runningBalance: running };
   });
-  withBalance.reverse();
 
   function cycleCleared(current: string, id: number) {
     const next =
@@ -73,8 +68,8 @@ function AccountRegisterPage() {
         <div className="text-right">
           <p className="text-sm text-muted-foreground">Current balance</p>
           <p className="text-lg font-semibold">
-            {withBalance[0]
-              ? formatCurrency(withBalance[0].runningBalance)
+            {withBalance.length > 0
+              ? formatCurrency(withBalance[withBalance.length - 1].runningBalance)
               : "$0.00"}
           </p>
         </div>

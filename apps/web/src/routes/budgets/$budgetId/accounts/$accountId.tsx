@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { accountRegisterSearchSchema } from "@znab/shared";
-import { trpc } from "@/trpc";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { CheckCircle2, Circle, Lock, CalendarIcon } from "lucide-react";
 import { useRef, useState } from "react";
@@ -9,6 +8,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { useAccountRegister } from "@/hooks/useAccountRegister";
 
 export const Route = createFileRoute(
   "/budgets/$budgetId/accounts/$accountId"
@@ -16,9 +16,6 @@ export const Route = createFileRoute(
   validateSearch: accountRegisterSearchSchema,
   component: AccountRegisterPage,
 });
-
-const today = new Date();
-const currentMonthFirstDay = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
 
 const colgroup = (
   <colgroup>
@@ -37,52 +34,37 @@ function AccountRegisterPage() {
   const { budgetId, accountId } = Route.useParams();
   const { cleared, q } = Route.useSearch();
 
-  const { data: transactions, isLoading } = trpc.account.transactions.useQuery({
-    budgetId: Number(budgetId),
-    accountId: Number(accountId),
-    cleared: cleared as "all" | "Uncleared" | "Cleared" | "Reconciled",
-    q,
-  });
-
-  const utils = trpc.useUtils();
-  const setClearedMutation = trpc.transaction.setClearedStatus.useMutation({
-    onSuccess: () => utils.account.transactions.invalidate(),
-  });
-
-  const createMutation = trpc.transaction.create.useMutation({
-    onSuccess: () => {
-      utils.account.transactions.invalidate();
-      setDate(new Date());
-      setPayeeId(null);
-      setPayeeName("");
-      setCategoryId(null);
-      setMemo("");
-      setOutflow("");
-      setInflow("");
-    },
-  });
-
-  const { data: accounts } = trpc.account.list.useQuery({ budgetId: Number(budgetId) });
-  const account = accounts?.find((a) => a.id === Number(accountId));
-
-  const { data: monthData } = trpc.budget.monthData.useQuery({
-    budgetId: Number(budgetId),
-    month: currentMonthFirstDay,
-  });
-
-  const { data: payeeList } = trpc.payee.list.useQuery({ budgetId: Number(budgetId) });
-
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [payeeId, setPayeeId] = useState<number | null>(null);
   const [payeeName, setPayeeName] = useState("");
   const [payeeOpen, setPayeeOpen] = useState(false);
-  const categoryTriggerRef = useRef<HTMLButtonElement>(null);
-  const memoRef = useRef<HTMLInputElement>(null);
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [memo, setMemo] = useState("");
   const [outflow, setOutflow] = useState("");
   const [inflow, setInflow] = useState("");
+
+  const categoryTriggerRef = useRef<HTMLButtonElement>(null);
+  const memoRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const { account, withBalance, payeeList, categoryOptions, isLoading, cycleCleared, createTransaction, isSaving } =
+    useAccountRegister({
+      budgetId: Number(budgetId),
+      accountId: Number(accountId),
+      cleared: cleared as "all" | "Uncleared" | "Cleared" | "Reconciled",
+      q,
+      scrollRef: scrollContainerRef,
+      onSaveSuccess: () => {
+        setDate(new Date());
+        setPayeeId(null);
+        setPayeeName("");
+        setCategoryId(null);
+        setMemo("");
+        setOutflow("");
+        setInflow("");
+      },
+    });
 
   if (isLoading) {
     return (
@@ -92,61 +74,12 @@ function AccountRegisterPage() {
     );
   }
 
-  let running = 0;
-  const withBalance = (transactions ?? []).map((t) => {
-    running += parseFloat(t.amount);
-    return { ...t, runningBalance: running };
-  });
-
-  function cycleCleared(current: string, id: number) {
-    const next =
-      current === "Uncleared"
-        ? "Cleared"
-        : current === "Cleared"
-        ? "Reconciled"
-        : "Uncleared";
-    setClearedMutation.mutate({
-      id,
-      cleared: next as "Uncleared" | "Cleared" | "Reconciled",
-    });
-  }
-
-  function handleSave() {
-    if (!date) return;
-    const dateStr = format(date, "yyyy-MM-dd");
-    const outflowVal = parseFloat(outflow);
-    const inflowVal = parseFloat(inflow);
-    const hasOutflow = !isNaN(outflowVal) && outflowVal > 0;
-    const hasInflow = !isNaN(inflowVal) && inflowVal > 0;
-    if (!hasOutflow && !hasInflow) return;
-    if (hasOutflow && hasInflow) return;
-
-    const amount = hasInflow ? inflowVal : -outflowVal;
-
-    createMutation.mutate({
-      budgetId: Number(budgetId),
-      accountId: Number(accountId),
-      payeeId: payeeId,
-      payeeName: payeeId ? undefined : (payeeName || undefined),
-      categoryId: categoryId,
-      amount,
-      date: dateStr,
-      memo: memo || undefined,
-      cleared: "Uncleared",
-      accepted: true,
-    });
-  }
-
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") handleSave();
+    if (e.key === "Enter") createTransaction({ date, payeeId, payeeName, categoryId, memo, outflow, inflow });
   }
 
   const inputClass =
     "bg-transparent border-b border-border focus:outline-none focus:border-primary text-sm w-full px-1 py-0.5";
-
-  const categoryOptions = monthData
-    ?.filter((g) => !g.isSystem)
-    .flatMap((g) => g.categories.map((c) => ({ id: c.id, label: `${g.name}: ${c.name}` }))) ?? [];
 
   return (
     <div className="flex flex-col h-full">
@@ -184,7 +117,7 @@ function AccountRegisterPage() {
       </table>
 
       {/* Scrollable transaction rows */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto min-h-0">
         <table className="w-full text-sm">
           {colgroup}
           <tbody>
@@ -404,8 +337,8 @@ function AccountRegisterPage() {
             <td className="px-2 py-2" />
             <td className="px-6 py-2 text-right">
               <button
-                onClick={handleSave}
-                disabled={createMutation.isPending}
+                onClick={() => createTransaction({ date, payeeId, payeeName, categoryId, memo, outflow, inflow })}
+                disabled={isSaving}
                 className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
               >
                 Save

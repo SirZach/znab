@@ -8,10 +8,8 @@ import {
   redirect,
   Link,
   useParams,
-  useNavigate,
 } from "@tanstack/react-router";
-import { trpc } from "@/trpc";
-import { useUserStore } from "@/store/user";
+import { useBudgetLayout } from "@/hooks/useBudgetLayout";
 import { cn, currentMonthParam } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -33,26 +31,12 @@ export const Route = createFileRoute("/budgets/$budgetId")({
 
 function BudgetLayout() {
   const { budgetId } = useParams({ from: "/budgets/$budgetId" });
-  const clearUser = useUserStore((s) => s.clearUser);
-  const navigate = useNavigate();
   const { queryClient } = Route.useRouteContext();
 
-  const { data: budget } = trpc.budget.byId.useQuery({
+  const { budget, onBudgetAccounts, trackingAccounts, handleSignOut } = useBudgetLayout({
     budgetId: Number(budgetId),
+    queryClient,
   });
-
-  const { data: accounts } = trpc.account.list.useQuery({
-    budgetId: Number(budgetId),
-  });
-
-  const onBudgetAccounts = accounts?.filter((a) => a.onBudget) ?? [];
-  const trackingAccounts = accounts?.filter((a) => !a.onBudget) ?? [];
-
-  function handleSignOut() {
-    queryClient.clear();
-    clearUser();
-    navigate({ to: "/" });
-  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">

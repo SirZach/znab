@@ -1,5 +1,5 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { trpc } from "@/trpc";
+import { useBudgetList } from "@/hooks/useBudgetList";
 
 export const Route = createFileRoute("/budgets/")({
   beforeLoad: ({ context }) => {
@@ -11,7 +11,7 @@ export const Route = createFileRoute("/budgets/")({
 });
 
 function BudgetListPage() {
-  const { data: budgets, isLoading } = trpc.budget.list.useQuery();
+  const { budgets, isLoading } = useBudgetList();
 
   if (isLoading) {
     return (

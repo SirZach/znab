@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { budgetSearchSchema } from "@znab/shared";
-import { trpc } from "@/trpc";
+import { useBudgetMonths } from "@/hooks/useBudgetMonths";
+import { useBudgetPage } from "@/hooks/useBudgetPage";
 import { monthParamToDate, dateToMonthParam, currentMonthParam, formatCurrency } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { format, addMonths, subMonths, parseISO } from "date-fns";
@@ -15,16 +16,14 @@ function BudgetPage() {
   const { month } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
 
-  const { data: availableMonths } = trpc.budget.months.useQuery({
-    budgetId: Number(budgetId),
-  });
+  const { availableMonths } = useBudgetMonths({ budgetId: Number(budgetId) });
 
   // No month param → show month picker
   if (!month) {
     return (
       <MonthPicker
         budgetId={budgetId}
-        months={availableMonths ?? []}
+        months={availableMonths}
         onSelect={(m) => navigate({ search: { month: m } })}
       />
     );
@@ -39,12 +38,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
   const navigate = useNavigate({ from: Route.fullPath });
   const dbMonth = monthParamToDate(month); // "YYYY-MM-01"
 
-  const { data: groups, isLoading } = trpc.budget.monthData.useQuery({
-    budgetId,
-    month: dbMonth,
-  });
-
-  const setMutation = trpc.budget.setBudgeted.useMutation();
+  const { visibleGroups, isLoading, setBudgeted } = useBudgetPage({ budgetId, month: dbMonth });
 
   // Month navigation
   const currentDate = parseISO(dbMonth);
@@ -59,10 +53,6 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
       </div>
     );
   }
-
-  const visibleGroups = (groups ?? []).filter(
-    (g) => !g.isSystem && !g.deletedAt
-  );
 
   return (
     <div className="flex flex-col h-full">
@@ -125,7 +115,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                           <BudgetedCell
                             value={budgeted}
                             onSave={(val) =>
-                              setMutation.mutate({
+                              setBudgeted({
                                 budgetId: group.budgetId,
                                 categoryId: cat.id,
                                 month: dbMonth,

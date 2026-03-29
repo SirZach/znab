@@ -191,7 +191,7 @@ async function importYfull(data: YfullFile, budgetId: number) {
 
     // fetch existing if skipped by conflict
     const id = row?.id ?? (await db.query.accounts.findFirst({
-      where: eq(schema.accounts.ynabId, a.entityId),
+      where: and(eq(schema.accounts.ynabId, a.entityId), eq(schema.accounts.budgetId, budgetId)),
       columns: { id: true },
     }))!.id;
     accountYnabToId.set(a.entityId, id);
@@ -216,7 +216,7 @@ async function importYfull(data: YfullFile, budgetId: number) {
       .returning({ id: schema.categoryGroups.id });
 
     const id = row?.id ?? (await db.query.categoryGroups.findFirst({
-      where: eq(schema.categoryGroups.ynabId, mc.entityId),
+      where: and(eq(schema.categoryGroups.ynabId, mc.entityId), eq(schema.categoryGroups.budgetId, budgetId)),
       columns: { id: true },
     }))!.id;
     groupYnabToId.set(mc.entityId, id);
@@ -249,7 +249,7 @@ async function importYfull(data: YfullFile, budgetId: number) {
       .returning({ id: schema.categories.id });
 
     const id = row?.id ?? (await db.query.categories.findFirst({
-      where: eq(schema.categories.ynabId, sc.entityId),
+      where: and(eq(schema.categories.ynabId, sc.entityId), eq(schema.categories.budgetId, budgetId)),
       columns: { id: true },
     }))!.id;
     catYnabToId.set(sc.entityId, id);
@@ -284,7 +284,7 @@ async function importYfull(data: YfullFile, budgetId: number) {
       .returning({ id: schema.payees.id });
 
     const id = row?.id ?? (await db.query.payees.findFirst({
-      where: eq(schema.payees.ynabId, p.entityId),
+      where: and(eq(schema.payees.ynabId, p.entityId), eq(schema.payees.budgetId, budgetId)),
       columns: { id: true },
     }))!.id;
     payeeYnabToId.set(p.entityId, id);
@@ -359,7 +359,7 @@ async function importYfull(data: YfullFile, budgetId: number) {
         .returning({ id: schema.transactions.id });
 
       const id = row?.id ?? (await db.query.transactions.findFirst({
-        where: eq(schema.transactions.ynabId, t.entityId),
+        where: and(eq(schema.transactions.ynabId, t.entityId), eq(schema.transactions.budgetId, budgetId)),
         columns: { id: true },
       }))!.id;
       txnYnabToId.set(t.entityId, id);
@@ -483,10 +483,11 @@ const fionaBudgetId = await upsertBudget("fiona-main", zachUser.id, "Fiona's Bud
 await importYfull(fionaData, fionaBudgetId);
 console.log("  ✓ Fiona's budget imported\n");
 
-// 4. Import Demo budget (same data as Zach's, different user/budget record)
-console.log("Step 4: Importing Demo budget (subset of Zach's data)...");
+// 4. Import Demo budget
+console.log("Step 4: Importing Demo.yfull (Demo)...");
+const demoData = loadYfull("Demo.yfull");
 const demoBudgetId = await upsertBudget("demo-main", demoUser.id, "Demo Budget");
-await importYfull(zachData, demoBudgetId);
+await importYfull(demoData, demoBudgetId);
 console.log("  ✓ Demo budget imported\n");
 
 console.log("╔══════════════════════════════════════╗");

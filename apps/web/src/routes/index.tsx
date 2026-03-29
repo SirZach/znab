@@ -23,8 +23,10 @@ const USERS = [
 function UserPickerPage() {
   const setUser = useUserStore((s) => s.setUser);
   const navigate = useNavigate();
+  const { queryClient } = Route.useRouteContext();
 
   function handleSelect(slug: string) {
+    queryClient.clear();
     setUser(slug);
     navigate({ to: "/budgets" });
   }

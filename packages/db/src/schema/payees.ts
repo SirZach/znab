@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, text, timestamp, integer, boolean, numeric,
+  pgTable, serial, text, timestamp, integer, boolean, numeric, unique,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { budgets } from "./budgets";
@@ -8,7 +8,7 @@ import { categories } from "./categories";
 
 export const payees = pgTable("payees", {
   id: serial("id").primaryKey(),
-  ynabId: text("ynab_id").unique().notNull(),
+  ynabId: text("ynab_id").notNull(),
   budgetId: integer("budget_id")
     .notNull()
     .references(() => budgets.id),
@@ -22,7 +22,7 @@ export const payees = pgTable("payees", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [unique().on(t.ynabId, t.budgetId)]);
 
 export const payeesRelations = relations(payees, ({ one }) => ({
   budget: one(budgets, { fields: [payees.budgetId], references: [budgets.id] }),

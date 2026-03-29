@@ -10,7 +10,7 @@ export const monthlyBudgets = pgTable(
   {
     id: serial("id").primaryKey(),
     // e.g. "MCB/2023-09/CATEGORY-UUID"
-    ynabId: text("ynab_id").unique().notNull(),
+    ynabId: text("ynab_id").notNull(),
     budgetId: integer("budget_id")
       .notNull()
       .references(() => budgets.id),
@@ -24,7 +24,7 @@ export const monthlyBudgets = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (t) => [unique().on(t.categoryId, t.month)]
+  (t) => [unique().on(t.categoryId, t.month), unique().on(t.ynabId, t.budgetId)]
 );
 
 export const monthlyBudgetsRelations = relations(monthlyBudgets, ({ one }) => ({

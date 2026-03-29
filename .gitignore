@@ -1,0 +1,16 @@
+node_modules
+.env
+.env.*
+!.env.example
+dist
+.turbo
+bun.lock
+bun.lockb
+*.local
+.DS_Store
+*.log
+*.tsbuildinfo
+.vite/
+packages/db/migrations/*.sql
+apps/web/src/routeTree.gen.ts
+seed-data/

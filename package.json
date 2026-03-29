@@ -1,0 +1,18 @@
+{
+  "name": "znab",
+  "version": "0.0.1",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "dev:api": "bun run --filter api dev",
+    "dev:web": "bun run --filter web dev",
+    "db:generate": "bun run --filter @znab/db generate",
+    "db:migrate": "bun run --filter @znab/db migrate",
+    "db:studio": "bun run --filter @znab/db studio",
+    "import": "cd apps/api && bun src/scripts/import-yfull.ts"
+  }
+}

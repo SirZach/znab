@@ -35,6 +35,7 @@ function BudgetLayout() {
   const { budgetId } = useParams({ from: "/budgets/$budgetId" });
   const clearUser = useUserStore((s) => s.clearUser);
   const navigate = useNavigate();
+  const { queryClient } = Route.useRouteContext();
 
   const { data: budget } = trpc.budget.byId.useQuery({
     budgetId: Number(budgetId),
@@ -44,10 +45,11 @@ function BudgetLayout() {
     budgetId: Number(budgetId),
   });
 
-  const onBudgetAccounts = accounts?.filter((a) => a.onBudget && !a.hidden) ?? [];
-  const trackingAccounts = accounts?.filter((a) => !a.onBudget && !a.hidden) ?? [];
+  const onBudgetAccounts = accounts?.filter((a) => a.onBudget) ?? [];
+  const trackingAccounts = accounts?.filter((a) => !a.onBudget) ?? [];
 
   function handleSignOut() {
+    queryClient.clear();
     clearUser();
     navigate({ to: "/" });
   }

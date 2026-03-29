@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, text, timestamp, integer, boolean, numeric,
+  pgTable, serial, text, timestamp, integer, boolean, numeric, unique,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { budgets } from "./budgets";
@@ -8,7 +8,7 @@ import { transactions } from "./transactions";
 
 export const categoryGroups = pgTable("category_groups", {
   id: serial("id").primaryKey(),
-  ynabId: text("ynab_id").unique().notNull(),
+  ynabId: text("ynab_id").notNull(),
   budgetId: integer("budget_id")
     .notNull()
     .references(() => budgets.id),
@@ -21,11 +21,11 @@ export const categoryGroups = pgTable("category_groups", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [unique().on(t.ynabId, t.budgetId)]);
 
 export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
-  ynabId: text("ynab_id").unique().notNull(),
+  ynabId: text("ynab_id").notNull(),
   budgetId: integer("budget_id")
     .notNull()
     .references(() => budgets.id),
@@ -39,7 +39,7 @@ export const categories = pgTable("categories", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+}, (t) => [unique().on(t.ynabId, t.budgetId)]);
 
 export const categoryGroupsRelations = relations(categoryGroups, ({ one, many }) => ({
   budget: one(budgets, { fields: [categoryGroups.budgetId], references: [budgets.id] }),

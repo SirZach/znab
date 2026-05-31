@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { NetWorthReport } from "@/components/reports/net-worth-report";
 
 export const Route = createFileRoute(
   "/budgets/$budgetId/reports/$reportId"
@@ -7,7 +8,7 @@ export const Route = createFileRoute(
 });
 
 function ReportPage() {
-  const { reportId } = Route.useParams();
+  const { budgetId, reportId } = Route.useParams();
 
   switch (reportId) {
     case "spending":
@@ -15,7 +16,7 @@ function ReportPage() {
     case "income-vs-expenses":
       return <IncomeVsExpensesReport />;
     case "net-worth":
-      return <NetWorthReport />;
+      return <NetWorthReport budgetId={Number(budgetId)} />;
     default:
       return (
         <div className="p-8">
@@ -38,14 +39,6 @@ function SpendingReport() {
 function IncomeVsExpensesReport() {
   return (
     <ReportShell title="Income vs. Expenses">
-      <p className="text-muted-foreground">Charts coming soon.</p>
-    </ReportShell>
-  );
-}
-
-function NetWorthReport() {
-  return (
-    <ReportShell title="Net Worth">
       <p className="text-muted-foreground">Charts coming soon.</p>
     </ReportShell>
   );

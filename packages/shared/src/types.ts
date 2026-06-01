@@ -29,7 +29,10 @@ export const FREQUENCY_VALUES = [
 ] as const;
 export type FrequencyValue = typeof FREQUENCY_VALUES[number];
 
-// Special YNAB category IDs that aren't real categories
+// Special YNAB category IDs that aren't real categories. Pre-YNAB-debt
+// categories (Category/PreYNABDebt/<accountId>) are intentionally NOT here:
+// they are real categories imported under the Pre-YNAB Debt master group, so
+// their id must resolve like any other category.
 export const SPECIAL_CATEGORY_IDS = new Set([
   "Category/__ImmediateIncome__",
   "Category/__DeferredIncome__",
@@ -37,9 +40,7 @@ export const SPECIAL_CATEGORY_IDS = new Set([
 ]);
 
 export function isSpecialCategoryId(id: string): boolean {
-  return (
-    SPECIAL_CATEGORY_IDS.has(id) || id.startsWith("Category/PreYNABDebt/")
-  );
+  return SPECIAL_CATEGORY_IDS.has(id);
 }
 
 // Hard-coded user slugs

@@ -91,11 +91,12 @@ export const budgetRouter = router({
       }));
     }),
 
-  // YNAB-style "Available to Budget" summary for a single month.
-  // Rolls every category's balance forward from the first month of the budget
-  // so that cash overspending (which reduces next month's funds) is separated
-  // from credit-card overspending (which becomes debt and does not).
-  monthSummary: protectedProcedure
+  // Full budget view for a single month: category groups + each category's
+  // month-end balance/activity + the "Available to Budget" summary, all from one
+  // rolling pass so the grid and the header stay consistent. Cash overspending
+  // (which reduces next month's funds) is separated from credit-card / other
+  // on-budget-liability overspending (which becomes debt and does not).
+  monthBudget: protectedProcedure
     .input(
       z.object({
         budgetId: z.number().int().positive(),
@@ -103,20 +104,26 @@ export const budgetRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const budget = await ctx.db.query.budgets.findFirst({
-        where: and(
-          eq(budgets.id, input.budgetId),
-          eq(budgets.userId, ctx.user.id)
-        ),
-      });
-      if (!budget) throw new Error("Budget not found");
-
       // Outflows on a credit card or other on-budget liability become debt, so
       // they are classified separately from cash for overspending purposes.
       const klass = sql`CASE WHEN a.account_type IN ('CreditCard', 'OtherLiability') THEN 'credit' ELSE 'cash' END`;
 
-      // The three reads are independent, so issue them together.
-      const [activity, income, budgetedRows] = (await Promise.all([
+      // All five reads are independent, so issue them together.
+      const [budget, groups, activity, income, budgetedRows] = await Promise.all([
+        ctx.db.query.budgets.findFirst({
+          where: and(eq(budgets.id, input.budgetId), eq(budgets.userId, ctx.user.id)),
+        }),
+        ctx.db.query.categoryGroups.findMany({
+          where: (cg, { eq, and, isNull }) =>
+            and(eq(cg.budgetId, input.budgetId), isNull(cg.deletedAt)),
+          orderBy: (cg, { asc }) => [asc(cg.sortOrder)],
+          with: {
+            categories: {
+              where: (c, { isNull }) => isNull(c.deletedAt),
+              orderBy: (c, { asc }) => [asc(c.sortOrder)],
+            },
+          },
+        }),
         // Category spending/refunds per month, split by funding source. Only
         // on-budget accounts affect the budget. Splits contribute via their
         // sub-transactions, not the parent.
@@ -144,7 +151,7 @@ export const budgetRouter = router({
               AND a.on_budget = true AND s.category_id IS NOT NULL
           ) x
           GROUP BY category_id, date_trunc('month', d)
-        `),
+        `) as unknown as Promise<ActivityRow[]>,
         // Money entering "To be Budgeted". Immediate income lands in its own
         // month; deferred income is held for the following month.
         ctx.db.execute(sql`
@@ -171,7 +178,7 @@ export const budgetRouter = router({
               AND s.category_ynab_id IN (${IMMEDIATE_INCOME}, ${DEFERRED_INCOME})
           ) x
           GROUP BY date_trunc('month', d), kind
-        `),
+        `) as unknown as Promise<IncomeRow[]>,
         ctx.db.execute(sql`
           SELECT
             to_char(month, 'YYYY-MM') AS month,
@@ -180,15 +187,32 @@ export const budgetRouter = router({
             overspending_handling AS "overspendingHandling"
           FROM monthly_budgets
           WHERE budget_id = ${input.budgetId} AND deleted_at IS NULL
-        `),
-      ])) as unknown as [ActivityRow[], IncomeRow[], BudgetedRow[]];
+        `) as unknown as Promise<BudgetedRow[]>,
+      ]);
+      if (!budget) throw new Error("Budget not found");
 
-      return computeMonthSummary({
+      const { summary, categories } = computeBudgetMonth({
         activity,
         income,
         budgeted: budgetedRows,
         targetMonth: input.month.slice(0, 7),
       });
+
+      return {
+        summary,
+        groups: groups.map((group) => ({
+          ...group,
+          categories: group.categories.map((cat) => {
+            const cm = categories.get(cat.id);
+            return {
+              ...cat,
+              budgeted: cm?.budgeted ?? 0,
+              activity: cm?.activity ?? 0,
+              available: cm?.available ?? 0,
+            };
+          }),
+        })),
+      };
     }),
 
   // Set the budgeted amount for a category in a month
@@ -231,6 +255,18 @@ export type MonthSummary = {
   availableToBudget: number;
 };
 
+/** A single category's state for one month (dollars). */
+export type CategoryMonth = {
+  budgeted: number; // budgeted this month
+  activity: number; // outflows/inflows this month (negative = spent)
+  available: number; // month-end balance, carried forward
+};
+
+export type BudgetMonth = {
+  summary: MonthSummary;
+  categories: Map<number, CategoryMonth>;
+};
+
 const cents = (v: string | number | null | undefined) =>
   Math.round(parseFloat(String(v ?? 0)) * 100);
 
@@ -251,38 +287,60 @@ const zeroSummary = (month: string): MonthSummary => ({
   availableToBudget: 0,
 });
 
+type Activity = { credit: number; cash: number };
+type Budgeted = { budgeted: number; confined: boolean };
+
 /**
- * Reproduces YNAB4's "Available to Budget" math by walking every month from the
- * budget's start to the target month, carrying each category's balance forward.
+ * One category's month-end roll-up (cents). `balance` is the raw end-of-month
+ * available (shown in the grid, may be negative); `cashOverspend` is the cash
+ * shortfall that hits next month's To-be-Budgeted and resets the category.
  *
- * Per category-month: balance = priorBalance + budgeted + activity. When that
- * goes negative the shortfall is split by funding source. A carried-forward
- * negative balance is always credit/confined debt (cash overspending resets a
- * category to zero), so only a *positive* prior balance and this month's budget
- * provide spendable cash; credit-card outflows are self-funding debt. The cash
- * overspending — cash outflows beyond those funds, capped at the month-end
- * deficit — is removed from next month's To-be-Budgeted and the rest (credit /
- * confined debt) rolls forward. "Confined" overspending never hits TBB.
+ * A carried-forward negative balance is always credit/confined debt (cash
+ * overspending resets a category to zero), so only a *positive* prior balance
+ * and this month's budget provide spendable cash; credit-card outflows are
+ * self-funding debt. Cash overspend is cash outflows beyond those funds, capped
+ * at the month-end deficit. "Confined" overspending never hits TBB.
+ */
+function rollCategory(prior: number, b: Budgeted | undefined, act: Activity | undefined) {
+  const budgeted = b?.budgeted ?? 0;
+  const credit = act?.credit ?? 0;
+  const cash = act?.cash ?? 0;
+  const balance = prior + budgeted + credit + cash;
+
+  const cashOut = cash < 0 ? -cash : 0;
+  const funds = Math.max(prior, 0) + budgeted + (cash > 0 ? cash : 0) + (credit > 0 ? credit : 0);
+  const deficit = balance < 0 ? -balance : 0;
+  const rawCashOverspend = Math.min(Math.max(cashOut - funds, 0), deficit);
+  const cashOverspend = b?.confined ? 0 : rawCashOverspend;
+
+  return { budgeted, activity: credit + cash, balance, cashOverspend };
+}
+
+/**
+ * Reproduces YNAB4's budget math by walking every month from the budget's start
+ * to the target month, carrying each category's balance forward. Returns both
+ * the "Available to Budget" summary and each category's end-of-month state for
+ * the target month, so the grid and the header share one engine.
  *
  * Available(m) = Available(m-1) + Income(m) - Budgeted(m) - CashOverspent(m-1)
  */
-export function computeMonthSummary(args: {
+export function computeBudgetMonth(args: {
   activity: ActivityRow[];
   income: IncomeRow[];
   budgeted: BudgetedRow[];
   targetMonth: string; // "YYYY-MM"
-}): MonthSummary {
+}): BudgetMonth {
   const { activity, income, budgeted, targetMonth } = args;
 
   // Index inputs by month (all amounts in integer cents).
-  const activityByMonth = new Map<string, Map<number, { credit: number; cash: number }>>();
+  const activityByMonth = new Map<string, Map<number, Activity>>();
   for (const r of activity) {
     let m = activityByMonth.get(r.month);
     if (!m) activityByMonth.set(r.month, (m = new Map()));
     m.set(r.categoryId, { credit: cents(r.credit), cash: cents(r.cash) });
   }
 
-  const budgetedByMonth = new Map<string, Map<number, { budgeted: number; confined: boolean }>>();
+  const budgetedByMonth = new Map<string, Map<number, Budgeted>>();
   const budgetedTotal = new Map<string, number>();
   for (const r of budgeted) {
     let m = budgetedByMonth.get(r.month);
@@ -308,7 +366,9 @@ export function computeMonthSummary(args: {
   const startIdx = Math.min(...allMonths.map(monthIndex));
   const targetIdx = monthIndex(targetMonth);
   // No activity at all, or the target predates the budget — nothing has happened.
-  if (allMonths.length === 0 || targetIdx < startIdx) return zeroSummary(targetMonth);
+  if (allMonths.length === 0 || targetIdx < startIdx) {
+    return { summary: zeroSummary(targetMonth), categories: new Map() };
+  }
 
   const balances = new Map<number, number>(); // categoryId -> carried cents
   let available = 0; // To-be-Budgeted carried into the current month
@@ -318,55 +378,54 @@ export function computeMonthSummary(args: {
     const m = monthFromIndex(idx);
     const inc = incomeByMonth.get(m) ?? 0;
     const bud = budgetedTotal.get(m) ?? 0;
+    const actM = activityByMonth.get(m);
+    const budM = budgetedByMonth.get(m);
+    const touched = new Set<number>([...(actM?.keys() ?? []), ...(budM?.keys() ?? [])]);
 
     // Available(m) = Available(m-1) + Income(m) - Budgeted(m) - CashOverspent(m-1)
     const prevAvailable = available;
     available = available + inc - bud - prevCashOverspent;
 
     if (idx === targetIdx) {
+      // Per-category state for the displayed month uses the raw (pre-reset)
+      // balance: an overspent category shows negative this month and only
+      // resets going into the next one.
+      const categories = new Map<number, CategoryMonth>();
+      for (const [catId, bal] of balances) {
+        categories.set(catId, { budgeted: 0, activity: 0, available: bal / 100 });
+      }
+      for (const catId of touched) {
+        const r = rollCategory(balances.get(catId) ?? 0, budM?.get(catId), actM?.get(catId));
+        categories.set(catId, {
+          budgeted: r.budgeted / 100,
+          activity: r.activity / 100,
+          available: r.balance / 100,
+        });
+      }
       return {
-        month: targetMonth,
-        notBudgeted: prevAvailable / 100,
-        overspentPrev: prevCashOverspent / 100,
-        income: inc / 100,
-        budgeted: bud / 100,
-        availableToBudget: available / 100,
+        summary: {
+          month: targetMonth,
+          notBudgeted: prevAvailable / 100,
+          overspentPrev: prevCashOverspent / 100,
+          income: inc / 100,
+          budgeted: bud / 100,
+          availableToBudget: available / 100,
+        },
+        categories,
       };
     }
 
-    // Roll category balances and tally this month's cash overspending, which is
+    // Roll category balances forward and tally cash overspending, which is
     // deducted on the next iteration.
     let cashOverspent = 0;
-    const touched = new Set<number>([
-      ...(activityByMonth.get(m)?.keys() ?? []),
-      ...(budgetedByMonth.get(m)?.keys() ?? []),
-    ]);
     for (const catId of touched) {
-      const act = activityByMonth.get(m)?.get(catId);
-      const b = budgetedByMonth.get(m)?.get(catId);
-      const prior = balances.get(catId) ?? 0;
-      const credit = act?.credit ?? 0;
-      const cash = act?.cash ?? 0;
-      const balance = prior + (b?.budgeted ?? 0) + credit + cash;
-
-      // Real cash funds: positive carried balance + this month's budget + any
-      // refunds. Carried debt (negative prior) is credit/confined, so it never
-      // counts as cash funds and is never re-charged to TBB.
-      const cashOut = cash < 0 ? -cash : 0;
-      const funds =
-        Math.max(prior, 0) + (b?.budgeted ?? 0) + (cash > 0 ? cash : 0) + (credit > 0 ? credit : 0);
-      const deficit = balance < 0 ? -balance : 0;
-      const cashOverspend = Math.min(Math.max(cashOut - funds, 0), deficit);
-
-      if (cashOverspend > 0 && !b?.confined) {
-        cashOverspent += cashOverspend;
-        balances.set(catId, balance + cashOverspend); // cash part hits TBB; debt carries
-      } else {
-        balances.set(catId, balance); // credit / confined debt rolls forward
-      }
+      const r = rollCategory(balances.get(catId) ?? 0, budM?.get(catId), actM?.get(catId));
+      cashOverspent += r.cashOverspend;
+      balances.set(catId, r.balance + r.cashOverspend); // cash part hits TBB; debt carries
     }
     prevCashOverspent = cashOverspent;
   }
 
-  return zeroSummary(targetMonth); // unreachable: the loop returns at targetIdx
+  // Unreachable: the loop returns at targetIdx.
+  return { summary: zeroSummary(targetMonth), categories: new Map() };
 }

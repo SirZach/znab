@@ -7,16 +7,12 @@ export function useBudgetPage({
   budgetId: number;
   month: string;
 }) {
-  const { data: groups, isLoading } = trpc.budget.monthData.useQuery({
-    budgetId,
-    month,
-  });
-
-  const { data: summary } = trpc.budget.monthSummary.useQuery({ budgetId, month });
+  const { data, isLoading } = trpc.budget.monthBudget.useQuery({ budgetId, month });
 
   const setMutation = trpc.budget.setBudgeted.useMutation();
 
-  const visibleGroups = (groups ?? []).filter((g) => !g.isSystem && !g.deletedAt);
+  const summary = data?.summary;
+  const visibleGroups = (data?.groups ?? []).filter((g) => !g.isSystem && !g.deletedAt);
 
   function setBudgeted(args: {
     budgetId: number;

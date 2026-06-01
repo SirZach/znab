@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { budgetSearchSchema } from "@znab/shared";
+import { type MonthSummary } from "@/trpc";
 import { useBudgetMonths } from "@/hooks/useBudgetMonths";
 import { useBudgetPage } from "@/hooks/useBudgetPage";
 import { monthParamToDate, dateToMonthParam, currentMonthParam, formatCurrency } from "@/lib/utils";
@@ -107,47 +108,41 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                 {/* Category rows */}
                 {group.categories
                   .filter((c) => !c.deletedAt)
-                  .map((cat) => {
-                    const budgeted = parseFloat(cat.allocation?.budgeted ?? "0");
-                    const available = parseFloat(cat.cachedBalance ?? "0");
-                    const spent = budgeted - available;
-
-                    return (
-                      <tr
-                        key={cat.id}
-                        className="border-b border-border/50 hover:bg-accent/30 transition-colors"
+                  .map((cat) => (
+                    <tr
+                      key={cat.id}
+                      className="border-b border-border/50 hover:bg-accent/30 transition-colors"
+                    >
+                      <td className="px-6 py-2 pl-10">{cat.name}</td>
+                      <td className="text-right px-4 py-2">
+                        <BudgetedCell
+                          value={cat.budgeted}
+                          onSave={(val) =>
+                            setBudgeted({
+                              budgetId: group.budgetId,
+                              categoryId: cat.id,
+                              month: dbMonth,
+                              budgeted: val,
+                            })
+                          }
+                        />
+                      </td>
+                      <td className="text-right px-4 py-2 text-muted-foreground">
+                        {cat.activity !== 0 ? formatCurrency(cat.activity) : "—"}
+                      </td>
+                      <td
+                        className={`text-right px-6 py-2 font-medium ${
+                          cat.available < 0
+                            ? "text-destructive"
+                            : cat.available > 0
+                            ? "text-green-500"
+                            : "text-muted-foreground"
+                        }`}
                       >
-                        <td className="px-6 py-2 pl-10">{cat.name}</td>
-                        <td className="text-right px-4 py-2">
-                          <BudgetedCell
-                            value={budgeted}
-                            onSave={(val) =>
-                              setBudgeted({
-                                budgetId: group.budgetId,
-                                categoryId: cat.id,
-                                month: dbMonth,
-                                budgeted: val,
-                              })
-                            }
-                          />
-                        </td>
-                        <td className="text-right px-4 py-2 text-muted-foreground">
-                          {spent < 0 ? formatCurrency(spent) : formatCurrency(-spent)}
-                        </td>
-                        <td
-                          className={`text-right px-6 py-2 font-medium ${
-                            available < 0
-                              ? "text-destructive"
-                              : available > 0
-                              ? "text-green-500"
-                              : "text-muted-foreground"
-                          }`}
-                        >
-                          {formatCurrency(available)}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                        {formatCurrency(cat.available)}
+                      </td>
+                    </tr>
+                  ))}
               </>
             ))}
           </tbody>
@@ -159,20 +154,12 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
 
 // ─── Available-to-Budget summary ──────────────────────────────────────────────
 
-type Summary = {
-  notBudgeted: number;
-  overspentPrev: number;
-  income: number;
-  budgeted: number;
-  availableToBudget: number;
-};
-
 function BudgetSummary({
   summary,
   monthShort,
   prevShort,
 }: {
-  summary: Summary;
+  summary: MonthSummary;
   monthShort: string;
   prevShort: string;
 }) {

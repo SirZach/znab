@@ -38,13 +38,15 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
   const navigate = useNavigate({ from: Route.fullPath });
   const dbMonth = monthParamToDate(month); // "YYYY-MM-01"
 
-  const { visibleGroups, isLoading, setBudgeted } = useBudgetPage({ budgetId, month: dbMonth });
+  const { visibleGroups, summary, isLoading, setBudgeted } = useBudgetPage({ budgetId, month: dbMonth });
 
   // Month navigation
   const currentDate = parseISO(dbMonth);
   const prevMonth = dateToMonthParam(format(subMonths(currentDate, 1), "yyyy-MM-01"));
   const nextMonth = dateToMonthParam(format(addMonths(currentDate, 1), "yyyy-MM-01"));
   const displayMonth = format(currentDate, "MMMM yyyy");
+  const monthShort = format(currentDate, "MMM");
+  const prevShort = format(subMonths(currentDate, 1), "MMM");
 
   if (isLoading) {
     return (
@@ -56,21 +58,26 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Month nav header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <button
-          onClick={() => navigate({ search: { month: prevMonth } })}
-          className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft size={20} />
-        </button>
-        <h2 className="text-lg font-semibold">{displayMonth}</h2>
-        <button
-          onClick={() => navigate({ search: { month: nextMonth } })}
-          className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-        >
-          <ChevronRight size={20} />
-        </button>
+      {/* Month nav + summary header */}
+      <div className="px-6 py-4 border-b border-border space-y-4">
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => navigate({ search: { month: prevMonth } })}
+            className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <h2 className="text-lg font-semibold">{displayMonth}</h2>
+          <button
+            onClick={() => navigate({ search: { month: nextMonth } })}
+            className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
+        {summary && (
+          <BudgetSummary summary={summary} monthShort={monthShort} prevShort={prevShort} />
+        )}
       </div>
 
       {/* Budget table */}
@@ -146,6 +153,68 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// ─── Available-to-Budget summary ──────────────────────────────────────────────
+
+type Summary = {
+  notBudgeted: number;
+  overspentPrev: number;
+  income: number;
+  budgeted: number;
+  availableToBudget: number;
+};
+
+function BudgetSummary({
+  summary,
+  monthShort,
+  prevShort,
+}: {
+  summary: Summary;
+  monthShort: string;
+  prevShort: string;
+}) {
+  const { notBudgeted, overspentPrev, income, budgeted, availableToBudget: avail } = summary;
+  const availColor =
+    avail > 0 ? "text-green-500" : avail < 0 ? "text-destructive" : "text-muted-foreground";
+
+  // Each figure is shown as its signed contribution so the row literally sums
+  // to Available to Budget, mirroring YNAB's header.
+  const minus = (n: number) => (n === 0 ? formatCurrency(0) : formatCurrency(-n));
+
+  return (
+    <div className="flex flex-wrap items-stretch gap-x-6 gap-y-3 rounded-lg border border-border bg-card px-4 py-3">
+      <Stat label={`Not Budgeted in ${prevShort}`} text={formatCurrency(notBudgeted)} danger={notBudgeted < 0} />
+      <Stat label={`Overspent in ${prevShort}`} text={minus(overspentPrev)} warn={overspentPrev > 0} />
+      <Stat label={`Income for ${monthShort}`} text={income < 0 ? formatCurrency(income) : `+${formatCurrency(income)}`} />
+      <Stat label={`Budgeted in ${monthShort}`} text={minus(budgeted)} />
+      <div className="ml-auto flex flex-col items-end justify-center border-l border-border pl-6">
+        <span className={`text-xl font-bold tabular-nums ${availColor}`}>{formatCurrency(avail)}</span>
+        <span className="text-xs text-muted-foreground">Available to Budget</span>
+      </div>
+    </div>
+  );
+}
+
+/** One signed figure + caption in the Available-to-Budget breakdown. */
+function Stat({
+  label,
+  text,
+  danger,
+  warn,
+}: {
+  label: string;
+  text: string;
+  danger?: boolean;
+  warn?: boolean;
+}) {
+  const color = warn ? "text-amber-500" : danger ? "text-destructive" : "text-foreground";
+  return (
+    <div className="flex flex-col items-end justify-center">
+      <span className={`text-sm font-semibold tabular-nums ${color}`}>{text}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
     </div>
   );
 }

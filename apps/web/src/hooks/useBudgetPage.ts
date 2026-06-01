@@ -12,6 +12,8 @@ export function useBudgetPage({
     month,
   });
 
+  const { data: summary } = trpc.budget.monthSummary.useQuery({ budgetId, month });
+
   const setMutation = trpc.budget.setBudgeted.useMutation();
 
   const visibleGroups = (groups ?? []).filter((g) => !g.isSystem && !g.deletedAt);
@@ -25,5 +27,5 @@ export function useBudgetPage({
     setMutation.mutate(args);
   }
 
-  return { visibleGroups, isLoading, setBudgeted };
+  return { visibleGroups, summary, isLoading, setBudgeted };
 }

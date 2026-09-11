@@ -38,6 +38,7 @@ export type CategoryMonth = {
   activity: number; // outflows/inflows this month (negative = spent)
   available: number; // month-end balance, carried forward
   overspendKind: OverspendKind; // null unless `available` is negative
+  confined: boolean; // overspending stays here instead of hitting To-be-Budgeted
 };
 
 export type BudgetMonth = {
@@ -193,6 +194,7 @@ export function computeBudgetMonth(args: {
           activity: 0,
           available: bal / 100,
           overspendKind: bal < 0 ? "credit" : null,
+          confined: false,
         });
       }
       for (const catId of touched) {
@@ -202,6 +204,7 @@ export function computeBudgetMonth(args: {
           activity: r.activity / 100,
           available: r.balance / 100,
           overspendKind: r.overspendKind,
+          confined: budM?.get(catId)?.confined ?? false,
         });
       }
       return {
@@ -231,4 +234,86 @@ export function computeBudgetMonth(args: {
 
   // Unreachable: the loop returns at targetIdx.
   return { summary: zeroSummary(targetMonth), categories: new Map() };
+}
+
+// ─── Quick Budget ─────────────────────────────────────────────────────────────
+
+/** How many months back the averages look. */
+export const QUICK_BUDGET_LOOKBACK = 12;
+
+/**
+ * The amounts behind YNAB 4's Quick Budget buttons, for one category in one
+ * month. Every figure is an amount to *set* the category's budget to, so the
+ * caller can hand any of them straight to setBudgeted.
+ */
+export type QuickBudgetAmounts = {
+  budgetedLastMonth: number;
+  spentLastMonth: number;
+  averageBudgeted: number;
+  averageSpent: number;
+  /** Budget needed to bring this month's Available to exactly zero. */
+  balanceToZero: number;
+};
+
+export function computeQuickBudget(args: {
+  activity: ActivityRow[];
+  income: IncomeRow[];
+  budgeted: BudgetedRow[];
+  targetMonth: string; // "YYYY-MM"
+  categoryId: number;
+}): QuickBudgetAmounts {
+  const { activity, income, budgeted, targetMonth, categoryId } = args;
+  const targetIdx = monthIndex(targetMonth);
+  const prevMonth = monthFromIndex(targetIdx - 1);
+
+  const mine = budgeted.filter((r) => r.categoryId === categoryId);
+  const myActivity = activity.filter((r) => r.categoryId === categoryId);
+
+  // Outflow for a month as a positive amount. A category that took in more than
+  // it spent (a refund) counts as zero rather than a negative budget.
+  const spentIn = (month: string) => {
+    const row = myActivity.find((r) => r.month === month);
+    if (!row) return 0;
+    const net = cents(row.cash) + cents(row.credit);
+    return net < 0 ? -net : 0;
+  };
+  const budgetedIn = (month: string) =>
+    cents(mine.find((r) => r.month === month)?.budgeted);
+
+  // Averages run over the months in the lookback window that the category was
+  // actually in use, so a category only a few months old is not averaged down
+  // by a year of zeroes it never existed for.
+  const window: string[] = [];
+  for (let i = 1; i <= QUICK_BUDGET_LOOKBACK; i++) {
+    window.push(monthFromIndex(targetIdx - i));
+  }
+  const mean = (values: number[]) =>
+    values.length === 0
+      ? 0
+      : Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+
+  const budgetedMonths = new Set(mine.map((r) => r.month));
+  const activityMonths = new Set(myActivity.map((r) => r.month));
+
+  const averageBudgeted = mean(
+    window.filter((m) => budgetedMonths.has(m)).map(budgetedIn)
+  );
+  const averageSpent = mean(
+    window.filter((m) => activityMonths.has(m)).map(spentIn)
+  );
+
+  // Available = budgeted + everything else, so the budget that zeroes it out is
+  // this month's budget less whatever is currently left over.
+  const month = computeBudgetMonth({ activity, income, budgeted, targetMonth });
+  const current = month.categories.get(categoryId);
+  const balanceToZero =
+    Math.round((current?.budgeted ?? 0) * 100) - Math.round((current?.available ?? 0) * 100);
+
+  return {
+    budgetedLastMonth: budgetedIn(prevMonth) / 100,
+    spentLastMonth: spentIn(prevMonth) / 100,
+    averageBudgeted: averageBudgeted / 100,
+    averageSpent: averageSpent / 100,
+    balanceToZero: balanceToZero / 100,
+  };
 }

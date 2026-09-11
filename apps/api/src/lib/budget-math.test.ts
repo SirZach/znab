@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeBudgetMonth } from "./budget-math";
+import { computeBudgetMonth, computeQuickBudget } from "./budget-math";
 
 /** Small builders so each case reads as the scenario it describes. */
 const budgeted = (month: string, categoryId: number, amount: number, confined = false) => ({
@@ -136,5 +136,93 @@ describe("computeBudgetMonth: money committed to later months", () => {
     expect(mar.summary.budgeted).toBe(250);
     expect(mar.summary.budgetedFuture).toBe(0);
     expect(mar.summary.availableToBudget).toBe(650);
+  });
+});
+
+describe("computeQuickBudget", () => {
+  const history = {
+    income: [income("2025-10", 5000), income("2025-11", 5000), income("2025-12", 5000)],
+    budgeted: [
+      budgeted("2025-10", 1, 100),
+      budgeted("2025-11", 1, 200),
+      budgeted("2025-12", 1, 300),
+    ],
+    activity: [
+      activity("2025-10", 1, { cash: -80 }),
+      activity("2025-11", 1, { cash: -220 }),
+      activity("2025-12", 1, { cash: -120 }),
+    ],
+  };
+
+  test("reports last month's budget and spending", () => {
+    const q = computeQuickBudget({ ...history, targetMonth: "2026-01", categoryId: 1 });
+
+    expect(q.budgetedLastMonth).toBe(300);
+    expect(q.spentLastMonth).toBe(120);
+  });
+
+  test("averages only the months the category was in use", () => {
+    const q = computeQuickBudget({ ...history, targetMonth: "2026-01", categoryId: 1 });
+
+    // Three months of history, not twelve. A young category should not be
+    // averaged down by months it did not exist for.
+    expect(q.averageBudgeted).toBe(200); // (100 + 200 + 300) / 3
+    expect(q.averageSpent).toBe(140); // (80 + 220 + 120) / 3
+  });
+
+  test("balance to zero covers an overspent category", () => {
+    const q = computeQuickBudget({
+      income: [income("2026-01", 1000)],
+      budgeted: [budgeted("2026-01", 1, 100)],
+      activity: [activity("2026-01", 1, { cash: -150 })],
+      targetMonth: "2026-01",
+      categoryId: 1,
+    });
+
+    // Budgeted 100, spent 150, so it sits at -50. Budgeting 150 zeroes it.
+    expect(q.balanceToZero).toBe(150);
+  });
+
+  test("balance to zero claws back a surplus", () => {
+    const q = computeQuickBudget({
+      income: [income("2026-01", 1000)],
+      budgeted: [budgeted("2026-01", 1, 100)],
+      activity: [activity("2026-01", 1, { cash: -30 })],
+      targetMonth: "2026-01",
+      categoryId: 1,
+    });
+
+    expect(q.balanceToZero).toBe(30);
+  });
+
+  test("a refund does not produce a negative budget suggestion", () => {
+    const q = computeQuickBudget({
+      income: [income("2025-12", 1000)],
+      budgeted: [budgeted("2025-12", 1, 50)],
+      activity: [activity("2025-12", 1, { cash: 75 })],
+      targetMonth: "2026-01",
+      categoryId: 1,
+    });
+
+    expect(q.spentLastMonth).toBe(0);
+    expect(q.averageSpent).toBe(0);
+  });
+
+  test("a category with no history suggests nothing", () => {
+    const q = computeQuickBudget({
+      income: [income("2026-01", 1000)],
+      budgeted: [budgeted("2026-01", 1, 100)],
+      activity: [],
+      targetMonth: "2026-01",
+      categoryId: 99,
+    });
+
+    expect(q).toMatchObject({
+      budgetedLastMonth: 0,
+      spentLastMonth: 0,
+      averageBudgeted: 0,
+      averageSpent: 0,
+      balanceToZero: 0,
+    });
   });
 });

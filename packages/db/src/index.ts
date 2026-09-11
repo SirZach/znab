@@ -1,3 +1,6 @@
+// The web app pulls this file in through the tRPC router types, and compiles it
+// under its own tsconfig, which has no Bun globals. Carry them on the file.
+/// <reference types="bun" />
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";

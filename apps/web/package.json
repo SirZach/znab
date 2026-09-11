@@ -15,7 +15,6 @@
     "@tanstack/react-form": "^1.28.5",
     "@tanstack/react-query": "^5.62.7",
     "@tanstack/react-router": "^1.82.2",
-    "@tanstack/zod-form-adapter": "^0.42.1",
     "@trpc/client": "^11.0.0",
     "@trpc/react-query": "^11.0.0",
     "@znab/shared": "workspace:*",
@@ -30,7 +29,7 @@
     "recharts": "^3.8.0",
     "tailwind-merge": "^3.6.0",
     "tw-animate-css": "^1.2.5",
-    "zod": "^3.23.8",
+    "zod": "^4.6.2",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

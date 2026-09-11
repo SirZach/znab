@@ -1,7 +1,17 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useUserStore } from "@/store/user";
 
 export const Route = createFileRoute("/")({
+  // A previously selected user is persisted to localStorage, so returning to the
+  // root URL should go straight to their budgets instead of re-asking. Read the
+  // store directly rather than from route context: "Switch user" clears the
+  // store and navigates here in the same tick, before the context prop updates.
+  beforeLoad: () => {
+    const { userSlug } = useUserStore.getState();
+    if (userSlug) {
+      throw redirect({ to: "/budgets" });
+    }
+  },
   component: UserPickerPage,
 });
 

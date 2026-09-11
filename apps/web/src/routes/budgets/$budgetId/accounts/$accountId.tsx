@@ -48,23 +48,36 @@ function AccountRegisterPage() {
   const memoRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const { account, withBalance, payeeList, categoryOptions, isLoading, cycleCleared, createTransaction, isSaving } =
-    useAccountRegister({
-      budgetId: Number(budgetId),
-      accountId: Number(accountId),
-      cleared: cleared as "all" | "Uncleared" | "Cleared" | "Reconciled",
-      q,
-      scrollRef: scrollContainerRef,
-      onSaveSuccess: () => {
-        setDate(new Date());
-        setPayeeId(null);
-        setPayeeName("");
-        setCategoryId(null);
-        setMemo("");
-        setOutflow("");
-        setInflow("");
-      },
-    });
+  const {
+    account,
+    transactions,
+    balance,
+    hasMore,
+    loadOlder,
+    isLoadingMore,
+    payeeList,
+    categoryOptions,
+    total,
+    isLoading,
+    cycleCleared,
+    createTransaction,
+    isSaving,
+  } = useAccountRegister({
+    budgetId: Number(budgetId),
+    accountId: Number(accountId),
+    cleared: cleared as "all" | "Uncleared" | "Cleared" | "Reconciled",
+    q,
+    scrollRef: scrollContainerRef,
+    onSaveSuccess: () => {
+      setDate(new Date());
+      setPayeeId(null);
+      setPayeeName("");
+      setCategoryId(null);
+      setMemo("");
+      setOutflow("");
+      setInflow("");
+    },
+  });
 
   if (isLoading) {
     return (
@@ -91,11 +104,7 @@ function AccountRegisterPage() {
         </div>
         <div className="text-right">
           <p className="text-sm text-muted-foreground">Current balance</p>
-          <p className="text-lg font-semibold">
-            {withBalance.length > 0
-              ? formatCurrency(withBalance[withBalance.length - 1]!.runningBalance)
-              : "$0.00"}
-          </p>
+          <p className="text-lg font-semibold">{formatCurrency(balance)}</p>
         </div>
       </div>
 
@@ -118,10 +127,25 @@ function AccountRegisterPage() {
 
       {/* Scrollable transaction rows */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto min-h-0">
+        {hasMore && (
+          <div className="flex flex-col items-center gap-1 py-3 border-b border-border/50">
+            <button
+              onClick={loadOlder}
+              disabled={isLoadingMore}
+              className="text-xs px-3 py-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
+            >
+              {isLoadingMore ? "Loading…" : "Show older transactions"}
+            </button>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              Showing the most recent {transactions.length} of {total}
+            </span>
+          </div>
+        )}
+
         <table className="w-full text-sm">
           {colgroup}
           <tbody>
-            {withBalance.map((txn) => {
+            {transactions.map((txn) => {
               const amount = parseFloat(txn.amount);
               const isInflow = amount > 0;
 
@@ -172,7 +196,7 @@ function AccountRegisterPage() {
           </tbody>
         </table>
 
-        {withBalance.length === 0 && (
+        {transactions.length === 0 && (
           <div className="flex items-center justify-center h-32">
             <p className="text-muted-foreground">No transactions found.</p>
           </div>

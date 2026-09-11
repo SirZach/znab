@@ -3,9 +3,16 @@ import { budgetSearchSchema } from "@znab/shared";
 import { type MonthSummary } from "@/trpc";
 import { useBudgetMonths } from "@/hooks/useBudgetMonths";
 import { useBudgetPage } from "@/hooks/useBudgetPage";
-import { monthParamToDate, dateToMonthParam, currentMonthParam, formatCurrency } from "@/lib/utils";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Fragment } from "react";
+import {
+  monthParamToDate,
+  dateToMonthParam,
+  currentMonthParam,
+  formatCurrency,
+  parseAmountExpression,
+  cn,
+} from "@/lib/utils";
+import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { format, addMonths, subMonths, parseISO } from "date-fns";
 
 export const Route = createFileRoute("/budgets/$budgetId/")({
@@ -34,6 +41,44 @@ function BudgetPage() {
   return <BudgetGrid budgetId={Number(budgetId)} month={month} />;
 }
 
+// ─── Collapsed master categories ──────────────────────────────────────────────
+
+/**
+ * Which category groups are rolled up, remembered per budget so the shape of
+ * the grid survives a reload. Browser storage can be unavailable or full, and
+ * this is only a convenience, so every access is guarded.
+ */
+function useCollapsedGroups(budgetId: number) {
+  const storageKey = `znab:collapsed-groups:${budgetId}`;
+
+  const [collapsed, setCollapsed] = useState<Set<number>>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? new Set<number>(JSON.parse(raw)) : new Set<number>();
+    } catch {
+      return new Set<number>();
+    }
+  });
+
+  const toggleGroup = useCallback(
+    (groupId: number) => {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (!next.delete(groupId)) next.add(groupId);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify([...next]));
+        } catch {
+          // Not worth surfacing. The grid still works, it just won't remember.
+        }
+        return next;
+      });
+    },
+    [storageKey]
+  );
+
+  return { collapsed, toggleGroup };
+}
+
 // ─── Budget grid ──────────────────────────────────────────────────────────────
 
 function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
@@ -41,6 +86,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
   const dbMonth = monthParamToDate(month); // "YYYY-MM-01"
 
   const { visibleGroups, summary, isLoading, setBudgeted } = useBudgetPage({ budgetId, month: dbMonth });
+  const { collapsed, toggleGroup } = useCollapsedGroups(budgetId);
 
   // Month navigation
   const currentDate = parseISO(dbMonth);
@@ -94,58 +140,84 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
             </tr>
           </thead>
           <tbody>
-            {visibleGroups.map((group) => (
-              <Fragment key={group.id}>
-                {/* Group header row */}
-                <tr className="bg-muted/30">
-                  <td
-                    colSpan={4}
-                    className="px-6 py-2 font-semibold text-xs uppercase tracking-wider text-muted-foreground"
-                  >
-                    {group.name}
-                  </td>
-                </tr>
+            {visibleGroups.map((group) => {
+              const cats = group.categories.filter((c) => !c.deletedAt);
+              const totals = cats.reduce(
+                (acc, c) => ({
+                  budgeted: acc.budgeted + c.budgeted,
+                  activity: acc.activity + c.activity,
+                  available: acc.available + c.available,
+                }),
+                { budgeted: 0, activity: 0, available: 0 }
+              );
+              const isCollapsed = collapsed.has(group.id);
 
-                {/* Category rows */}
-                {group.categories
-                  .filter((c) => !c.deletedAt)
-                  .map((cat) => (
-                    <tr
-                      key={cat.id}
-                      className="border-b border-border/50 hover:bg-accent/30 transition-colors"
-                    >
-                      <td className="px-6 py-2 pl-10">{cat.name}</td>
-                      <td className="text-right px-4 py-2">
-                        <BudgetedCell
-                          value={cat.budgeted}
-                          onSave={(val) =>
-                            setBudgeted({
-                              budgetId: group.budgetId,
-                              categoryId: cat.id,
-                              month: dbMonth,
-                              budgeted: val,
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="text-right px-4 py-2 text-muted-foreground">
-                        {cat.activity !== 0 ? formatCurrency(cat.activity) : "—"}
-                      </td>
-                      <td
-                        className={`text-right px-6 py-2 font-medium ${
-                          cat.available < 0
-                            ? "text-destructive"
-                            : cat.available > 0
-                            ? "text-green-500"
-                            : "text-muted-foreground"
-                        }`}
+              return (
+                <Fragment key={group.id}>
+                  {/* Group header, with the group's own totals */}
+                  <tr
+                    className="bg-muted/30 border-b border-border/50 cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => toggleGroup(group.id)}
+                  >
+                    <td className="px-6 py-2">
+                      <button
+                        aria-expanded={!isCollapsed}
+                        aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.name}`}
+                        className="flex items-center gap-1.5 font-semibold text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
                       >
-                        {formatCurrency(cat.available)}
-                      </td>
-                    </tr>
-                  ))}
-              </Fragment>
-            ))}
+                        <ChevronDown
+                          size={13}
+                          className={cn("transition-transform", isCollapsed && "-rotate-90")}
+                        />
+                        {group.name}
+                      </button>
+                    </td>
+                    <td className="text-right px-4 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
+                      {formatCurrency(totals.budgeted)}
+                    </td>
+                    <td className="text-right px-4 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
+                      {totals.activity !== 0 ? formatCurrency(totals.activity) : "—"}
+                    </td>
+                    <td className="text-right px-6 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
+                      {formatCurrency(totals.available)}
+                    </td>
+                  </tr>
+
+                  {/* Category rows */}
+                  {!isCollapsed &&
+                    cats.map((cat) => (
+                      <tr
+                        key={cat.id}
+                        className="border-b border-border/50 hover:bg-accent/30 transition-colors"
+                      >
+                        <td className="px-6 py-2 pl-10">{cat.name}</td>
+                        <td className="text-right px-4 py-2">
+                          <BudgetedCell
+                            value={cat.budgeted}
+                            onSave={(val) =>
+                              setBudgeted({
+                                budgetId: group.budgetId,
+                                categoryId: cat.id,
+                                month: dbMonth,
+                                budgeted: val,
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="text-right px-4 py-2 text-muted-foreground tabular-nums">
+                          {cat.activity !== 0 ? formatCurrency(cat.activity) : "—"}
+                        </td>
+                        <td className="text-right px-6 py-2">
+                          <AvailablePill
+                            amount={cat.available}
+                            overspendKind={cat.overspendKind}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -164,7 +236,14 @@ function BudgetSummary({
   monthShort: string;
   prevShort: string;
 }) {
-  const { notBudgeted, overspentPrev, income, budgeted, availableToBudget: avail } = summary;
+  const {
+    notBudgeted,
+    overspentPrev,
+    income,
+    budgeted,
+    budgetedFuture,
+    availableToBudget: avail,
+  } = summary;
   const availColor =
     avail > 0 ? "text-green-500" : avail < 0 ? "text-destructive" : "text-muted-foreground";
 
@@ -178,11 +257,58 @@ function BudgetSummary({
       <Stat label={`Overspent in ${prevShort}`} text={minus(overspentPrev)} warn={overspentPrev > 0} />
       <Stat label={`Income for ${monthShort}`} text={income < 0 ? formatCurrency(income) : `+${formatCurrency(income)}`} />
       <Stat label={`Budgeted in ${monthShort}`} text={minus(budgeted)} />
+      {/* Only shown once money is committed ahead, as in YNAB 4. */}
+      {budgetedFuture !== 0 && (
+        <Stat label="Budgeted in Future" text={minus(budgetedFuture)} warn={budgetedFuture > 0} />
+      )}
       <div className="ml-auto flex flex-col items-end justify-center border-l border-border pl-6">
         <span className={`text-xl font-bold tabular-nums ${availColor}`}>{formatCurrency(avail)}</span>
         <span className="text-xs text-muted-foreground">Available to Budget</span>
       </div>
     </div>
+  );
+}
+
+// ─── Available balance ────────────────────────────────────────────────────────
+
+/**
+ * A category's month-end balance. YNAB 4 separates the two ways a category goes
+ * negative: red when cash overspending will come out of next month's
+ * To-be-Budgeted, amber when it is credit-card debt that will not.
+ */
+function AvailablePill({
+  amount,
+  overspendKind,
+}: {
+  amount: number;
+  overspendKind: "cash" | "credit" | null;
+}) {
+  const tone =
+    amount < 0
+      ? overspendKind === "credit"
+        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+        : "bg-destructive/15 text-destructive"
+      : amount > 0
+      ? "text-green-600 dark:text-green-500"
+      : "text-muted-foreground";
+
+  const title =
+    amount < 0
+      ? overspendKind === "credit"
+        ? "Overspent on credit. Carried as debt, so it does not reduce next month's To be Budgeted"
+        : "Overspent in cash. This comes out of next month's To be Budgeted"
+      : undefined;
+
+  return (
+    <span
+      title={title}
+      className={cn(
+        "inline-block rounded px-2 py-0.5 font-medium tabular-nums",
+        tone
+      )}
+    >
+      {formatCurrency(amount)}
+    </span>
   );
 }
 
@@ -209,6 +335,11 @@ function Stat({
 
 // ─── Inline budget cell ───────────────────────────────────────────────────────
 
+/**
+ * A budgeted amount, editable in place. Accepts arithmetic the way YNAB 4 does
+ * such as `25+13` or `120/3`, so it is a text field rather than a number one, which
+ * would reject the operators as you typed them.
+ */
 function BudgetedCell({
   value,
   onSave,
@@ -216,16 +347,47 @@ function BudgetedCell({
   value: number;
   onSave: (val: number) => void;
 }) {
+  const [draft, setDraft] = useState(() => value.toFixed(2));
+  const [editing, setEditing] = useState(false);
+
+  // The same cell is reused as you move between months, so it has to follow the
+  // value it is given. While someone is mid-edit, their draft wins.
+  useEffect(() => {
+    if (!editing) setDraft(value.toFixed(2));
+  }, [value, editing]);
+
+  function commit() {
+    setEditing(false);
+    const parsed = parseAmountExpression(draft);
+    if (parsed === null) {
+      setDraft(value.toFixed(2)); // unreadable, so leave the amount as it was
+      return;
+    }
+    if (parsed !== value) onSave(parsed);
+    setDraft(parsed.toFixed(2));
+  }
+
   return (
     <input
-      type="number"
-      step="0.01"
-      defaultValue={value.toFixed(2)}
-      onBlur={(e) => {
-        const parsed = parseFloat(e.target.value);
-        if (!isNaN(parsed) && parsed !== value) onSave(parsed);
+      type="text"
+      inputMode="decimal"
+      aria-label="Budgeted amount"
+      value={draft}
+      onFocus={(e) => {
+        setEditing(true);
+        e.currentTarget.select();
       }}
-      className="w-24 text-right bg-transparent focus:bg-accent rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          setDraft(value.toFixed(2));
+          setEditing(false);
+          e.currentTarget.blur();
+        }
+      }}
+      className="w-24 text-right bg-transparent focus:bg-accent rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
     />
   );
 }

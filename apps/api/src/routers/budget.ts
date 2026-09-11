@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { eq, and, isNull, sql } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { budgets, monthlyBudgets, categories } from "@znab/db";
 import { setBudgetedSchema } from "@znab/shared";
+import { assertBudgetAccess } from "../lib/authz";
 
 const IMMEDIATE_INCOME = "Category/__ImmediateIncome__";
 const DEFERRED_INCOME = "Category/__DeferredIncome__";
@@ -34,6 +36,8 @@ export const budgetRouter = router({
   months: protectedProcedure
     .input(z.object({ budgetId: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
       const rows = await ctx.db
         .selectDistinct({ month: monthlyBudgets.month })
         .from(monthlyBudgets)
@@ -57,6 +61,8 @@ export const budgetRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
       const groups = await ctx.db.query.categoryGroups.findMany({
         where: (cg, { eq, and, isNull }) =>
           and(eq(cg.budgetId, input.budgetId), isNull(cg.deletedAt)),
@@ -219,6 +225,21 @@ export const budgetRouter = router({
   setBudgeted: protectedProcedure
     .input(setBudgetedSchema.extend({ budgetId: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      // The upsert below conflicts on (category_id, month), so the category has
+      // to be checked as well as the budget: a category id from someone else's
+      // budget would resolve to their allocation row and overwrite it.
+      const category = await ctx.db.query.categories.findFirst({
+        where: and(
+          eq(categories.id, input.categoryId),
+          eq(categories.budgetId, input.budgetId)
+        ),
+      });
+      if (!category) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Category not found" });
+      }
+
       await ctx.db
         .insert(monthlyBudgets)
         .values({

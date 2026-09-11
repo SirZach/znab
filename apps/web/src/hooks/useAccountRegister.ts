@@ -1,9 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import { format } from "date-fns";
 import { trpc } from "@/trpc";
 
-const today = new Date();
-const currentMonthFirstDay = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+/** How many transactions the register loads at a time, newest first. */
+const PAGE_SIZE = 200;
 
 export function useAccountRegister({
   budgetId,
@@ -22,62 +22,68 @@ export function useAccountRegister({
 }) {
   const utils = trpc.useUtils();
 
-  const { data: transactions, isLoading } = trpc.account.transactions.useQuery({
+  // Grows as the reader asks for older transactions. The window stays anchored
+  // to the newest transaction, so recent activity is always on screen.
+  const [limit, setLimit] = useState(PAGE_SIZE);
+
+  // Reset back to one page whenever the register being viewed changes.
+  React.useEffect(() => {
+    setLimit(PAGE_SIZE);
+  }, [accountId, cleared, q]);
+
+  const { data, isLoading, isFetching } = trpc.account.transactions.useQuery({
     budgetId,
     accountId,
     cleared,
     q,
+    limit,
   });
 
   const { data: accounts } = trpc.account.list.useQuery({ budgetId });
   const account = accounts?.find((a) => a.id === accountId);
 
-  const { data: monthData } = trpc.budget.monthData.useQuery({
-    budgetId,
-    month: currentMonthFirstDay,
-  });
-
+  const { data: categoryGroups } = trpc.category.list.useQuery({ budgetId });
   const { data: payeeList } = trpc.payee.list.useQuery({ budgetId });
 
+  // Entering or clearing a transaction changes the category's activity, so the
+  // budget grid is stale too — not just this register.
+  function invalidateRegister() {
+    return Promise.all([
+      utils.account.transactions.invalidate(),
+      utils.budget.monthBudget.invalidate(),
+    ]);
+  }
+
   const setClearedMutation = trpc.transaction.setClearedStatus.useMutation({
-    onSuccess: () => utils.account.transactions.invalidate(),
+    onSuccess: invalidateRegister,
   });
 
   const createMutation = trpc.transaction.create.useMutation({
-    onSuccess: (newTxn, variables) => {
-      const resolvedPayee = variables.payeeId
-        ? (payeeList?.find((p) => p.id === variables.payeeId) ?? null)
-        : (variables.payeeName ? { id: newTxn.payeeId!, name: variables.payeeName } : null);
-
-      const catOption = variables.categoryId
-        ? categoryOptions.find((c) => c.id === variables.categoryId)
-        : null;
-      const resolvedCategory = catOption
-        ? { id: catOption.id, name: catOption.label.split(": ")[1] ?? catOption.label }
-        : null;
-
-      const fullTxn = { ...newTxn, payee: resolvedPayee, category: resolvedCategory, subTransactions: [] };
-
-      utils.account.transactions.setData(
-        { budgetId, accountId, cleared, q },
-        (old) => (old ? [...old, fullTxn] : [fullTxn]),
+    onSuccess: async () => {
+      // Refetch rather than patch the cache: a back-dated transaction sorts
+      // into the middle of the register, and every running balance at or after
+      // it shifts.
+      await invalidateRegister();
+      setTimeout(
+        () =>
+          scrollRef.current?.scrollTo({
+            top: scrollRef.current.scrollHeight,
+            behavior: "smooth",
+          }),
+        0
       );
-
-      setTimeout(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }), 0);
-
       onSaveSuccess?.();
     },
   });
 
-  let running = 0;
-  const withBalance = (transactions ?? []).map((t) => {
-    running += parseFloat(t.amount);
-    return { ...t, runningBalance: running };
-  });
+  const transactions = data?.transactions ?? [];
 
-  const categoryOptions = monthData
-    ?.filter((g) => !g.isSystem)
-    .flatMap((g) => g.categories.map((c) => ({ id: c.id, label: `${g.name}: ${c.name}` }))) ?? [];
+  const categoryOptions =
+    categoryGroups
+      ?.filter((g) => !g.isSystem)
+      .flatMap((g) =>
+        g.categories.map((c) => ({ id: c.id, label: `${g.name}: ${c.name}` }))
+      ) ?? [];
 
   function cycleCleared(current: string, id: number) {
     const next =
@@ -116,7 +122,7 @@ export function useAccountRegister({
       budgetId,
       accountId,
       payeeId: fields.payeeId,
-      payeeName: fields.payeeId ? undefined : (fields.payeeName || undefined),
+      payeeName: fields.payeeId ? undefined : fields.payeeName || undefined,
       categoryId: fields.categoryId,
       amount,
       date: dateStr,
@@ -128,7 +134,12 @@ export function useAccountRegister({
 
   return {
     account,
-    withBalance,
+    transactions,
+    balance: data?.balance ?? 0,
+    total: data?.total ?? 0,
+    hasMore: data?.hasMore ?? false,
+    loadOlder: () => setLimit((n) => n + PAGE_SIZE),
+    isLoadingMore: isFetching && !isLoading,
     payeeList,
     categoryOptions,
     isLoading,

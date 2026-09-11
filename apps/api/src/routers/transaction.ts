@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { transactions, payees, budgets } from "@znab/db";
 import { createTransactionSchema, updateTransactionSchema } from "@znab/shared";
 import { TRPCError } from "@trpc/server";
+import { ownedBudgetIds } from "../lib/authz";
 
 export const transactionRouter = router({
   create: protectedProcedure
@@ -56,22 +57,45 @@ export const transactionRouter = router({
   update: protectedProcedure
     .input(updateTransactionSchema)
     .mutation(async ({ ctx, input }) => {
-      const { id, ...rest } = input;
+      // `payeeName` is accepted on create to make a payee on the fly; there is
+      // no equivalent on update yet, and it is not a column, so drop it rather
+      // than hand it to the query builder.
+      const { id, payeeName, amount, ...rest } = input;
+
       const [updated] = await ctx.db
         .update(transactions)
-        .set({ ...rest, amount: rest.amount != null ? String(rest.amount) : undefined, updatedAt: new Date() })
-        .where(eq(transactions.id, id))
+        .set({
+          ...rest,
+          ...(amount != null ? { amount: String(amount) } : {}),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(transactions.id, id),
+            inArray(transactions.budgetId, ownedBudgetIds(ctx))
+          )
+        )
         .returning();
+
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
       return updated;
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db
+      const [deleted] = await ctx.db
         .update(transactions)
-        .set({ deletedAt: new Date() })
-        .where(eq(transactions.id, input.id));
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(transactions.id, input.id),
+            inArray(transactions.budgetId, ownedBudgetIds(ctx))
+          )
+        )
+        .returning({ id: transactions.id });
+
+      if (!deleted) throw new TRPCError({ code: "NOT_FOUND" });
     }),
 
   setClearedStatus: protectedProcedure
@@ -82,9 +106,17 @@ export const transactionRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await ctx.db
+      const [updated] = await ctx.db
         .update(transactions)
         .set({ cleared: input.cleared, updatedAt: new Date() })
-        .where(eq(transactions.id, input.id));
+        .where(
+          and(
+            eq(transactions.id, input.id),
+            inArray(transactions.budgetId, ownedBudgetIds(ctx))
+          )
+        )
+        .returning({ id: transactions.id });
+
+      if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
     }),
 });

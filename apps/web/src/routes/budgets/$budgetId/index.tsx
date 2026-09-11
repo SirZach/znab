@@ -5,6 +5,7 @@ import { useBudgetMonths } from "@/hooks/useBudgetMonths";
 import { useBudgetPage } from "@/hooks/useBudgetPage";
 import { monthParamToDate, dateToMonthParam, currentMonthParam, formatCurrency } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Fragment } from "react";
 import { format, addMonths, subMonths, parseISO } from "date-fns";
 
 export const Route = createFileRoute("/budgets/$budgetId/")({
@@ -94,9 +95,9 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
           </thead>
           <tbody>
             {visibleGroups.map((group) => (
-              <>
+              <Fragment key={group.id}>
                 {/* Group header row */}
-                <tr key={`group-${group.id}`} className="bg-muted/30">
+                <tr className="bg-muted/30">
                   <td
                     colSpan={4}
                     className="px-6 py-2 font-semibold text-xs uppercase tracking-wider text-muted-foreground"
@@ -143,7 +144,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                       </td>
                     </tr>
                   ))}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>

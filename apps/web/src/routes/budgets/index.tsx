@@ -1,9 +1,13 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useBudgetList } from "@/hooks/useBudgetList";
+import { useUserStore } from "@/store/user";
 
 export const Route = createFileRoute("/budgets/")({
-  beforeLoad: ({ context }) => {
-    if (!context.userSlug) {
+  // Read the store, not route context: the root route's guard reads the same
+  // value, and a stale context here would bounce the two guards against each
+  // other right after the user is selected or cleared.
+  beforeLoad: () => {
+    if (!useUserStore.getState().userSlug) {
       throw redirect({ to: "/" });
     }
   },

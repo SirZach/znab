@@ -10,6 +10,7 @@ import {
   useParams,
 } from "@tanstack/react-router";
 import { useBudgetLayout } from "@/hooks/useBudgetLayout";
+import { useUserStore } from "@/store/user";
 import { cn, currentMonthParam } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -21,8 +22,8 @@ import {
 import { useState } from "react";
 
 export const Route = createFileRoute("/budgets/$budgetId")({
-  beforeLoad: ({ context }) => {
-    if (!context.userSlug) {
+  beforeLoad: () => {
+    if (!useUserStore.getState().userSlug) {
       throw redirect({ to: "/" });
     }
   },

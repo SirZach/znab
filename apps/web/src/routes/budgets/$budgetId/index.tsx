@@ -12,6 +12,7 @@ import {
   cn,
 } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
+import { CategoryInspector } from "@/components/budget/category-inspector";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { format, addMonths, subMonths, parseISO } from "date-fns";
 
@@ -85,8 +86,30 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
   const navigate = useNavigate({ from: Route.fullPath });
   const dbMonth = monthParamToDate(month); // "YYYY-MM-01"
 
-  const { visibleGroups, summary, isLoading, setBudgeted } = useBudgetPage({ budgetId, month: dbMonth });
+  const {
+    visibleGroups,
+    summary,
+    isLoading,
+    setBudgeted,
+    moveMoney,
+    setConfined,
+    isMoving,
+    moveError,
+  } = useBudgetPage({ budgetId, month: dbMonth });
   const { collapsed, toggleGroup } = useCollapsedGroups(budgetId);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  // The selected category, resolved fresh each render so the panel follows the
+  // month and any edits made from inside it.
+  const selected = visibleGroups
+    .flatMap((g) => g.categories.map((c) => ({ ...c, groupName: g.name })))
+    .find((c) => c.id === selectedId);
+
+  const moveSources = visibleGroups.flatMap((g) =>
+    g.categories
+      .filter((c) => c.id !== selectedId && !c.deletedAt)
+      .map((c) => ({ id: c.id, name: c.name, groupName: g.name, available: c.available }))
+  );
 
   // Month navigation
   const currentDate = parseISO(dbMonth);
@@ -128,7 +151,8 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
         )}
       </div>
 
-      {/* Budget table */}
+      {/* Budget table, with the selected category's panel alongside */}
+      <div className="flex-1 flex min-h-0">
       <div className="flex-1 overflow-y-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-background border-b border-border z-10">
@@ -188,7 +212,14 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                     cats.map((cat) => (
                       <tr
                         key={cat.id}
-                        className="border-b border-border/50 hover:bg-accent/30 transition-colors"
+                        onClick={() => setSelectedId(cat.id)}
+                        aria-selected={cat.id === selectedId}
+                        className={cn(
+                          "border-b border-border/50 cursor-pointer transition-colors",
+                          cat.id === selectedId
+                            ? "bg-accent/60"
+                            : "hover:bg-accent/30"
+                        )}
                       >
                         <td className="px-6 py-2 pl-10">{cat.name}</td>
                         <td className="text-right px-4 py-2">
@@ -220,6 +251,40 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
             })}
           </tbody>
         </table>
+      </div>
+
+        {selected && (
+          <CategoryInspector
+            budgetId={budgetId}
+            month={dbMonth}
+            category={{
+              id: selected.id,
+              name: selected.name,
+              groupName: selected.groupName,
+              budgeted: selected.budgeted,
+              activity: selected.activity,
+              available: selected.available,
+              overspendKind: selected.overspendKind,
+              confined: selected.confined,
+            }}
+            sources={moveSources}
+            onSetBudgeted={(amount) =>
+              setBudgeted({
+                budgetId,
+                categoryId: selected.id,
+                month: dbMonth,
+                budgeted: amount,
+              })
+            }
+            onMoveMoney={(fromCategoryId, amount) =>
+              moveMoney({ fromCategoryId, toCategoryId: selected.id, amount })
+            }
+            onSetConfined={(confined) => setConfined(selected.id, confined)}
+            isMoving={isMoving}
+            moveError={moveError}
+            onClose={() => setSelectedId(null)}
+          />
+        )}
       </div>
     </div>
   );

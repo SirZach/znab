@@ -16,8 +16,13 @@ export const createTransactionSchema = z.object({
   flagColor: z.string().optional(),
 });
 
+// `partial()` leaves the defaults on `cleared`/`accepted` intact in zod 4, so a
+// partial update would fill them in and reset an already-reconciled transaction.
+// Re-declare them as plain optionals so absent keys stay absent.
 export const updateTransactionSchema = createTransactionSchema.partial().extend({
   id: z.number().int().positive(),
+  cleared: z.enum(CLEARED_VALUES).optional(),
+  accepted: z.boolean().optional(),
 });
 
 // ─── Monthly Budget ──────────────────────────────────────────────────────────

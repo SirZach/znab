@@ -14,3 +14,4 @@ bun.lockb
 packages/db/migrations/*.sql
 apps/web/src/routeTree.gen.ts
 seed-data/
+.claude/worktrees/

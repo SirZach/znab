@@ -6,7 +6,26 @@ import { createContext } from "./context";
 
 const app = new Hono();
 
-app.use("*", cors({ origin: "http://localhost:5173", credentials: true }));
+// Dev-only: allow localhost plus access over Tailscale (zachbox hostname / *.ts.net).
+app.use(
+  "*",
+  cors({
+    origin: (origin) => {
+      if (!origin) return origin;
+      try {
+        const { hostname } = new URL(origin);
+        const allowed =
+          hostname === "localhost" ||
+          hostname === "zachbox" ||
+          hostname.endsWith(".ts.net");
+        return allowed ? origin : null;
+      } catch {
+        return null;
+      }
+    },
+    credentials: true,
+  })
+);
 
 app.use(
   "/trpc/*",

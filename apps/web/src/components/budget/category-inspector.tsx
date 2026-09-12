@@ -51,6 +51,7 @@ export function CategoryInspector({
   onMoveMoney,
   onSetConfined,
   onSetGoal,
+  onHide,
   isMoving,
   moveError,
   onClose,
@@ -67,6 +68,7 @@ export function CategoryInspector({
     target?: number;
     targetMonth?: string;
   }) => void;
+  onHide: () => void;
   isMoving: boolean;
   moveError: string | null;
   onClose: () => void;
@@ -260,7 +262,7 @@ export function CategoryInspector({
       <HistorySection history={history} />
 
       {/* Overspending handling */}
-      <section className="px-4 py-3">
+      <section className="px-4 py-3 border-b border-border">
         <label className="flex items-start gap-2 text-sm cursor-pointer">
           <input
             id={`confine-${category.id}`}
@@ -277,6 +279,19 @@ export function CategoryInspector({
             </span>
           </span>
         </label>
+      </section>
+
+      <section className="px-4 py-3">
+        <button
+          onClick={onHide}
+          className="w-full rounded border border-border px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        >
+          Hide this category
+        </button>
+        <p className="text-xs text-muted-foreground mt-2">
+          It moves to Hidden Categories at the foot of the grid. Past months keep
+          whatever was budgeted and spent here.
+        </p>
       </section>
     </aside>
   );

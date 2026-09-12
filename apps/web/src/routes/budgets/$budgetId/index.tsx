@@ -378,6 +378,10 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
 
         {selected && (
           <CategoryInspector
+            // Keyed so the panel's own drafts, the move direction and the goal
+            // editor, reset when a different category is selected rather than
+            // carrying the previous one's values over.
+            key={selected.id}
             budgetId={budgetId}
             month={dbMonth}
             category={{

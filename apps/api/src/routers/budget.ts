@@ -315,10 +315,11 @@ export const budgetRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertBudgetAccess(ctx, input.budgetId);
+      // This check does not filter on deleted_at, so it finds a hidden category
+      // too, which unhiding depends on.
+      await assertCategoryInBudget(ctx, input.categoryId, input.budgetId);
 
-      // assertCategoryInBudget only sees live categories, so scope the write
-      // here instead: unhiding necessarily targets an already-hidden row.
-      const [updated] = await ctx.db
+      await ctx.db
         .update(categories)
         .set({
           deletedAt: input.hidden ? new Date() : null,
@@ -329,12 +330,7 @@ export const budgetRouter = router({
             eq(categories.id, input.categoryId),
             eq(categories.budgetId, input.budgetId)
           )
-        )
-        .returning({ id: categories.id });
-
-      if (!updated) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Category not found" });
-      }
+        );
     }),
 
   // Set the budgeted amount for a category in a month

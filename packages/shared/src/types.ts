@@ -29,6 +29,12 @@ export const FREQUENCY_VALUES = [
 ] as const;
 export type FrequencyValue = typeof FREQUENCY_VALUES[number];
 
+// The operators YNAB 4 offers for payee rename rules. Only "Is" appears in the
+// real exports, but the UI can author the other three, so the vocabulary is
+// carried whole.
+export const PAYEE_RENAME_OPERATORS = ["Is", "Contains", "StartsWith", "EndsWith"] as const;
+export type PayeeRenameOperator = typeof PAYEE_RENAME_OPERATORS[number];
+
 // Special YNAB category IDs that aren't real categories. Pre-YNAB-debt
 // categories (Category/PreYNABDebt/<accountId>) are intentionally NOT here:
 // they are real categories imported under the Pre-YNAB Debt master group, so

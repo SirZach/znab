@@ -62,6 +62,18 @@ interface YnabPayee {
   autoFillAmount?: number | null;
   autoFillMemo?: string | null;
   enabled: boolean;
+  // Absent in Demo.yfull, null on most payees elsewhere
+  renameConditions?: YnabRenameCondition[] | null;
+  isTombstone?: boolean;
+}
+
+interface YnabRenameCondition {
+  entityId: string;
+  entityVersion: string;
+  parentPayeeId: string;
+  // Is | Contains | StartsWith | EndsWith, though only Is occurs in this data
+  operator: string;
+  operand: string;
   isTombstone?: boolean;
 }
 
@@ -290,7 +302,31 @@ async function importYfull(data: YfullFile, budgetId: number) {
     payeeYnabToId.set(p.entityId, id);
   }
 
-  // 5. Monthly budgets
+  // 5. Payee rename rules, which YNAB 4 nests inside the payee they rename to
+  let renameCount = 0;
+  for (const p of data.payees) {
+    for (const c of p.renameConditions ?? []) {
+      const payeeId = payeeYnabToId.get(c.parentPayeeId);
+      // A rule with no payee to rename to, or nothing to match on, is inert
+      if (!payeeId || !c.operand?.trim()) continue;
+
+      await db
+        .insert(schema.payeeRenameRules)
+        .values({
+          ynabId: c.entityId,
+          budgetId,
+          payeeId,
+          operator: c.operator,
+          operand: c.operand,
+          deletedAt: c.isTombstone ? new Date() : null,
+        })
+        .onConflictDoNothing();
+      renameCount++;
+    }
+  }
+  console.log(`  Imported ${renameCount} payee rename rules`);
+
+  // 6. Monthly budgets
   let mbCount = 0;
   for (const mb of data.monthlyBudgets) {
     for (const sub of mb.monthlySubCategoryBudgets ?? []) {
@@ -315,7 +351,7 @@ async function importYfull(data: YfullFile, budgetId: number) {
   }
   console.log(`  Imported ${mbCount} monthly budget entries...`);
 
-  // 6. Transactions
+  // 7. Transactions
   console.log(`  Importing ${data.transactions.length} transactions...`);
   const txnYnabToId = new Map<string, number>();
 
@@ -368,7 +404,7 @@ async function importYfull(data: YfullFile, budgetId: number) {
   }
   console.log();
 
-  // 7. Sub-transactions
+  // 8. Sub-transactions
   let subCount = 0;
   for (const t of data.transactions) {
     if (!t.subTransactions?.length) continue;
@@ -398,7 +434,7 @@ async function importYfull(data: YfullFile, budgetId: number) {
   }
   console.log(`  Imported ${subCount} sub-transactions`);
 
-  // 8. Scheduled transactions
+  // 9. Scheduled transactions
   console.log(`  Importing ${data.scheduledTransactions.length} scheduled transactions...`);
   for (const st of data.scheduledTransactions) {
     const accountId = accountYnabToId.get(st.accountId);

@@ -1,6 +1,6 @@
 # project
 
-2026-09-11 — whole-project Radix UI → Base UI migration of `apps/web`. All three radix packages removed; `tsc --noEmit` and `vite build` both clean. **0 wrappers remain on Radix.**
+2026-09-11. Whole-project Radix UI to Base UI migration of `apps/web`. All three radix packages removed; `tsc --noEmit` and `vite build` both clean. **0 wrappers remain on Radix.**
 
 ## Preflight
 
@@ -14,7 +14,7 @@
 
 Baseline note: the first `tsc --noEmit` in a fresh worktree reported 11 errors across 8 route
 files, all `createFileRoute(...)` argument mismatches. These were **not pre-existing failures in
-your checkout** — `apps/web/src/routeTree.gen.ts` is gitignored and had not been generated yet.
+your checkout**. `apps/web/src/routeTree.gen.ts` is gitignored and had not been generated yet.
 Running `vite build` once generated it and the baseline went green. Nothing was attributed to the
 migration on that basis.
 
@@ -35,16 +35,16 @@ Migrated bottom-up, leaf/shared wrappers first. One report each:
 
 | Component | Classification | Strategy | Report |
 | --- | --- | --- | --- |
-| `button.tsx` | pristine stock | engine → real `@base-ui/react/button` primitive | `.migration/button.md` |
-| `dialog.tsx` (+ `command.tsx` type) | pristine stock | engine, `Overlay→Backdrop`, `Content→Popup` | `.migration/dialog.md` |
-| `popover.tsx` (+ 3 call sites) | pristine stock | engine, `Content→Portal>Positioner>Popup` | `.migration/popover.md` |
+| `button.tsx` | pristine stock | engine, real `@base-ui/react/button` primitive | `.migration/button.md` |
+| `dialog.tsx` (plus `command.tsx` type) | pristine stock | engine, `Overlay` to `Backdrop`, `Content` to `Popup` | `.migration/dialog.md` |
+| `popover.tsx` (plus 3 call sites) | pristine stock | engine, `Content` to `Portal > Positioner > Popup` | `.migration/popover.md` |
 
 All three wrappers were byte-identical to their stock `default`-style origins apart from a removed
 `"use client"` line, so no user customizations had to be replayed.
 
 ## Why the engine and not the CLI golden pair
 
-`components.json` style is **`default`** — a legacy unprefixed style. There is no `base-default`
+`components.json` style was **`default`**, a legacy unprefixed style. There is no `base-default`
 variant in the registry, so retargeting these files onto a `base-<style>` variant would have
 restyled the app. Per the skill's legacy-style rule, the stock radix goldens were fetched for
 **classification only**, and the transformation engine was then run on your own files, keeping your
@@ -52,18 +52,18 @@ exact class strings. The shipped `base-lyra` variants were read purely as a shap
 (Positioner classes, prop forwarding, data-attribute idiom) and never merged in.
 
 One finding worth recording: the real shadcn base registry **keeps** the `animate-in`/`animate-out`
-utilities and only renames the state hooks (`data-[state=open]:` → `data-open:`). It does not
+utilities and only renames the state hooks (`data-[state=open]:` becomes `data-open:`). It does not
 convert them to `data-starting-style:` transitions as `class-mapping.md` suggests. The registry
 approach was followed, because it both matches the shipped base registry and preserves your exact
-animations — `tw-animate-css` is already a dependency.
+animations. `tw-animate-css` is already a dependency.
 
 ## App-code sweep
 
 The consumer break surface here was small and is fully closed:
 
-- `asChild` → `render`: 3 sites, all `PopoverTrigger`, all in
+- `asChild` to `render`: 3 sites, all `PopoverTrigger`, all in
   `apps/web/src/routes/budgets/$budgetId/accounts/$accountId.tsx`.
-- No call site used any other prop from `consumer-props.md` — no `Accordion type`, no
+- No call site used any other prop from `consumer-props.md`. There is no `Accordion type`, no
   `Tabs activationMode`, no `Select position`, no `TooltipProvider delayDuration`, no
   `Separator decorative`, no `Checkbox indeterminate`, no `Slider onValueCommit`. Those primitives
   are not installed in this project.
@@ -73,10 +73,10 @@ The consumer break surface here was small and is fully closed:
 
 ## Left alone (intentionally, not radix)
 
-- `apps/web/src/components/ui/command.tsx` — **cmdk**. Only its radix `DialogProps` type import was
-  rewired; every cmdk part and `[cmdk-*]` selector is untouched.
-- `apps/web/src/components/ui/calendar.tsx` — **react-day-picker**.
-- `recharts` (charts) — not radix, no wrapper in `ui/`.
+- `apps/web/src/components/ui/command.tsx`, which wraps **cmdk**. Only its radix `DialogProps` type
+  import was rewired; every cmdk part and `[cmdk-*]` selector is untouched.
+- `apps/web/src/components/ui/calendar.tsx`, which wraps **react-day-picker**.
+- `recharts` (charts), not radix, no wrapper in `ui/`.
 - No `drawer.tsx` (vaul), `sonner`, or `input-otp` in this project.
 
 ## Final verification
@@ -87,8 +87,8 @@ The consumer break surface here was small and is fully closed:
 | `tsc --noEmit` after radix removal | clean |
 | `vite build` (final) | ✅ built, 0 errors |
 
-Build output grew from ~1,050 kB to ~1,123 kB raw (315 → 340 kB gzip). The pre-existing
-"chunks larger than 500 kB" warning is unchanged and unrelated.
+Build output grew from about 1,050 kB to about 1,123 kB raw (315 kB to 340 kB gzip). The
+pre-existing "chunks larger than 500 kB" warning is unchanged and unrelated.
 
 ## Flagged, not fixed
 
@@ -96,9 +96,10 @@ Build output grew from ~1,050 kB to ~1,123 kB raw (315 → 340 kB gzip). The pre
    reported `"base": "radix"`, inferred from the style name, so a future `shadcn add <component>`
    would have delivered a **radix** variant and reintroduced `@radix-ui/*`. There is no
    `base-default`, and `base` is not a writable field in the components.json schema (it is derived
-   from the style prefix), so the style was changed `default` to **`base-vega`**, picked as the
+   from the style prefix), so the style was changed from `default` to **`base-vega`**, picked as the
    closest visual match to the existing components: same `rounded-md` and `text-sm`, with the
-   default button height moving `h-10` to `h-9`. `shadcn info --json` now reports `"base": "base"`.
+   default button height moving from `h-10` to `h-9`. `shadcn info --json` now reports
+   `"base": "base"`.
 
    This affects only components added **from now on**; no existing file was restyled. New
    components arrive with current registry conventions (`data-slot`, `group/button`, `size-*`
@@ -111,7 +112,7 @@ Build output grew from ~1,050 kB to ~1,123 kB raw (315 → 340 kB gzip). The pre
    `render={<a />}` plus `nativeButton={false}`.
 4. **Base UI Portals render an extra `<div>`** in both dialog and popover. Nothing here depends on
    it, but it changes the portal DOM shape.
-5. **Collision padding defaults changed** `0` → `5` for popovers near viewport edges.
+5. **Collision padding defaults changed** from `0` to `5` for popovers near viewport edges.
 
 ## Derived status
 

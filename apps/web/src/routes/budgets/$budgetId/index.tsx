@@ -13,7 +13,8 @@ import {
 } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { CategoryInspector } from "@/components/budget/category-inspector";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { BulkBudgetPanel } from "@/components/budget/bulk-budget-panel";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { format, addMonths, subMonths, parseISO } from "date-fns";
 
 export const Route = createFileRoute("/budgets/$budgetId/")({
@@ -93,14 +94,28 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
     setBudgeted,
     moveMoney,
     setConfined,
+    setCategoryGoal,
     isMoving,
     moveError,
   } = useBudgetPage({ budgetId, month: dbMonth });
   const { collapsed, toggleGroup } = useCollapsedGroups(budgetId);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [anchorId, setAnchorId] = useState<number | null>(null);
 
-  // The selected category, resolved fresh each render so the panel follows the
-  // month and any edits made from inside it.
+  // Every category row currently on screen, in the order it appears. Arrow keys
+  // and shift-click ranges both read this, so they agree on what "next" means
+  // and neither steps into a collapsed group.
+  const visibleRowIds = visibleGroups.flatMap((g) =>
+    collapsed.has(g.id)
+      ? []
+      : g.categories.filter((c) => !c.deletedAt).map((c) => c.id)
+  );
+
+  // One selected category opens the inspector; several open the bulk panel.
+  const selectedId = selectedIds.size === 1 ? [...selectedIds][0]! : null;
+
+  // Resolved fresh each render so the panel follows the month and any edits
+  // made from inside it.
   const selected = visibleGroups
     .flatMap((g) => g.categories.map((c) => ({ ...c, groupName: g.name })))
     .find((c) => c.id === selectedId);
@@ -110,6 +125,57 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
       .filter((c) => c.id !== selectedId && !c.deletedAt)
       .map((c) => ({ id: c.id, name: c.name, groupName: g.name, available: c.available }))
   );
+
+  function selectRow(event: React.MouseEvent, id: number) {
+    if (event.shiftKey && anchorId !== null) {
+      const from = visibleRowIds.indexOf(anchorId);
+      const to = visibleRowIds.indexOf(id);
+      if (from !== -1 && to !== -1) {
+        const [lo, hi] = from < to ? [from, to] : [to, from];
+        setSelectedIds(new Set(visibleRowIds.slice(lo, hi + 1)));
+        return;
+      }
+    }
+    if (event.metaKey || event.ctrlKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (!next.delete(id)) next.add(id);
+        return next;
+      });
+      setAnchorId(id);
+      return;
+    }
+    setSelectedIds(new Set([id]));
+    setAnchorId(id);
+  }
+
+  // Budget cells register themselves so arrow keys can hand focus along without
+  // the grid having to own every input's state.
+  const cellRefs = useRef(new Map<number, HTMLInputElement>());
+  const registerCell = useCallback((id: number, el: HTMLInputElement | null) => {
+    if (el) cellRefs.current.set(id, el);
+    else cellRefs.current.delete(id);
+  }, []);
+
+  function moveFocus(fromId: number, delta: number) {
+    const index = visibleRowIds.indexOf(fromId);
+    if (index === -1) return;
+    const target = visibleRowIds[index + delta];
+    if (target === undefined) return; // first or last cell: stay put
+    const el = cellRefs.current.get(target);
+    if (el) {
+      el.focus();
+      el.select();
+    }
+  }
+
+  function budgetCategory(categoryId: number, amount: number) {
+    setBudgeted({ budgetId, categoryId, month: dbMonth, budgeted: amount });
+  }
+
+  function budgetSelected(amount: number) {
+    for (const id of selectedIds) budgetCategory(id, amount);
+  }
 
   // Month navigation
   const currentDate = parseISO(dbMonth);
@@ -200,7 +266,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                       {formatCurrency(totals.budgeted)}
                     </td>
                     <td className="text-right px-4 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
-                      {totals.activity !== 0 ? formatCurrency(totals.activity) : "—"}
+                      {formatCurrency(totals.activity)}
                     </td>
                     <td className="text-right px-6 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
                       {formatCurrency(totals.available)}
@@ -212,31 +278,32 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                     cats.map((cat) => (
                       <tr
                         key={cat.id}
-                        onClick={() => setSelectedId(cat.id)}
-                        aria-selected={cat.id === selectedId}
+                        onClick={(e) => selectRow(e, cat.id)}
+                        aria-selected={selectedIds.has(cat.id)}
                         className={cn(
                           "border-b border-border/50 cursor-pointer transition-colors",
-                          cat.id === selectedId
+                          selectedIds.has(cat.id)
                             ? "bg-accent/60"
                             : "hover:bg-accent/30"
                         )}
                       >
-                        <td className="px-6 py-2 pl-10">{cat.name}</td>
+                        <td className="px-6 py-2 pl-10">
+                          <span className="flex items-center gap-2">
+                            {cat.name}
+                            {cat.goal && <GoalDot goal={cat.goal} />}
+                          </span>
+                        </td>
                         <td className="text-right px-4 py-2">
                           <BudgetedCell
+                            categoryId={cat.id}
                             value={cat.budgeted}
-                            onSave={(val) =>
-                              setBudgeted({
-                                budgetId: group.budgetId,
-                                categoryId: cat.id,
-                                month: dbMonth,
-                                budgeted: val,
-                              })
-                            }
+                            registerRef={registerCell}
+                            onMove={(delta) => moveFocus(cat.id, delta)}
+                            onSave={(val) => budgetCategory(cat.id, val)}
                           />
                         </td>
                         <td className="text-right px-4 py-2 text-muted-foreground tabular-nums">
-                          {cat.activity !== 0 ? formatCurrency(cat.activity) : "—"}
+                          {formatCurrency(cat.activity)}
                         </td>
                         <td className="text-right px-6 py-2">
                           <AvailablePill
@@ -266,23 +333,39 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
               available: selected.available,
               overspendKind: selected.overspendKind,
               confined: selected.confined,
+              goal: selected.goal,
             }}
             sources={moveSources}
-            onSetBudgeted={(amount) =>
-              setBudgeted({
-                budgetId,
-                categoryId: selected.id,
-                month: dbMonth,
-                budgeted: amount,
-              })
-            }
-            onMoveMoney={(fromCategoryId, amount) =>
-              moveMoney({ fromCategoryId, toCategoryId: selected.id, amount })
+            onSetBudgeted={(amount) => budgetCategory(selected.id, amount)}
+            onMoveMoney={(otherCategoryId, amount, direction) =>
+              moveMoney(
+                direction === "in"
+                  ? { fromCategoryId: otherCategoryId, toCategoryId: selected.id, amount }
+                  : { fromCategoryId: selected.id, toCategoryId: otherCategoryId, amount }
+              )
             }
             onSetConfined={(confined) => setConfined(selected.id, confined)}
+            onSetGoal={(goal) => setCategoryGoal(selected.id, goal)}
             isMoving={isMoving}
             moveError={moveError}
-            onClose={() => setSelectedId(null)}
+            onClose={() => setSelectedIds(new Set())}
+          />
+        )}
+
+        {selectedIds.size > 1 && (
+          <BulkBudgetPanel
+            categories={visibleGroups.flatMap((g) =>
+              g.categories
+                .filter((c) => selectedIds.has(c.id))
+                .map((c) => ({
+                  id: c.id,
+                  name: c.name,
+                  groupName: g.name,
+                  budgeted: c.budgeted,
+                }))
+            )}
+            onBudgetAll={budgetSelected}
+            onClear={() => setSelectedIds(new Set())}
           />
         )}
       </div>
@@ -331,6 +414,36 @@ function BudgetSummary({
         <span className="text-xs text-muted-foreground">Available to Budget</span>
       </div>
     </div>
+  );
+}
+
+// ─── Goal indicator ───────────────────────────────────────────────────────────
+
+/**
+ * A small ring on any category carrying a goal, filled to its progress, so the
+ * grid shows which envelopes are behind without opening each one.
+ */
+function GoalDot({
+  goal,
+}: {
+  goal: { percent: number; underFunded: number; neededThisMonth: number };
+}) {
+  const pct = Math.round(goal.percent * 100);
+  const behind = goal.underFunded > 0;
+
+  return (
+    <span
+      title={
+        behind
+          ? `Goal ${pct}% funded, ${formatCurrency(goal.underFunded)} short this month`
+          : `Goal ${pct}% funded, on track`
+      }
+      aria-label={`Goal ${pct} percent funded`}
+      className={cn(
+        "inline-block size-2 rounded-full shrink-0",
+        behind ? "bg-amber-500" : "bg-green-600 dark:bg-green-500"
+      )}
+    />
   );
 }
 
@@ -406,14 +519,25 @@ function Stat({
  * would reject the operators as you typed them.
  */
 function BudgetedCell({
+  categoryId,
   value,
   onSave,
+  onMove,
+  registerRef,
 }: {
+  categoryId: number;
   value: number;
   onSave: (val: number) => void;
+  onMove: (delta: number) => void;
+  registerRef: (id: number, el: HTMLInputElement | null) => void;
 }) {
   const [draft, setDraft] = useState(() => value.toFixed(2));
   const [editing, setEditing] = useState(false);
+
+  // Whether this cell has been typed into since it was last committed. Arrow
+  // keys commit and then move focus, which fires blur and would otherwise
+  // commit the same amount a second time.
+  const dirty = useRef(false);
 
   // The same cell is reused as you move between months, so it has to follow the
   // value it is given. While someone is mid-edit, their draft wins.
@@ -423,6 +547,9 @@ function BudgetedCell({
 
   function commit() {
     setEditing(false);
+    if (!dirty.current) return; // nothing typed, so nothing to save
+    dirty.current = false;
+
     const parsed = parseAmountExpression(draft);
     if (parsed === null) {
       setDraft(value.toFixed(2)); // unreadable, so leave the amount as it was
@@ -434,6 +561,7 @@ function BudgetedCell({
 
   return (
     <input
+      ref={(el) => registerRef(categoryId, el)}
       type="text"
       inputMode="decimal"
       aria-label="Budgeted amount"
@@ -442,11 +570,24 @@ function BudgetedCell({
         setEditing(true);
         e.currentTarget.select();
       }}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => {
+        dirty.current = true;
+        setDraft(e.target.value);
+      }}
       onBlur={commit}
       onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-        if (e.key === "Escape") {
+        // Enter and the arrows all commit and hand focus to the neighbouring
+        // cell, so a whole month can be budgeted without reaching for a mouse.
+        if (e.key === "Enter" || e.key === "ArrowDown") {
+          e.preventDefault();
+          commit();
+          onMove(1);
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          commit();
+          onMove(-1);
+        } else if (e.key === "Escape") {
+          dirty.current = false;
           setDraft(value.toFixed(2));
           setEditing(false);
           e.currentTarget.blur();

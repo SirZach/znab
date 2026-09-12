@@ -29,6 +29,9 @@ export function useBudgetPage({
   const overspendingMutation = trpc.budget.setOverspendingHandling.useMutation({
     onSuccess: invalidateBudget,
   });
+  const goalMutation = trpc.budget.setCategoryGoal.useMutation({
+    onSuccess: invalidateBudget,
+  });
 
   const summary = data?.summary;
   const visibleGroups = (data?.groups ?? []).filter((g) => !g.isSystem && !g.deletedAt);
@@ -54,6 +57,17 @@ export function useBudgetPage({
     overspendingMutation.mutate({ budgetId, month, categoryId, confined });
   }
 
+  function setCategoryGoal(
+    categoryId: number,
+    goal: {
+      goalType: "TB" | "TBD" | "MF" | null;
+      target?: number;
+      targetMonth?: string;
+    }
+  ) {
+    goalMutation.mutate({ budgetId, categoryId, ...goal });
+  }
+
   return {
     visibleGroups,
     summary,
@@ -61,7 +75,9 @@ export function useBudgetPage({
     setBudgeted,
     moveMoney,
     setConfined,
+    setCategoryGoal,
     isMoving: moveMutation.isPending,
     moveError: moveMutation.error?.message ?? null,
+    goalError: goalMutation.error?.message ?? null,
   };
 }

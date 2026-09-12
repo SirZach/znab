@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeBudgetMonth, computeQuickBudget } from "./budget-math";
+import { computeBudgetMonth, computeQuickBudget, computeCategoryGoal } from "./budget-math";
 
 /** Small builders so each case reads as the scenario it describes. */
 const budgeted = (month: string, categoryId: number, amount: number, confined = false) => ({
@@ -224,5 +224,100 @@ describe("computeQuickBudget", () => {
       averageSpent: 0,
       balanceToZero: 0,
     });
+  });
+});
+
+describe("computeCategoryGoal", () => {
+  test("MF judges progress against this month's budgeted amount alone", () => {
+    const goal = computeCategoryGoal({
+      type: "MF",
+      target: 200,
+      targetMonth: null,
+      budgeted: 50,
+      available: 900, // leftover from prior months, irrelevant to MF
+      currentMonth: "2026-01",
+    });
+
+    expect(goal.neededThisMonth).toBe(200);
+    expect(goal.underFunded).toBe(150);
+    expect(goal.percent).toBe(0.25);
+  });
+
+  test("TB judges progress against the month-end balance", () => {
+    const goal = computeCategoryGoal({
+      type: "TB",
+      target: 500,
+      targetMonth: null,
+      budgeted: 100,
+      available: 300,
+      currentMonth: "2026-01",
+    });
+
+    // Balance before this month's budgeting was 200, so 300 more closes it.
+    expect(goal.neededThisMonth).toBe(300);
+    expect(goal.underFunded).toBe(200);
+    expect(goal.percent).toBe(0.6);
+  });
+
+  test("TBD spreads the remaining need over the months left, target month included", () => {
+    const goal = computeCategoryGoal({
+      type: "TBD",
+      target: 1200,
+      targetMonth: "2026-04",
+      budgeted: 50,
+      available: 250,
+      currentMonth: "2026-01",
+    });
+
+    // Four months (Jan-Apr) share a 1000 gap (1200 target - 200 balance before).
+    expect(goal.neededThisMonth).toBe(250);
+    expect(goal.underFunded).toBe(200);
+    expect(goal.percent).toBeCloseTo(250 / 1200, 5);
+  });
+
+  test("TBD floors months left at one when the target month has already passed", () => {
+    const goal = computeCategoryGoal({
+      type: "TBD",
+      target: 500,
+      targetMonth: "2026-01",
+      budgeted: 0,
+      available: 100,
+      currentMonth: "2026-06",
+    });
+
+    // The whole remaining gap lands on this month instead of dividing by a
+    // negative or zero span.
+    expect(goal.neededThisMonth).toBe(400);
+    expect(goal.underFunded).toBe(400);
+  });
+
+  test("an over-funded goal caps percent at 1 and reports no shortfall", () => {
+    const goal = computeCategoryGoal({
+      type: "TB",
+      target: 100,
+      targetMonth: null,
+      budgeted: 0,
+      available: 150,
+      currentMonth: "2026-01",
+    });
+
+    expect(goal.percent).toBe(1);
+    expect(goal.underFunded).toBe(0);
+    expect(goal.neededThisMonth).toBe(0);
+  });
+
+  test("a zero target reports no progress and no shortfall", () => {
+    const goal = computeCategoryGoal({
+      type: "MF",
+      target: 0,
+      targetMonth: null,
+      budgeted: 50,
+      available: 50,
+      currentMonth: "2026-01",
+    });
+
+    expect(goal.percent).toBe(0);
+    expect(goal.underFunded).toBe(0);
+    expect(goal.neededThisMonth).toBe(0);
   });
 });

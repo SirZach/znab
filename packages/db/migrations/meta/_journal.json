@@ -15,6 +15,13 @@
       "when": 1774812701715,
       "tag": "0001_square_wither",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789218888589,
+      "tag": "0002_red_surge",
+      "breakpoints": true
     }
   ]
 }

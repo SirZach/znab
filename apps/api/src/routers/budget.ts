@@ -8,15 +8,20 @@ import { assertBudgetAccess, type AuthedContext } from "../lib/authz";
 import {
   computeBudgetMonth,
   computeQuickBudget,
+  computeCategoryGoal,
+  monthIndex,
+  monthFromIndex,
   IMMEDIATE_INCOME,
   DEFERRED_INCOME,
   type ActivityRow,
   type IncomeRow,
   type BudgetedRow,
+  type GoalType,
+  type CategoryGoal,
 } from "../lib/budget-math";
 
 // Re-exported so the web client keeps importing these from the router it calls.
-export type { MonthSummary, CategoryMonth, OverspendKind } from "../lib/budget-math";
+export type { MonthSummary, CategoryMonth, OverspendKind, GoalType, CategoryGoal } from "../lib/budget-math";
 
 /**
  * Throws unless the category belongs to the budget. Allocation rows are keyed
@@ -236,11 +241,12 @@ export const budgetRouter = router({
       ]);
       if (!budget) throw new Error("Budget not found");
 
+      const currentMonth = input.month.slice(0, 7);
       const { summary, categories } = computeBudgetMonth({
         activity,
         income,
         budgeted: budgetedRows,
-        targetMonth: input.month.slice(0, 7),
+        targetMonth: currentMonth,
       });
 
       return {
@@ -249,13 +255,26 @@ export const budgetRouter = router({
           ...group,
           categories: group.categories.map((cat) => {
             const cm = categories.get(cat.id);
+            const budgeted = cm?.budgeted ?? 0;
+            const available = cm?.available ?? 0;
+            const goal: CategoryGoal | null = cat.goalType
+              ? computeCategoryGoal({
+                  type: cat.goalType as GoalType,
+                  target: parseFloat(cat.goalTarget ?? "0"),
+                  targetMonth: cat.goalTargetMonth ? cat.goalTargetMonth.slice(0, 7) : null,
+                  budgeted,
+                  available,
+                  currentMonth,
+                })
+              : null;
             return {
               ...cat,
-              budgeted: cm?.budgeted ?? 0,
+              budgeted,
               activity: cm?.activity ?? 0,
-              available: cm?.available ?? 0,
+              available,
               overspendKind: cm?.overspendKind ?? null,
               confined: cm?.confined ?? false,
+              goal,
             };
           }),
         })),
@@ -405,5 +424,94 @@ export const budgetRouter = router({
           target: [monthlyBudgets.categoryId, monthlyBudgets.month],
           set: { overspendingHandling: handling, updatedAt: new Date() },
         });
+    }),
+
+  // Set, change or clear a category's YNAB 4 goal. Clearing the type clears the
+  // target and target month with it, so a category never keeps a stale goal.
+  setCategoryGoal: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        categoryId: z.number().int().positive(),
+        goalType: z.enum(["TB", "TBD", "MF"]).nullable(),
+        target: z.number().positive().optional(),
+        targetMonth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+      await assertCategoryInBudget(ctx, input.categoryId, input.budgetId);
+
+      if (input.goalType !== null) {
+        if (!input.target) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A goal needs a positive target amount",
+          });
+        }
+        if (input.goalType === "TBD" && !input.targetMonth) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A target-by-date goal needs a target month",
+          });
+        }
+      }
+
+      await ctx.db
+        .update(categories)
+        .set({
+          goalType: input.goalType,
+          goalTarget: input.goalType ? String(input.target) : null,
+          goalTargetMonth: input.goalType === "TBD" ? (input.targetMonth ?? null) : null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(categories.id, input.categoryId), eq(categories.budgetId, input.budgetId)));
+    }),
+
+  // A category's budgeted/spent history for the N months ending at (and
+  // including) the given month, oldest first. Powers the goal progress chart:
+  // months with no activity or budgeting still appear, at zero, so the series
+  // stays continuous.
+  categoryHistory: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        categoryId: z.number().int().positive(),
+        month: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        months: z.number().int().positive().default(12),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+      await assertCategoryInBudget(ctx, input.categoryId, input.budgetId);
+
+      const [activity, , budgetedRows] = await loadBudgetInputs(ctx.db, input.budgetId);
+
+      const budgetedByMonth = new Map(
+        budgetedRows
+          .filter((r) => r.categoryId === input.categoryId)
+          .map((r) => [r.month, r.budgeted])
+      );
+      const activityByMonth = new Map(
+        activity
+          .filter((r) => r.categoryId === input.categoryId)
+          .map((r) => [r.month, r])
+      );
+      const toCents = (v: string | null | undefined) => Math.round(parseFloat(v ?? "0") * 100);
+
+      const targetIdx = monthIndex(input.month.slice(0, 7));
+      const history: { month: string; budgeted: number; spent: number }[] = [];
+      for (let i = input.months - 1; i >= 0; i--) {
+        const month = monthFromIndex(targetIdx - i);
+        const act = activityByMonth.get(month);
+        // Outflow as a positive amount; a net inflow month (a refund) reports zero.
+        const net = toCents(act?.cash) + toCents(act?.credit);
+        history.push({
+          month,
+          budgeted: toCents(budgetedByMonth.get(month)) / 100,
+          spent: (net < 0 ? -net : 0) / 100,
+        });
+      }
+      return history;
     }),
 });

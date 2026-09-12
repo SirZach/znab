@@ -5,6 +5,7 @@ import { relations } from "drizzle-orm";
 import { budgets } from "./budgets";
 import { accounts } from "./accounts";
 import { categories } from "./categories";
+import { payeeRenameRules } from "./payee-rename-rules";
 
 export const payees = pgTable("payees", {
   id: serial("id").primaryKey(),
@@ -24,10 +25,11 @@ export const payees = pgTable("payees", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (t) => [unique().on(t.ynabId, t.budgetId)]);
 
-export const payeesRelations = relations(payees, ({ one }) => ({
+export const payeesRelations = relations(payees, ({ one, many }) => ({
   budget: one(budgets, { fields: [payees.budgetId], references: [budgets.id] }),
   targetAccount: one(accounts, { fields: [payees.targetAccountId], references: [accounts.id] }),
   autofillCategory: one(categories, { fields: [payees.autofillCategoryId], references: [categories.id] }),
+  renameRules: many(payeeRenameRules),
 }));
 
 export type Payee = typeof payees.$inferSelect;

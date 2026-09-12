@@ -222,7 +222,8 @@ export const budgetRouter = router({
     )
     .query(async ({ ctx, input }) => {
       // All reads are independent, so issue them together.
-      const [budget, groups, [activity, income, budgetedRows]] = await Promise.all([
+      const [budget, groups, [activity, income, budgetedRows], hiddenRows] =
+        await Promise.all([
         ctx.db.query.budgets.findFirst({
           where: and(eq(budgets.id, input.budgetId), eq(budgets.userId, ctx.user.id)),
         }),
@@ -238,6 +239,15 @@ export const budgetRouter = router({
           },
         }),
         loadBudgetInputs(ctx.db, input.budgetId),
+        // Hidden categories, returned alongside the groups rather than inside
+        // them. They keep their history and balances but must not count towards
+        // any group's subtotal, which is what the grid shows on the header row.
+        ctx.db.query.categories.findMany({
+          where: (c, { eq, and, isNotNull }) =>
+            and(eq(c.budgetId, input.budgetId), isNotNull(c.deletedAt)),
+          orderBy: (c, { asc }) => [asc(c.name)],
+          with: { group: { columns: { name: true } } },
+        }),
       ]);
       if (!budget) throw new Error("Budget not found");
 
@@ -278,7 +288,53 @@ export const budgetRouter = router({
             };
           }),
         })),
+        hidden: hiddenRows.map((cat) => {
+          const cm = categories.get(cat.id);
+          return {
+            id: cat.id,
+            name: cat.name,
+            groupName: cat.group?.name ?? "",
+            budgeted: cm?.budgeted ?? 0,
+            activity: cm?.activity ?? 0,
+            available: cm?.available ?? 0,
+          };
+        }),
       };
+    }),
+
+  // Hide a category or bring it back. YNAB 4 never truly deletes a category
+  // because its history is part of past months, so hiding is a soft delete and
+  // unhiding simply clears it.
+  setCategoryHidden: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        categoryId: z.number().int().positive(),
+        hidden: z.boolean(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      // assertCategoryInBudget only sees live categories, so scope the write
+      // here instead: unhiding necessarily targets an already-hidden row.
+      const [updated] = await ctx.db
+        .update(categories)
+        .set({
+          deletedAt: input.hidden ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(categories.id, input.categoryId),
+            eq(categories.budgetId, input.budgetId)
+          )
+        )
+        .returning({ id: categories.id });
+
+      if (!updated) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Category not found" });
+      }
     }),
 
   // Set the budgeted amount for a category in a month

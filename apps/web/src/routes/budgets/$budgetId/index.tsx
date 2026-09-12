@@ -89,15 +89,18 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
 
   const {
     visibleGroups,
+    hidden,
     summary,
     isLoading,
     setBudgeted,
     moveMoney,
     setConfined,
     setCategoryGoal,
+    setCategoryHidden,
     isMoving,
     moveError,
   } = useBudgetPage({ budgetId, month: dbMonth });
+  const [showHidden, setShowHidden] = useState(false);
   const { collapsed, toggleGroup } = useCollapsedGroups(budgetId);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [anchorId, setAnchorId] = useState<number | null>(null);
@@ -316,6 +319,59 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                 </Fragment>
               );
             })}
+
+            {/* Hidden categories, kept out of the group subtotals above but
+                still reachable, since their history belongs to past months. */}
+            {hidden.length > 0 && (
+              <Fragment key="hidden">
+                <tr
+                  className="bg-muted/30 border-b border-border/50 cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => setShowHidden((v) => !v)}
+                >
+                  <td colSpan={4} className="px-6 py-2">
+                    <button
+                      aria-expanded={showHidden}
+                      className="flex items-center gap-1.5 font-semibold text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <ChevronDown
+                        size={13}
+                        className={cn("transition-transform", !showHidden && "-rotate-90")}
+                      />
+                      Hidden Categories ({hidden.length})
+                    </button>
+                  </td>
+                </tr>
+
+                {showHidden &&
+                  hidden.map((cat) => (
+                    <tr key={cat.id} className="border-b border-border/50 text-muted-foreground">
+                      <td className="px-6 py-2 pl-10">
+                        <span className="flex items-baseline gap-2">
+                          <span className="truncate">{cat.name}</span>
+                          <span className="text-xs opacity-70">{cat.groupName}</span>
+                        </span>
+                      </td>
+                      <td className="text-right px-4 py-2 tabular-nums">
+                        {formatCurrency(cat.budgeted)}
+                      </td>
+                      <td className="text-right px-4 py-2 tabular-nums">
+                        {formatCurrency(cat.activity)}
+                      </td>
+                      <td className="text-right px-6 py-2">
+                        <span className="flex items-center justify-end gap-2">
+                          <span className="tabular-nums">{formatCurrency(cat.available)}</span>
+                          <button
+                            onClick={() => setCategoryHidden(cat.id, false)}
+                            className="text-xs px-1.5 py-0.5 rounded border border-border hover:text-foreground hover:bg-accent transition-colors"
+                          >
+                            Unhide
+                          </button>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+              </Fragment>
+            )}
           </tbody>
         </table>
       </div>
@@ -346,6 +402,10 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
             }
             onSetConfined={(confined) => setConfined(selected.id, confined)}
             onSetGoal={(goal) => setCategoryGoal(selected.id, goal)}
+            onHide={() => {
+              setCategoryHidden(selected.id, true);
+              setSelectedIds(new Set());
+            }}
             isMoving={isMoving}
             moveError={moveError}
             onClose={() => setSelectedIds(new Set())}

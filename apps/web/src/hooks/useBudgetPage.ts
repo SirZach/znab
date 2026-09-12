@@ -32,6 +32,9 @@ export function useBudgetPage({
   const goalMutation = trpc.budget.setCategoryGoal.useMutation({
     onSuccess: invalidateBudget,
   });
+  const hiddenMutation = trpc.budget.setCategoryHidden.useMutation({
+    onSuccess: invalidateBudget,
+  });
 
   const summary = data?.summary;
   const visibleGroups = (data?.groups ?? []).filter((g) => !g.isSystem && !g.deletedAt);
@@ -68,14 +71,20 @@ export function useBudgetPage({
     goalMutation.mutate({ budgetId, categoryId, ...goal });
   }
 
+  function setCategoryHidden(categoryId: number, hidden: boolean) {
+    hiddenMutation.mutate({ budgetId, categoryId, hidden });
+  }
+
   return {
     visibleGroups,
+    hidden: data?.hidden ?? [],
     summary,
     isLoading,
     setBudgeted,
     moveMoney,
     setConfined,
     setCategoryGoal,
+    setCategoryHidden,
     isMoving: moveMutation.isPending,
     moveError: moveMutation.error?.message ?? null,
     goalError: goalMutation.error?.message ?? null,

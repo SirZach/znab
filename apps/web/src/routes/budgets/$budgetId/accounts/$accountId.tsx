@@ -210,18 +210,20 @@ function AccountRegisterPage() {
           <tr>
             <td className="px-6 py-2">
               <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    tabIndex={1}
-                    variant="ghost"
-                    className={cn(
-                      "w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1",
-                      !date && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-50" />
-                    {date ? format(date, "MM/dd/yyyy") : "Pick a date"}
-                  </Button>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      tabIndex={1}
+                      variant="ghost"
+                      className={cn(
+                        "w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1",
+                        !date && "text-muted-foreground"
+                      )}
+                    />
+                  }
+                >
+                  <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-50" />
+                  {date ? format(date, "MM/dd/yyyy") : "Pick a date"}
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
@@ -235,17 +237,19 @@ function AccountRegisterPage() {
             </td>
             <td className="px-4 py-2">
               <Popover open={payeeOpen} onOpenChange={setPayeeOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    tabIndex={2}
-                    variant="ghost"
-                    role="combobox"
-                    className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
-                  >
-                    {payeeId
-                      ? payeeList?.find((p) => p.id === payeeId)?.name
-                      : payeeName || <span className="text-muted-foreground">Payee</span>}
-                  </Button>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      tabIndex={2}
+                      variant="ghost"
+                      role="combobox"
+                      className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
+                    />
+                  }
+                >
+                  {payeeId
+                    ? payeeList?.find((p) => p.id === payeeId)?.name
+                    : payeeName || <span className="text-muted-foreground">Payee</span>}
                 </PopoverTrigger>
                 <PopoverContent className="w-64 p-0" align="start">
                   <Command>
@@ -281,19 +285,21 @@ function AccountRegisterPage() {
             </td>
             <td className="px-4 py-2">
               <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    ref={categoryTriggerRef}
-                    tabIndex={3}
-                    variant="ghost"
-                    role="combobox"
-                    onFocus={() => setCategoryOpen(true)}
-                    className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
-                  >
-                    {categoryId
-                      ? categoryOptions.find((c) => c.id === categoryId)?.label
-                      : <span className="text-muted-foreground">Category</span>}
-                  </Button>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      ref={categoryTriggerRef}
+                      tabIndex={3}
+                      variant="ghost"
+                      role="combobox"
+                      onFocus={() => setCategoryOpen(true)}
+                      className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
+                    />
+                  }
+                >
+                  {categoryId
+                    ? categoryOptions.find((c) => c.id === categoryId)?.label
+                    : <span className="text-muted-foreground">Category</span>}
                 </PopoverTrigger>
                 <PopoverContent className="w-72 p-0" align="start">
                   <Command>

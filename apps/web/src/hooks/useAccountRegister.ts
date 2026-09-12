@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { format } from "date-fns";
 import { trpc } from "@/trpc";
+import { payeeAutofillPatch } from "@/lib/payee-autofill";
+import type { PayeeAutofillSource, RegisterDraft } from "@/lib/payee-autofill";
 
 /** How many transactions the register loads at a time, newest first. */
 const PAGE_SIZE = 200;
@@ -85,6 +87,14 @@ export function useAccountRegister({
         g.categories.map((c) => ({ id: c.id, label: `${g.name}: ${c.name}` }))
       ) ?? [];
 
+  /**
+   * What picking this payee should prefill, bound to the picker's own options so
+   * autofill can never set a category the register has no way to display.
+   */
+  function autofillForPayee(payee: PayeeAutofillSource, draft: RegisterDraft) {
+    return payeeAutofillPatch(payee, draft, categoryOptions);
+  }
+
   function cycleCleared(current: string, id: number) {
     const next =
       current === "Uncleared"
@@ -142,6 +152,7 @@ export function useAccountRegister({
     isLoadingMore: isFetching && !isLoading,
     payeeList,
     categoryOptions,
+    autofillForPayee,
     isLoading,
     cycleCleared,
     createTransaction,

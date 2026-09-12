@@ -57,6 +57,7 @@ function AccountRegisterPage() {
     isLoadingMore,
     payeeList,
     categoryOptions,
+    autofillForPayee,
     total,
     isLoading,
     cycleCleared,
@@ -271,7 +272,22 @@ function AccountRegisterPage() {
                               setPayeeId(p.id);
                               setPayeeName(p.name);
                               setPayeeOpen(false);
-                              setTimeout(() => categoryTriggerRef.current?.focus(), 0);
+
+                              // YNAB 4 prefills the rest of the row from what this
+                              // payee usually uses. Typing a brand new name skips
+                              // this entirely, since there is nothing remembered yet.
+                              const autofill = autofillForPayee(p, { categoryId, memo, outflow, inflow });
+                              if (autofill.categoryId !== undefined) setCategoryId(autofill.categoryId);
+                              if (autofill.memo !== undefined) setMemo(autofill.memo);
+                              if (autofill.outflow !== undefined) setOutflow(autofill.outflow);
+                              if (autofill.inflow !== undefined) setInflow(autofill.inflow);
+
+                              // Once the category is settled its picker is a stop
+                              // the user does not need, and landing on it would pop
+                              // the menu open over an answer they already have.
+                              const next =
+                                autofill.categoryId !== undefined ? memoRef : categoryTriggerRef;
+                              setTimeout(() => next.current?.focus(), 0);
                             }}
                           >
                             {p.name}

@@ -92,11 +92,18 @@ Build output grew from ~1,050 kB to ~1,123 kB raw (315 → 340 kB gzip). The pre
 
 ## Flagged, not fixed
 
-1. **`components.json` style is still `default`.** The CLI reads that as a radix-era style, so a
-   future `shadcn add <component>` will deliver a **radix** variant and reintroduce
-   `@radix-ui/*` dependencies. There is no `base-default` to switch to. Your options are to pick a
-   prefixed `base-<style>` (which would restyle existing components) or to add future components
-   by hand. This is your call — deliberately left alone.
+1. ~~**`components.json` style is still `default`.**~~ **Resolved.** `shadcn info --json` originally
+   reported `"base": "radix"`, inferred from the style name, so a future `shadcn add <component>`
+   would have delivered a **radix** variant and reintroduced `@radix-ui/*`. There is no
+   `base-default`, and `base` is not a writable field in the components.json schema (it is derived
+   from the style prefix), so the style was changed `default` to **`base-vega`**, picked as the
+   closest visual match to the existing components: same `rounded-md` and `text-sm`, with the
+   default button height moving `h-10` to `h-9`. `shadcn info --json` now reports `"base": "base"`.
+
+   This affects only components added **from now on**; no existing file was restyled. New
+   components arrive with current registry conventions (`data-slot`, `group/button`, `size-*`
+   icons) and will not be pixel-identical to the older `default`-era wrappers already in `ui/`.
+   Changing style again later is a one-line edit.
 2. **Popover transform-origin now applies.** The old `origin-[--radix-…]` class compiled to invalid
    CSS and was silently inert; the replacement is live. Popovers now scale from the trigger edge
    instead of their center. Details in `.migration/popover.md`.

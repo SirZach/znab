@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, text, timestamp, integer, boolean, numeric, unique,
+  pgTable, serial, text, timestamp, integer, boolean, numeric, date, unique,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { budgets } from "./budgets";
@@ -36,6 +36,12 @@ export const categories = pgTable("categories", {
   type: text("type").notNull().default("OUTFLOW"),
   cachedBalance: numeric("cached_balance", { precision: 12, scale: 2 }).default("0"),
   sortOrder: integer("sort_order").notNull().default(0),
+  // YNAB 4 category goals, all null when a category has no goal set.
+  // null | "TB" (Target Category Balance) | "TBD" (Target Balance by Date) | "MF" (Monthly Funding)
+  goalType: text("goal_type"),
+  goalTarget: numeric("goal_target", { precision: 12, scale: 2 }),
+  // First of month, only meaningful for TBD.
+  goalTargetMonth: date("goal_target_month"),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

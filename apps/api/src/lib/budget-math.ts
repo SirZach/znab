@@ -49,12 +49,16 @@ export type BudgetMonth = {
 const cents = (v: string | number | null | undefined) =>
   Math.round(parseFloat(String(v ?? 0)) * 100);
 
-/** Zero-based month index for "YYYY-MM", and its inverse. */
-const monthIndex = (ym: string): number => {
+/**
+ * Zero-based month index for "YYYY-MM", and its inverse. Exported so callers
+ * that walk a month range (the router's category history query) share this
+ * instead of re-deriving month arithmetic.
+ */
+export const monthIndex = (ym: string): number => {
   const [y, m] = ym.split("-").map(Number) as [number, number];
   return y * 12 + (m - 1);
 };
-const monthFromIndex = (idx: number): string =>
+export const monthFromIndex = (idx: number): string =>
   `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`;
 
 const zeroSummary = (month: string): MonthSummary => ({
@@ -234,6 +238,87 @@ export function computeBudgetMonth(args: {
 
   // Unreachable: the loop returns at targetIdx.
   return { summary: zeroSummary(targetMonth), categories: new Map() };
+}
+
+// ─── Category Goals ───────────────────────────────────────────────────────────
+
+/** YNAB 4's three goal types. */
+export type GoalType = "TB" | "TBD" | "MF";
+
+/** A category's goal progress for one month (dollars). */
+export type CategoryGoal = {
+  type: GoalType;
+  target: number;
+  targetMonth: string | null; // "YYYY-MM", only set for TBD
+  neededThisMonth: number; // what to budget this month to stay on track
+  underFunded: number; // how far the goal still is from being met
+  percent: number; // 0..1, funding progress toward the goal
+};
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+/**
+ * Goal progress for one category in one month, mirroring YNAB 4's three goal
+ * types. `budgeted` and `available` are the same figures computeBudgetMonth
+ * already produces for the category, so this only adds the goal math on top.
+ *
+ * - MF (budget this much every month): judged against what is budgeted this
+ *   month alone, no memory of prior months.
+ * - TB (get the balance to X): judged against the month-end balance, so money
+ *   already sitting in the category counts, not just this month's budgeting.
+ * - TBD (get the balance to X by date): the same as TB but the remaining gap
+ *   is spread evenly over the months left, including the target month itself.
+ */
+export function computeCategoryGoal(args: {
+  type: GoalType;
+  target: number; // dollars
+  targetMonth: string | null; // "YYYY-MM", required for TBD
+  budgeted: number; // dollars, this month
+  available: number; // dollars, this month's month-end balance
+  currentMonth: string; // "YYYY-MM"
+}): CategoryGoal {
+  const { type, targetMonth, currentMonth } = args;
+  const target = cents(args.target);
+  const budgeted = cents(args.budgeted);
+  const available = cents(args.available);
+
+  let neededThisMonth: number;
+  let underFunded: number;
+  let percent: number;
+
+  if (type === "MF") {
+    neededThisMonth = target;
+    underFunded = Math.max(0, target - budgeted);
+    percent = target > 0 ? clamp01(budgeted / target) : 0;
+  } else if (type === "TB") {
+    // The balance before this month's budgeting is what the prior months left
+    // behind, which is what still needs covering to hit the target today.
+    const balanceBefore = available - budgeted;
+    neededThisMonth = Math.max(0, target - balanceBefore);
+    underFunded = Math.max(0, target - available);
+    percent = target > 0 ? clamp01(available / target) : 0;
+  } else {
+    // TBD: spread the remaining need across every month up to and including
+    // the target month. A target month already in the past leaves one month
+    // to close the whole gap rather than dividing by zero or a negative span.
+    const monthsLeft = Math.max(
+      1,
+      monthIndex(targetMonth ?? currentMonth) - monthIndex(currentMonth) + 1
+    );
+    const balanceBefore = available - budgeted;
+    neededThisMonth = Math.round(Math.max(0, (target - balanceBefore) / monthsLeft));
+    underFunded = Math.max(0, neededThisMonth - budgeted);
+    percent = target > 0 ? clamp01(available / target) : 0;
+  }
+
+  return {
+    type,
+    target: target / 100,
+    targetMonth,
+    neededThisMonth: Math.round(neededThisMonth) / 100,
+    underFunded: Math.round(underFunded) / 100,
+    percent,
+  };
 }
 
 // ─── Quick Budget ─────────────────────────────────────────────────────────────

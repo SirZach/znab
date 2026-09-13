@@ -22,17 +22,6 @@ export function usePayees({
   });
   const { data: categoryGroups } = trpc.category.list.useQuery({ budgetId });
 
-  // A payee's name is printed on every register row it appears in, and merging
-  // moves transactions between payees, so a rename or a merge leaves the
-  // registers and the budget grid stale, not just this screen's own list.
-  const invalidateEverywhere = () =>
-    Promise.all([
-      utils.payee.listForManage.invalidate(),
-      utils.payee.list.invalidate(),
-      utils.account.transactions.invalidate(),
-      utils.budget.monthBudget.invalidate(),
-    ]);
-
   // Autofill defaults, rename rules and deleting a payee nothing points at
   // change no transaction already on the books, only the lists a payee is
   // picked from.
@@ -41,6 +30,14 @@ export function usePayees({
       utils.payee.listForManage.invalidate(),
       utils.payee.list.invalidate(),
     ]);
+
+  // A payee's name is printed on every register row it appears in, and merging
+  // moves transactions between payees, so a rename or a merge leaves the
+  // registers stale too, not just the lists. The budget grid is left alone:
+  // neither one touches a category, a month or an amount, and it prints no
+  // payee names.
+  const invalidateEverywhere = () =>
+    Promise.all([invalidateLists(), utils.account.transactions.invalidate()]);
 
   const renameMutation = trpc.payee.rename.useMutation({
     onSuccess: invalidateEverywhere,

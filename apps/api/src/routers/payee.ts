@@ -12,7 +12,6 @@ import {
 } from "@znab/db";
 import { PAYEE_RENAME_OPERATORS, type PayeeRenameOperator } from "@znab/shared";
 import { assertBudgetAccess, type AuthedContext } from "../lib/authz";
-import { resolveRenamedPayee, type RenameRule } from "../lib/payee-rename";
 
 /**
  * Throws unless the payee is a live payee of that budget. `assertBudgetAccess`
@@ -168,7 +167,8 @@ export const payeeRouter = router({
       z.object({
         budgetId: z.number().int().positive(),
         id: z.number().int().positive(),
-        name: z.string(),
+        // The column is unbounded text, so the ceiling has to come from here.
+        name: z.string().max(200),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -220,7 +220,9 @@ export const payeeRouter = router({
     .input(
       z.object({
         budgetId: z.number().int().positive(),
-        sourceIds: z.array(z.number().int().positive()).min(1),
+        // Capped well under Postgres' bind parameter limit: a longer list
+        // fails inside the driver, which reports it by echoing the whole query.
+        sourceIds: z.array(z.number().int().positive()).min(1).max(500),
         targetId: z.number().int().positive(),
       })
     )
@@ -269,7 +271,7 @@ export const payeeRouter = router({
               inArray(transactions.payeeId, sourceIds)
             )
           )
-          .returning({ id: transactions.id });
+          .returning({ id: transactions.id, deletedAt: transactions.deletedAt });
 
         // sub_transactions carries no budget id of its own, so it is scoped by
         // the source ids, which the select above proved belong to this budget.
@@ -297,16 +299,21 @@ export const payeeRouter = router({
               inArray(payeeRenameRules.payeeId, sourceIds)
             )
           )
-          .returning({ id: payeeRenameRules.id });
+          .returning({ id: payeeRenameRules.id, deletedAt: payeeRenameRules.deletedAt });
 
         await tx
           .update(payees)
           .set({ deletedAt: new Date(), updatedAt: new Date() })
           .where(and(eq(payees.budgetId, input.budgetId), inArray(payees.id, sourceIds)));
 
+        // Every row moved, deleted ones included, but the figures reported
+        // back count only the visible rows. The manage screen previews the move
+        // from its own live counts, and a total that included rows the user
+        // cannot see would read as though the merge touched more than was
+        // asked of it.
         return {
-          movedTransactions: movedTransactions.length,
-          movedRenameRules: movedRenameRules.length,
+          movedTransactions: movedTransactions.filter((t) => t.deletedAt === null).length,
+          movedRenameRules: movedRenameRules.filter((r) => r.deletedAt === null).length,
         };
       });
     }),
@@ -362,13 +369,32 @@ export const payeeRouter = router({
         });
       }
 
-      const [deleted] = await ctx.db
-        .update(payees)
-        .set({ deletedAt: new Date(), updatedAt: new Date() })
-        .where(and(eq(payees.id, input.id), eq(payees.budgetId, input.budgetId)))
-        .returning({ id: payees.id });
+      // The rename rules go with the payee, in the one transaction, and are
+      // deliberately not part of the reference count above: a rule is the
+      // payee's own configuration rather than history the way a transaction is.
+      // Left behind it would be invisible, since the manage screen only hangs
+      // rules off live payees, while still holding its operand against every
+      // other payee through the clash check in `addRenameRule`.
+      return ctx.db.transaction(async (tx) => {
+        await tx
+          .update(payeeRenameRules)
+          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .where(
+            and(
+              eq(payeeRenameRules.payeeId, input.id),
+              eq(payeeRenameRules.budgetId, input.budgetId),
+              isNull(payeeRenameRules.deletedAt)
+            )
+          );
 
-      return deleted!;
+        const [deleted] = await tx
+          .update(payees)
+          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(payees.id, input.id), eq(payees.budgetId, input.budgetId)))
+          .returning({ id: payees.id });
+
+        return deleted!;
+      });
     }),
 
   // The defaults a payee fills in on a new transaction. All three fields are
@@ -380,8 +406,10 @@ export const payeeRouter = router({
         budgetId: z.number().int().positive(),
         id: z.number().int().positive(),
         categoryId: z.number().int().positive().nullable(),
-        amount: z.number().nullable(),
-        memo: z.string().nullable(),
+        // The column is numeric(12,2), and a value past its ceiling is refused
+        // by Postgres itself, which surfaces as a raw driver error.
+        amount: z.number().min(-9_999_999_999.99).max(9_999_999_999.99).nullable(),
+        memo: z.string().max(500).nullable(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -433,7 +461,7 @@ export const payeeRouter = router({
         budgetId: z.number().int().positive(),
         payeeId: z.number().int().positive(),
         operator: z.enum(PAYEE_RENAME_OPERATORS),
-        operand: z.string(),
+        operand: z.string().max(500),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -446,19 +474,27 @@ export const payeeRouter = router({
 
       await assertPayeeInBudget(ctx, input.payeeId, input.budgetId);
 
-      const clash = await ctx.db.query.payeeRenameRules.findFirst({
-        where: and(
-          eq(payeeRenameRules.budgetId, input.budgetId),
-          isNull(payeeRenameRules.deletedAt),
-          eq(payeeRenameRules.operator, input.operator),
-          // Trimmed to match how the matcher compares, which ignores padding on
-          // both sides. One imported operand is stored with a leading tab, so an
-          // untrimmed check here would accept a second rule that behaves
-          // identically to the first.
-          sql`lower(trim(${payeeRenameRules.operand})) = ${operand.toLowerCase()}`
-        ),
-        columns: { id: true },
-      });
+      // Joined to payees so only a rule on a live payee can refuse this one.
+      // A rule stranded on a deleted payee has no screen that can clear it, so
+      // counting one would lock its operand away from the budget for good.
+      const [clash] = await ctx.db
+        .select({ id: payeeRenameRules.id })
+        .from(payeeRenameRules)
+        .innerJoin(payees, eq(payees.id, payeeRenameRules.payeeId))
+        .where(
+          and(
+            eq(payeeRenameRules.budgetId, input.budgetId),
+            isNull(payeeRenameRules.deletedAt),
+            isNull(payees.deletedAt),
+            eq(payeeRenameRules.operator, input.operator),
+            // Trimmed to match how the matcher compares, which ignores padding
+            // on both sides. One imported operand is stored with a leading tab,
+            // so an untrimmed check here would accept a second rule that
+            // behaves identically to the first.
+            sql`lower(trim(${payeeRenameRules.operand})) = ${operand.toLowerCase()}`
+          )
+        )
+        .limit(1);
       if (clash) {
         throw new TRPCError({
           code: "CONFLICT",
@@ -516,57 +552,5 @@ export const payeeRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Rename rule not found" });
       }
       return deleted;
-    }),
-
-  // The seam a bank-file import will call once per imported row: hand it the
-  // string off the statement, get back the payee it renames to. The matching
-  // itself lives in lib/payee-rename so it can be tested without a database.
-  resolveImportedName: protectedProcedure
-    .input(
-      z.object({
-        budgetId: z.number().int().positive(),
-        importedName: z.string(),
-      })
-    )
-    .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
-      const ruleRows = await ctx.db
-        .select({
-          payeeId: payeeRenameRules.payeeId,
-          operator: payeeRenameRules.operator,
-          operand: payeeRenameRules.operand,
-        })
-        .from(payeeRenameRules)
-        .where(
-          and(
-            eq(payeeRenameRules.budgetId, input.budgetId),
-            isNull(payeeRenameRules.deletedAt)
-          )
-        )
-        .orderBy(asc(payeeRenameRules.id));
-
-      // The operator column is free text so the importer can carry YNAB's own
-      // vocabulary through unchanged; the matcher skips any operator it does not
-      // recognise.
-      const rules: RenameRule[] = ruleRows.map((r) => ({
-        payeeId: r.payeeId,
-        operator: r.operator as PayeeRenameOperator,
-        operand: r.operand,
-      }));
-
-      const payeeId = resolveRenamedPayee(input.importedName, rules);
-      if (payeeId === null) return null;
-
-      const payee = await ctx.db.query.payees.findFirst({
-        where: and(
-          eq(payees.id, payeeId),
-          eq(payees.budgetId, input.budgetId),
-          isNull(payees.deletedAt)
-        ),
-        columns: { id: true, name: true },
-      });
-
-      return payee ? { payeeId: payee.id, name: payee.name } : null;
     }),
 });

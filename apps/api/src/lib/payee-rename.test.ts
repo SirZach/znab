@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { matchesRenameRule, resolveRenamedPayee } from "./payee-rename";
 import type { RenameRule } from "./payee-rename";
+import type { PayeeRenameOperator } from "@znab/shared";
 
 /** Small builder so each case reads as the rule it describes. */
 const rule = (payeeId: number, operator: RenameRule["operator"], operand: string): RenameRule => ({
@@ -60,6 +61,21 @@ describe("matchesRenameRule: an empty operand matches nothing", () => {
 
   test("an empty imported name matches nothing either", () => {
     expect(matchesRenameRule("", "Contains", "China Taste")).toBe(false);
+  });
+});
+
+describe("matchesRenameRule: an operator outside the vocabulary claims nothing", () => {
+  // The operator column is free text, so a hand-edited or future row can carry
+  // anything. The cast is how such a row reaches the matcher at runtime.
+  const unknown = "Regex" as PayeeRenameOperator;
+
+  test("an unrecognised operator matches no name", () => {
+    expect(matchesRenameRule("China Taste", unknown, "China Taste")).toBe(false);
+    expect(matchesRenameRule("China Taste", unknown, "China")).toBe(false);
+  });
+
+  test("and never claims a payee during resolution", () => {
+    expect(resolveRenamedPayee("China Taste", [rule(9, unknown, "China Taste")])).toBeNull();
   });
 });
 

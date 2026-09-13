@@ -39,6 +39,10 @@ export function matchesRenameRule(
       return haystack.startsWith(needle);
     case "EndsWith":
       return haystack.endsWith(needle);
+    // The operator column is free text in the database, so a row can carry a
+    // word this vocabulary has never heard of. Such a rule claims nothing.
+    default:
+      return false;
   }
 }
 

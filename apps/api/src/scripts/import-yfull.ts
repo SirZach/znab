@@ -15,7 +15,7 @@ import {
   eq, and
 } from "drizzle-orm";
 import * as schema from "@znab/db";
-import { isSpecialCategoryId } from "@znab/shared";
+import { isSpecialCategoryId, PAYEE_RENAME_OPERATORS } from "@znab/shared";
 import path from "path";
 
 // ─── DB setup ────────────────────────────────────────────────────────────────
@@ -304,11 +304,20 @@ async function importYfull(data: YfullFile, budgetId: number) {
 
   // 5. Payee rename rules, which YNAB 4 nests inside the payee they rename to
   let renameCount = 0;
+  let renameSkipped = 0;
+  const knownOperators = new Set<string>(PAYEE_RENAME_OPERATORS);
   for (const p of data.payees) {
     for (const c of p.renameConditions ?? []) {
       const payeeId = payeeYnabToId.get(c.parentPayeeId);
       // A rule with no payee to rename to, or nothing to match on, is inert
       if (!payeeId || !c.operand?.trim()) continue;
+      // The operator column is free text, so an operator outside the vocabulary
+      // the matcher knows would import a rule that can never fire
+      if (!knownOperators.has(c.operator)) {
+        console.warn(`  Skipping rename rule ${c.entityId}: unknown operator "${c.operator}"`);
+        renameSkipped++;
+        continue;
+      }
 
       await db
         .insert(schema.payeeRenameRules)
@@ -324,7 +333,10 @@ async function importYfull(data: YfullFile, budgetId: number) {
       renameCount++;
     }
   }
-  console.log(`  Imported ${renameCount} payee rename rules`);
+  console.log(
+    `  Imported ${renameCount} payee rename rules` +
+    (renameSkipped ? ` (skipped ${renameSkipped} with an unknown operator)` : "")
+  );
 
   // 6. Monthly budgets
   let mbCount = 0;

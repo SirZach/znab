@@ -187,7 +187,11 @@ export const payeeRouter = router({
           eq(payees.budgetId, input.budgetId),
           isNull(payees.deletedAt),
           ne(payees.id, input.id),
-          sql`lower(${payees.name}) = ${name.toLowerCase()}`
+          // Trimmed on both sides: the imported list carries names stored with
+          // trailing spaces ("Hilton "), and comparing those against a trimmed
+          // input would wave through the exact duplicate this check exists to
+          // stop.
+          sql`lower(trim(${payees.name})) = ${name.toLowerCase()}`
         ),
         columns: { id: true, name: true },
       });
@@ -447,7 +451,11 @@ export const payeeRouter = router({
           eq(payeeRenameRules.budgetId, input.budgetId),
           isNull(payeeRenameRules.deletedAt),
           eq(payeeRenameRules.operator, input.operator),
-          sql`lower(${payeeRenameRules.operand}) = ${operand.toLowerCase()}`
+          // Trimmed to match how the matcher compares, which ignores padding on
+          // both sides. One imported operand is stored with a leading tab, so an
+          // untrimmed check here would accept a second rule that behaves
+          // identically to the first.
+          sql`lower(trim(${payeeRenameRules.operand})) = ${operand.toLowerCase()}`
         ),
         columns: { id: true },
       });

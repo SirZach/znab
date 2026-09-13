@@ -1,5 +1,5 @@
 /**
- * Budget shell layout — renders the shadcn sidebar + <Outlet />.
+ * Budget shell layout: renders the sidebar plus an <Outlet />.
  * All routes under /budgets/$budgetId/* share this layout.
  */
 import {
@@ -34,7 +34,13 @@ function BudgetLayout() {
   const { budgetId } = useParams({ from: "/budgets/$budgetId" });
   const { queryClient } = Route.useRouteContext();
 
-  const { budget, onBudgetAccounts, trackingAccounts, handleSignOut } = useBudgetLayout({
+  const {
+    budget,
+    onBudgetAccounts,
+    trackingAccounts,
+    closedAccounts,
+    handleSignOut,
+  } = useBudgetLayout({
     budgetId: Number(budgetId),
     queryClient,
   });
@@ -81,6 +87,16 @@ function BudgetLayout() {
               label="Tracking Accounts"
               accounts={trackingAccounts}
               budgetId={budgetId}
+            />
+          )}
+
+          {/* Closed accounts, collapsed: kept for their history, not in use */}
+          {closedAccounts.length > 0 && (
+            <AccountGroup
+              label={`Closed Accounts (${closedAccounts.length})`}
+              accounts={closedAccounts}
+              budgetId={budgetId}
+              defaultOpen={false}
             />
           )}
         </nav>
@@ -138,12 +154,14 @@ function AccountGroup({
   label,
   accounts,
   budgetId,
+  defaultOpen = true,
 }: {
   label: string;
   accounts: Array<{ id: number; name: string }>;
   budgetId: string;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
     <div>

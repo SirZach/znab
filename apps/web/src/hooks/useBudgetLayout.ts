@@ -16,8 +16,13 @@ export function useBudgetLayout({
   const { data: budget } = trpc.budget.byId.useQuery({ budgetId });
   const { data: accounts } = trpc.account.list.useQuery({ budgetId });
 
-  const onBudgetAccounts = accounts?.filter((a) => a.onBudget) ?? [];
-  const trackingAccounts = accounts?.filter((a) => !a.onBudget) ?? [];
+  // A hidden account is one YNAB 4 calls closed: paid off or emptied, kept for
+  // its history. It belongs in its own section rather than mixed in with the
+  // accounts still in use.
+  const live = accounts?.filter((a) => !a.hidden) ?? [];
+  const onBudgetAccounts = live.filter((a) => a.onBudget);
+  const trackingAccounts = live.filter((a) => !a.onBudget);
+  const closedAccounts = accounts?.filter((a) => a.hidden) ?? [];
 
   function handleSignOut() {
     queryClient.clear();
@@ -25,5 +30,11 @@ export function useBudgetLayout({
     navigate({ to: "/" });
   }
 
-  return { budget, onBudgetAccounts, trackingAccounts, handleSignOut };
+  return {
+    budget,
+    onBudgetAccounts,
+    trackingAccounts,
+    closedAccounts,
+    handleSignOut,
+  };
 }

@@ -18,6 +18,7 @@ import {
   CreditCard,
   LogOut,
   ChevronDown,
+  Users,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -70,6 +71,14 @@ function BudgetLayout() {
             params={{ budgetId }}
             icon={<BarChart2 size={16} />}
             label="Reports"
+          />
+
+          {/* Payees link */}
+          <SidebarLink
+            to="/budgets/$budgetId/payees"
+            params={{ budgetId }}
+            icon={<Users size={16} />}
+            label="Payees"
           />
 
           {/* On-budget accounts */}

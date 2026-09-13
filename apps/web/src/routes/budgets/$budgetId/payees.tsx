@@ -28,6 +28,17 @@ const TRANSFER_NOTE =
   "This is a transfer payee. It follows its account, so it cannot be renamed, merged or deleted here.";
 
 /**
+ * The amount this payee really autofills, or null. An imported YNAB 4 budget
+ * stores "0.0000" rather than nothing, so a zero is an absent amount, and every
+ * reader goes through this so the badge and its tooltip cannot disagree.
+ */
+function autofillAmount(payee: ManagedPayee): number | null {
+  if (payee.autofillAmount === null) return null;
+  const amount = Number(payee.autofillAmount);
+  return amount === 0 ? null : amount;
+}
+
+/**
  * Whether the payee carries real entry defaults. An imported YNAB 4 budget
  * stores an empty memo and a zero amount rather than nothing, so a plain null
  * check would mark almost every payee as autofilled.
@@ -35,7 +46,7 @@ const TRANSFER_NOTE =
 function hasAutofill(payee: ManagedPayee) {
   return (
     payee.autofillCategoryId !== null ||
-    (payee.autofillAmount !== null && Number(payee.autofillAmount) !== 0) ||
+    autofillAmount(payee) !== null ||
     (payee.autofillMemo ?? "").trim() !== ""
   );
 }
@@ -97,6 +108,14 @@ function PayeesPage() {
     });
   }
 
+  // A mutation error names the payee it was made against, and the hook keeps it
+  // past the remount that clears the panel's own drafts, so changing subject has
+  // to drop it explicitly.
+  function inspect(id: number | null) {
+    resetStatus();
+    setInspectedId(id);
+  }
+
   function commitRename(payee: ManagedPayee, draft: string) {
     setEditingId(null);
     const name = draft.trim();
@@ -155,13 +174,7 @@ function PayeesPage() {
             setCheckedIds(new Set());
             setMergeTargetId(null);
           }}
-          onMerge={() => {
-            if (!mergeTarget) return;
-            merge(
-              checked.filter((p) => p.id !== mergeTarget.id).map((p) => p.id),
-              mergeTarget.id
-            );
-          }}
+          onMerge={merge}
         />
       )}
 
@@ -169,7 +182,7 @@ function PayeesPage() {
         <div className="px-6 py-2 border-b border-border text-sm">
           {mergeError && <p className="text-destructive">{mergeError}</p>}
           {renameError && <p className="text-destructive">{renameError}</p>}
-          {mergeResult && !mergeError && (
+          {mergeResult && (
             <p className="text-muted-foreground">
               Merged{mergeTarget ? ` into "${mergeTarget.name}"` : ""}, moving{" "}
               {mergeResult.movedTransactions} transactions and{" "}
@@ -196,10 +209,11 @@ function PayeesPage() {
             <tbody>
               {visible.map((payee) => {
                 const isTransfer = payee.targetAccountId !== null;
+                const amount = autofillAmount(payee);
                 return (
                   <tr
                     key={payee.id}
-                    onClick={() => setInspectedId(payee.id)}
+                    onClick={() => inspect(payee.id)}
                     aria-selected={payee.id === inspectedId}
                     className={cn(
                       "border-b border-border/50 cursor-pointer transition-colors",
@@ -253,9 +267,9 @@ function PayeesPage() {
                         {hasAutofill(payee) && (
                           <span
                             title={
-                              payee.autofillAmount === null
+                              amount === null
                                 ? "Has autofill defaults"
-                                : `Autofills ${formatCurrency(payee.autofillAmount)}`
+                                : `Autofills ${formatCurrency(amount)}`
                             }
                           >
                             <Wand2 size={13} />
@@ -320,7 +334,7 @@ function PayeesPage() {
             onDeleteRule={deleteRenameRule}
             onDelete={remove}
             deleteError={deleteError}
-            onClose={() => setInspectedId(null)}
+            onClose={() => inspect(null)}
           />
         )}
       </div>
@@ -386,7 +400,7 @@ function MergeBar({
   isMerging: boolean;
   onTargetChange: (id: number | null) => void;
   onClear: () => void;
-  onMerge: () => void;
+  onMerge: (sourceIds: number[], targetId: number) => void;
 }) {
   const sources = checked.filter((p) => p.id !== target?.id);
   const moving = sources.reduce((n, p) => n + p.transactionCount, 0);
@@ -433,7 +447,9 @@ function MergeBar({
         </button>
         <button
           disabled={!target || isMerging}
-          onClick={onMerge}
+          onClick={() => {
+            if (target) onMerge(sources.map((p) => p.id), target.id);
+          }}
           className="rounded bg-primary px-3 py-1.5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
           {isMerging ? "Merging…" : "Merge"}
@@ -465,25 +481,27 @@ function PayeeInspector({
   isAddingRule: boolean;
   autofillError: string | null;
   ruleError: string | null;
-  onSetAutofill: (args: {
-    id: number;
-    categoryId: number | null;
-    amount: number | null;
-    memo: string | null;
-  }) => void;
-  onAddRule: (
-    payeeId: number,
-    operator: PayeeRenameOperator,
-    operand: string,
-    onDone?: () => void
-  ) => void;
+  // Taken off the hook so the argument shapes are not restated here.
+  onSetAutofill: ReturnType<typeof usePayees>["setAutofill"];
+  onAddRule: ReturnType<typeof usePayees>["addRenameRule"];
   onDeleteRule: (id: number) => void;
   onDelete: (id: number) => void;
   deleteError: string | null;
   onClose: () => void;
 }) {
+  // Hiding a category is a soft delete, so it leaves the picker and the API
+  // refuses to store it. Seeding the field with an id nobody can see would show
+  // "No category" while every save failed on the id still held in state, so the
+  // stale one is dropped here, the way register autofill already drops it.
+  // An empty option list means the categories have not arrived yet, not that
+  // every category is hidden. Treating it as hidden would clear a perfectly
+  // good category the moment anyone saved.
+  const savedCategoryHidden =
+    payee.autofillCategoryId !== null &&
+    categoryOptions.length > 0 &&
+    !categoryOptions.some((c) => c.id === payee.autofillCategoryId);
   const [categoryId, setCategoryId] = useState<number | "">(
-    payee.autofillCategoryId ?? ""
+    savedCategoryHidden ? "" : (payee.autofillCategoryId ?? "")
   );
   // The amount arrives as a NUMERIC string ("-25.0000"), which is not what
   // anyone wants to edit.
@@ -551,6 +569,12 @@ function PayeeInspector({
             </option>
           ))}
         </select>
+
+        {savedCategoryHidden && categoryId === "" && (
+          <p className="text-xs text-muted-foreground">
+            This payee&apos;s saved category is hidden, so saving clears it.
+          </p>
+        )}
 
         <input
           type="text"

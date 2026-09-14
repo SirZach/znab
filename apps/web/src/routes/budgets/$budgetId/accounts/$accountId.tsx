@@ -1,14 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { accountRegisterSearchSchema } from "@znab/shared";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
-import { CheckCircle2, Circle, Lock, CalendarIcon } from "lucide-react";
-import { useRef, useState } from "react";
-import { format } from "date-fns";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Check, CheckCircle2, Circle, Lock, Trash2 } from "lucide-react";
+import { Fragment, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { useAccountRegister } from "@/hooks/useAccountRegister";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { RegisterRowFields, type RegisterRowLocks } from "@/components/register/row-fields";
+import { useAccountRegister, type RegisterTransaction } from "@/hooks/useAccountRegister";
+import { amountToFields, unsaveableReason } from "@/lib/register-row";
+import type { RegisterFields } from "@/lib/register-row";
 
 export const Route = createFileRoute(
   "/budgets/$budgetId/accounts/$accountId"
@@ -30,22 +37,45 @@ const colgroup = (
   </colgroup>
 );
 
+/** Why the fields a row will not let anyone change here are the way they are. */
+const TRANSFER_PAYEE_NOTE =
+  "A transfer's payee is the account it moves money to. Delete this transaction and enter it again to send it somewhere else.";
+const TRANSFER_CATEGORY_NOTE =
+  "Money moved between two budgeted accounts has not been spent, so it is not categorised.";
+const SPLIT_NOTE =
+  "A split's categories and amounts belong to its parts, which this register cannot edit yet.";
+
+const emptyFields = (): RegisterFields => ({
+  date: new Date(),
+  payeeId: null,
+  payeeName: "",
+  categoryId: null,
+  memo: "",
+  outflow: "",
+  inflow: "",
+});
+
+/** The row as it stands, ready to be edited. */
+const fieldsFrom = (txn: RegisterTransaction): RegisterFields => ({
+  // Local midnight, the way every other date in the register is read, so a row
+  // does not shift a day on its way into the picker.
+  date: new Date(txn.date + "T00:00:00"),
+  payeeId: txn.payeeId,
+  payeeName: txn.payee?.name ?? "",
+  categoryId: txn.categoryId,
+  memo: txn.memo ?? "",
+  ...amountToFields(txn.amount),
+});
+
 function AccountRegisterPage() {
   const { budgetId, accountId } = Route.useParams();
   const { cleared, q } = Route.useSearch();
 
-  const [date, setDate] = useState<Date | undefined>(new Date());
-  const [payeeId, setPayeeId] = useState<number | null>(null);
-  const [payeeName, setPayeeName] = useState("");
-  const [payeeOpen, setPayeeOpen] = useState(false);
-  const [categoryId, setCategoryId] = useState<number | null>(null);
-  const [categoryOpen, setCategoryOpen] = useState(false);
-  const [memo, setMemo] = useState("");
-  const [outflow, setOutflow] = useState("");
-  const [inflow, setInflow] = useState("");
+  const [addFields, setAddFields] = useState<RegisterFields>(emptyFields);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [addBlocked, setAddBlocked] = useState<string | null>(null);
+  const [editBlocked, setEditBlocked] = useState<string | null>(null);
 
-  const categoryTriggerRef = useRef<HTMLButtonElement>(null);
-  const memoRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -58,11 +88,20 @@ function AccountRegisterPage() {
     payeeList,
     categoryOptions,
     autofillForPayee,
+    transferKeepsCategory,
     total,
     isLoading,
     cycleCleared,
     createTransaction,
+    updateTransaction,
+    deleteTransaction,
     isSaving,
+    isSavingEdit,
+    createError,
+    updateError,
+    deleteError,
+    resetStatus,
+    resetCreateStatus,
   } = useAccountRegister({
     budgetId: Number(budgetId),
     accountId: Number(accountId),
@@ -70,13 +109,8 @@ function AccountRegisterPage() {
     q,
     scrollRef: scrollContainerRef,
     onSaveSuccess: () => {
-      setDate(new Date());
-      setPayeeId(null);
-      setPayeeName("");
-      setCategoryId(null);
-      setMemo("");
-      setOutflow("");
-      setInflow("");
+      setAddFields(emptyFields());
+      setAddBlocked(null);
     },
   });
 
@@ -88,12 +122,64 @@ function AccountRegisterPage() {
     );
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") createTransaction({ date, payeeId, payeeName, categoryId, memo, outflow, inflow });
+  /**
+   * What a row will not let anyone change here. A transfer's payee is the
+   * account on the other end, and a transfer carries a category on one side of
+   * the pair at most: both rules the API enforces on save, so the register
+   * shows them rather than fights them. A split's category and amount are the
+   * sum of its parts, and there is no editor for those, so changing either here
+   * would only break the split.
+   */
+  function locksFor(row: {
+    isSplit?: boolean;
+    isTransfer?: boolean;
+    transferAccountId: number | null;
+  }): RegisterRowLocks {
+    const locks: RegisterRowLocks = {};
+    if (row.isTransfer) locks.payee = TRANSFER_PAYEE_NOTE;
+    if (row.isSplit) {
+      locks.category = { label: "Split", reason: SPLIT_NOTE };
+      locks.amount = SPLIT_NOTE;
+    } else if (!transferKeepsCategory(row.transferAccountId)) {
+      locks.category = { label: "No category", reason: TRANSFER_CATEGORY_NOTE };
+    }
+    return locks;
   }
 
-  const inputClass =
-    "bg-transparent border-b border-border focus:outline-none focus:border-primary text-sm w-full px-1 py-0.5";
+  // Picking a transfer payee can take the category away mid-entry, so what is
+  // saved is what the row shows. The draft keeps the old category in case the
+  // payee is changed back to an ordinary one.
+  const addPayee = payeeList?.find((p) => p.id === addFields.payeeId);
+  const addLocks = locksFor({ transferAccountId: addPayee?.targetAccountId ?? null });
+  const addDraft = addLocks.category ? { ...addFields, categoryId: null } : addFields;
+
+  // A row that cannot be saved was being dropped on the floor: Enter did
+  // nothing and said nothing. Both rows now say what they are waiting for, and
+  // only once saving has actually been tried, so a half-typed row does not nag.
+  function saveAdd() {
+    const reason = unsaveableReason(addDraft);
+    setAddBlocked(reason);
+    resetCreateStatus();
+    if (!reason) createTransaction(addDraft);
+  }
+
+  function saveEdit(txn: RegisterTransaction, fields: RegisterFields) {
+    // A row already on the books may be worth nothing, so clearing both money
+    // columns is a real edit here rather than an unfinished one.
+    const reason = unsaveableReason(fields, { allowZero: true });
+    setEditBlocked(reason);
+    if (!reason) updateTransaction(txn, fields, () => setEditingId(null));
+  }
+
+  const editError = updateError ?? deleteError ?? editBlocked;
+
+  // A failed edit's message belongs to the row it was made against, so moving
+  // to another row, or away from editing entirely, drops it.
+  function edit(id: number | null) {
+    resetStatus();
+    setEditBlocked(null);
+    setEditingId(id);
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -149,49 +235,73 @@ function AccountRegisterPage() {
             {transactions.map((txn) => {
               const amount = parseFloat(txn.amount);
               const isInflow = amount > 0;
+              const editing = txn.id === editingId;
 
               return (
-                <tr
-                  key={txn.id}
-                  className="border-b border-border/50 hover:bg-accent/30 transition-colors"
-                >
-                  <td className="px-6 py-2 text-muted-foreground tabular-nums">
-                    {formatDate(txn.date)}
-                  </td>
-                  <td className="px-4 py-2">{txn.payee?.name ?? "—"}</td>
-                  <td className="px-4 py-2 text-muted-foreground">
-                    {txn.isSplit
-                      ? "Split"
-                      : txn.category?.name ?? txn.categoryYnabId?.split("/").pop() ?? "—"}
-                  </td>
-                  <td className="px-4 py-2 text-muted-foreground truncate max-w-48">
-                    {txn.memo ?? ""}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    {!isInflow ? formatCurrency(Math.abs(amount)) : ""}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-green-500">
-                    {isInflow ? formatCurrency(amount) : ""}
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <button
-                      onClick={() => cycleCleared(txn.cleared, txn.id)}
-                      className="text-muted-foreground hover:text-foreground transition-colors"
-                      title={txn.cleared}
-                    >
-                      {txn.cleared === "Reconciled" ? (
-                        <Lock size={14} className="text-primary" />
-                      ) : txn.cleared === "Cleared" ? (
-                        <CheckCircle2 size={14} className="text-green-500" />
-                      ) : (
-                        <Circle size={14} />
-                      )}
-                    </button>
-                  </td>
-                  <td className="px-6 py-2 text-right tabular-nums font-medium">
-                    {formatCurrency(txn.runningBalance)}
-                  </td>
-                </tr>
+                <Fragment key={txn.id}>
+                  <tr
+                    onClick={editing ? undefined : () => edit(txn.id)}
+                    aria-selected={editing}
+                    className={cn(
+                      "border-b border-border/50 transition-colors",
+                      editing ? "bg-accent/60" : "cursor-pointer hover:bg-accent/30"
+                    )}
+                  >
+                    {editing ? (
+                      // Keyed so the draft is seeded from whichever row is being
+                      // edited rather than carried over from the last one.
+                      <EditCells
+                        key={txn.id}
+                        txn={txn}
+                        locks={locksFor(txn)}
+                        payeeList={payeeList}
+                        categoryOptions={categoryOptions}
+                        autofillForPayee={autofillForPayee}
+                        isBusy={isSavingEdit}
+                        onSave={(fields) => saveEdit(txn, fields)}
+                        onDelete={() => deleteTransaction(txn.id, () => setEditingId(null))}
+                        onCancel={() => edit(null)}
+                        onCycleCleared={() => cycleCleared(txn.cleared, txn.id)}
+                      />
+                    ) : (
+                      <>
+                        <td className="px-6 py-2 text-muted-foreground tabular-nums">
+                          {formatDate(txn.date)}
+                        </td>
+                        <td className="px-4 py-2">{txn.payee?.name ?? "—"}</td>
+                        <td className="px-4 py-2 text-muted-foreground">
+                          {txn.isSplit
+                            ? "Split"
+                            : txn.category?.name ?? txn.categoryYnabId?.split("/").pop() ?? "—"}
+                        </td>
+                        <td className="px-4 py-2 text-muted-foreground truncate max-w-48">
+                          {txn.memo ?? ""}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          {!isInflow ? formatCurrency(Math.abs(amount)) : ""}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-green-500">
+                          {isInflow ? formatCurrency(amount) : ""}
+                        </td>
+                        <ClearedCell
+                          cleared={txn.cleared}
+                          onCycle={() => cycleCleared(txn.cleared, txn.id)}
+                        />
+                        <td className="px-6 py-2 text-right tabular-nums font-medium">
+                          {formatCurrency(txn.runningBalance)}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+
+                  {editing && editError && (
+                    <tr className="border-b border-border/50 bg-accent/60">
+                      <td colSpan={8} className="px-6 pb-2">
+                        <p className="text-xs text-destructive">{editError}</p>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>
@@ -209,181 +319,20 @@ function AccountRegisterPage() {
         {colgroup}
         <tbody>
           <tr>
-            <td className="px-6 py-2">
-              <Popover>
-                <PopoverTrigger
-                  render={
-                    <Button
-                      tabIndex={1}
-                      variant="ghost"
-                      className={cn(
-                        "w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1",
-                        !date && "text-muted-foreground"
-                      )}
-                    />
-                  }
-                >
-                  <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-50" />
-                  {date ? format(date, "MM/dd/yyyy") : "Pick a date"}
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={setDate}
-                    autoFocus
-                  />
-                </PopoverContent>
-              </Popover>
-            </td>
-            <td className="px-4 py-2">
-              <Popover open={payeeOpen} onOpenChange={setPayeeOpen}>
-                <PopoverTrigger
-                  render={
-                    <Button
-                      tabIndex={2}
-                      variant="ghost"
-                      role="combobox"
-                      className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
-                    />
-                  }
-                >
-                  {payeeId
-                    ? payeeList?.find((p) => p.id === payeeId)?.name
-                    : payeeName || <span className="text-muted-foreground">Payee</span>}
-                </PopoverTrigger>
-                <PopoverContent className="w-64 p-0" align="start">
-                  <Command>
-                    <CommandInput
-                      placeholder="Search payees..."
-                      value={payeeName}
-                      onValueChange={(val) => { setPayeeName(val); setPayeeId(null); }}
-                    />
-                    <CommandList>
-                      <CommandEmpty>
-                        {payeeName ? `Add "${payeeName}"` : "No payees found."}
-                      </CommandEmpty>
-                      <CommandGroup>
-                        {payeeList?.map((p) => (
-                          <CommandItem
-                            key={p.id}
-                            value={p.name}
-                            onSelect={() => {
-                              setPayeeId(p.id);
-                              setPayeeName(p.name);
-                              setPayeeOpen(false);
-
-                              // YNAB 4 prefills the rest of the row from what this
-                              // payee usually uses. Typing a brand new name skips
-                              // this entirely, since there is nothing remembered yet.
-                              const autofill = autofillForPayee(p, { categoryId, memo, outflow, inflow });
-                              if (autofill.categoryId !== undefined) setCategoryId(autofill.categoryId);
-                              if (autofill.memo !== undefined) setMemo(autofill.memo);
-                              if (autofill.outflow !== undefined) setOutflow(autofill.outflow);
-                              if (autofill.inflow !== undefined) setInflow(autofill.inflow);
-
-                              // Once the category is settled its picker is a stop
-                              // the user does not need, and landing on it would pop
-                              // the menu open over an answer they already have.
-                              const next =
-                                autofill.categoryId !== undefined ? memoRef : categoryTriggerRef;
-                              setTimeout(() => next.current?.focus(), 0);
-                            }}
-                          >
-                            {p.name}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </td>
-            <td className="px-4 py-2">
-              <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
-                <PopoverTrigger
-                  render={
-                    <Button
-                      ref={categoryTriggerRef}
-                      tabIndex={3}
-                      variant="ghost"
-                      role="combobox"
-                      onFocus={() => setCategoryOpen(true)}
-                      className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
-                    />
-                  }
-                >
-                  {categoryId
-                    ? categoryOptions.find((c) => c.id === categoryId)?.label
-                    : <span className="text-muted-foreground">Category</span>}
-                </PopoverTrigger>
-                <PopoverContent className="w-72 p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="Search categories..." />
-                    <CommandList>
-                      <CommandEmpty>No categories found.</CommandEmpty>
-                      <CommandGroup>
-                        {categoryOptions.map((c) => (
-                          <CommandItem
-                            key={c.id}
-                            value={c.label}
-                            onSelect={() => {
-                              setCategoryId(c.id);
-                              setCategoryOpen(false);
-                              setTimeout(() => memoRef.current?.focus(), 0);
-                            }}
-                          >
-                            {c.label}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            </td>
-            <td className="px-4 py-2">
-              <input
-                type="text"
-                ref={memoRef}
-                tabIndex={4}
-                placeholder="Memo"
-                value={memo}
-                onChange={(e) => setMemo(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className={inputClass}
-              />
-            </td>
-            <td className="px-4 py-2">
-              <input
-                tabIndex={5}
-                type="number"
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                value={outflow}
-                onChange={(e) => setOutflow(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className={`${inputClass} text-right`}
-              />
-            </td>
-            <td className="px-4 py-2">
-              <input
-                tabIndex={6}
-                type="number"
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                value={inflow}
-                onChange={(e) => setInflow(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className={`${inputClass} text-right`}
-              />
-            </td>
+            <RegisterRowFields
+              fields={addDraft}
+              onChange={(patch) => setAddFields((prev) => ({ ...prev, ...patch }))}
+              payees={payeeList}
+              categoryOptions={categoryOptions}
+              autofill={autofillForPayee}
+              locks={addLocks}
+              onSubmit={saveAdd}
+              tabIndexBase={1}
+            />
             <td className="px-2 py-2" />
             <td className="px-6 py-2 text-right">
               <button
-                onClick={() => createTransaction({ date, payeeId, payeeName, categoryId, memo, outflow, inflow })}
+                onClick={saveAdd}
                 disabled={isSaving}
                 className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
               >
@@ -391,8 +340,148 @@ function AccountRegisterPage() {
               </button>
             </td>
           </tr>
+
+          {(addBlocked ?? createError) && (
+            <tr>
+              <td colSpan={8} className="px-6 pb-2">
+                <p className="text-xs text-destructive">{addBlocked ?? createError}</p>
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
+  );
+}
+
+// ─── Cleared status ───────────────────────────────────────────────────────────
+
+/** The C column, which cycles Uncleared → Cleared → Reconciled as it is clicked. */
+function ClearedCell({ cleared, onCycle }: { cleared: string; onCycle: () => void }) {
+  return (
+    <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={onCycle}
+        className="text-muted-foreground hover:text-foreground transition-colors"
+        title={cleared}
+      >
+        {cleared === "Reconciled" ? (
+          <Lock size={14} className="text-primary" />
+        ) : cleared === "Cleared" ? (
+          <CheckCircle2 size={14} className="text-green-500" />
+        ) : (
+          <Circle size={14} />
+        )}
+      </button>
+    </td>
+  );
+}
+
+// ─── Editing a row ────────────────────────────────────────────────────────────
+
+/**
+ * A transaction already on the books, in place: the same controls the add row
+ * uses, over a draft of its own. Enter commits and Escape reverts, both from
+ * anywhere in the row; clicking another row drops the draft the same way.
+ */
+function EditCells({
+  txn,
+  locks,
+  payeeList,
+  categoryOptions,
+  autofillForPayee,
+  isBusy,
+  onSave,
+  onDelete,
+  onCancel,
+  onCycleCleared,
+}: {
+  txn: RegisterTransaction;
+  locks: RegisterRowLocks;
+  // Taken off the hook so the shapes are not restated here.
+  payeeList: ReturnType<typeof useAccountRegister>["payeeList"];
+  categoryOptions: ReturnType<typeof useAccountRegister>["categoryOptions"];
+  autofillForPayee: ReturnType<typeof useAccountRegister>["autofillForPayee"];
+  isBusy: boolean;
+  onSave: (fields: RegisterFields) => void;
+  onDelete: () => void;
+  onCancel: () => void;
+  onCycleCleared: () => void;
+}) {
+  const [fields, setFields] = useState<RegisterFields>(() => fieldsFrom(txn));
+  const [confirming, setConfirming] = useState(false);
+
+  return (
+    <>
+      <RegisterRowFields
+        fields={fields}
+        onChange={(patch) => setFields((prev) => ({ ...prev, ...patch }))}
+        payees={payeeList}
+        categoryOptions={categoryOptions}
+        autofill={autofillForPayee}
+        locks={locks}
+        onSubmit={() => onSave(fields)}
+        onCancel={onCancel}
+        autoFocus
+      />
+
+      <ClearedCell cleared={txn.cleared} onCycle={onCycleCleared} />
+
+      <td className="px-6 py-2 text-right">
+        <span className="flex items-center justify-end gap-3">
+          <button
+            onClick={() => onSave(fields)}
+            disabled={isBusy}
+            aria-label="Save changes"
+            title="Save changes"
+            className="text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+          >
+            <Check size={15} />
+          </button>
+          <button
+            onClick={() => setConfirming(true)}
+            disabled={isBusy}
+            aria-label="Delete transaction"
+            title="Delete transaction"
+            className="text-muted-foreground hover:text-destructive disabled:opacity-50 transition-colors"
+          >
+            <Trash2 size={15} />
+          </button>
+        </span>
+
+        {/* Nothing else in this app confirms before it destroys, but a deleted
+            transaction cannot be brought back from here, and deleting one side
+            of a transfer takes the other account's row with it. */}
+        <Dialog open={confirming} onOpenChange={setConfirming}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete this transaction?</DialogTitle>
+              <DialogDescription>
+                {formatDate(txn.date)}, {txn.payee?.name ?? "no payee"},{" "}
+                {formatCurrency(txn.amount)}.
+                {txn.isTransfer
+                  ? " This is a transfer, so the matching transaction in the other account goes too."
+                  : ""}{" "}
+                This cannot be undone here.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setConfirming(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  setConfirming(false);
+                  onDelete();
+                }}
+              >
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </td>
+    </>
   );
 }

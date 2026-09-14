@@ -3,9 +3,16 @@ import { format } from "date-fns";
 import { trpc } from "@/trpc";
 import { payeeAutofillPatch } from "@/lib/payee-autofill";
 import type { PayeeAutofillSource, RegisterDraft } from "@/lib/payee-autofill";
+import { fieldsToAmount, transferCategoryEditable } from "@/lib/register-row";
+import type { RegisterFields } from "@/lib/register-row";
 
 /** How many transactions the register loads at a time, newest first. */
 const PAGE_SIZE = 200;
+
+/** One row of the register, read back off the hook rather than off the router. */
+export type RegisterTransaction = ReturnType<
+  typeof useAccountRegister
+>["transactions"][number];
 
 export function useAccountRegister({
   budgetId,
@@ -45,7 +52,11 @@ export function useAccountRegister({
   const account = accounts?.find((a) => a.id === accountId);
 
   const { data: categoryGroups } = trpc.category.list.useQuery({ budgetId });
-  const { data: payeeList } = trpc.payee.list.useQuery({ budgetId });
+  const { data: allPayees } = trpc.payee.list.useQuery({ budgetId });
+
+  // An account cannot transfer to itself, and the API refuses it, so its own
+  // stand-in payee is not worth offering in its own register.
+  const payeeList = allPayees?.filter((p) => p.targetAccountId !== accountId);
 
   // Entering or clearing a transaction changes the category's activity, so the
   // budget grid is stale too — not just this register.
@@ -53,10 +64,24 @@ export function useAccountRegister({
     return Promise.all([
       utils.account.transactions.invalidate(),
       utils.budget.monthBudget.invalidate(),
+      // Net Worth reads month-end balances straight from the transactions, and
+      // an edit can now move money in a month that has long since closed.
+      utils.report.netWorth.invalidate(),
     ]);
   }
 
   const setClearedMutation = trpc.transaction.setClearedStatus.useMutation({
+    onSuccess: invalidateRegister,
+  });
+
+  // Both of these refetch for the same reason the create below does: an edited
+  // date resorts the register, and a deleted transfer takes a row out of
+  // another account entirely.
+  const updateMutation = trpc.transaction.update.useMutation({
+    onSuccess: invalidateRegister,
+  });
+
+  const deleteMutation = trpc.transaction.delete.useMutation({
     onSuccess: invalidateRegister,
   });
 
@@ -95,6 +120,23 @@ export function useAccountRegister({
     return payeeAutofillPatch(payee, draft, categoryOptions);
   }
 
+  /**
+   * Whether a row moving money to `transferAccountId` carries a category in
+   * this register. A row that is not a transfer always does; a transfer only
+   * does on the on-budget side of a pair whose other side is off budget. The
+   * register asks this to decide what to show, and the update below to decide
+   * what to send, so the two cannot disagree.
+   */
+  function transferKeepsCategory(transferAccountId: number | null) {
+    return (
+      transferAccountId === null ||
+      transferCategoryEditable(
+        account,
+        accounts?.find((a) => a.id === transferAccountId)
+      )
+    );
+  }
+
   function cycleCleared(current: string, id: number) {
     const next =
       current === "Uncleared"
@@ -108,25 +150,11 @@ export function useAccountRegister({
     });
   }
 
-  function createTransaction(fields: {
-    date: Date | undefined;
-    payeeId: number | null;
-    payeeName: string;
-    categoryId: number | null;
-    memo: string;
-    outflow: string;
-    inflow: string;
-  }) {
-    if (!fields.date) return;
-    const dateStr = format(fields.date, "yyyy-MM-dd");
-    const outflowVal = parseFloat(fields.outflow);
-    const inflowVal = parseFloat(fields.inflow);
-    const hasOutflow = !isNaN(outflowVal) && outflowVal > 0;
-    const hasInflow = !isNaN(inflowVal) && inflowVal > 0;
-    if (!hasOutflow && !hasInflow) return;
-    if (hasOutflow && hasInflow) return;
-
-    const amount = hasInflow ? inflowVal : -outflowVal;
+  function createTransaction(fields: RegisterFields) {
+    const amount = fieldsToAmount(fields);
+    // A blank new row is someone who has not finished typing, not a
+    // transaction of nothing, so zero is refused here but allowed on an edit.
+    if (!fields.date || amount === null || amount === 0) return;
 
     createMutation.mutate({
       budgetId,
@@ -135,11 +163,60 @@ export function useAccountRegister({
       payeeName: fields.payeeId ? undefined : fields.payeeName || undefined,
       categoryId: fields.categoryId,
       amount,
-      date: dateStr,
+      date: format(fields.date, "yyyy-MM-dd"),
       memo: fields.memo || undefined,
       cleared: "Uncleared",
       accepted: true,
     });
+  }
+
+  /**
+   * Save what was edited on a row already on the books. A transfer's payee is
+   * left out of the update: it is the other account's name, and the API refuses
+   * to move one side of a pair to a different payee. An empty memo is sent as
+   * the empty string rather than dropped, so a memo can be cleared.
+   */
+  function updateTransaction(
+    txn: {
+      id: number;
+      isSplit: boolean;
+      isTransfer: boolean;
+      transferAccountId: number | null;
+    },
+    fields: RegisterFields,
+    onDone?: () => void
+  ) {
+    const amount = fieldsToAmount(fields);
+    if (!fields.date || amount === null) return;
+
+    updateMutation.mutate(
+      {
+        id: txn.id,
+        ...(txn.isTransfer
+          ? {}
+          : {
+              payeeId: fields.payeeId,
+              payeeName: fields.payeeId ? undefined : fields.payeeName || undefined,
+            }),
+        // Absent rather than null where the row shows no category to edit: a
+        // transfer's category is held on whichever side is on budget, and a
+        // null sent from the other side would clear it there. A split's
+        // categories belong to its parts.
+        ...(!txn.isSplit && transferKeepsCategory(txn.transferAccountId)
+          ? { categoryId: fields.categoryId }
+          : {}),
+        amount,
+        date: format(fields.date, "yyyy-MM-dd"),
+        memo: fields.memo,
+      },
+      { onSuccess: () => onDone?.() }
+    );
+  }
+
+  // onDone closes the row only once it is really gone, so a refused delete
+  // leaves the row open with its error against it.
+  function deleteTransaction(id: number, onDone?: () => void) {
+    deleteMutation.mutate({ id }, { onSuccess: () => onDone?.() });
   }
 
   return {
@@ -153,9 +230,29 @@ export function useAccountRegister({
     payeeList,
     categoryOptions,
     autofillForPayee,
+    transferKeepsCategory,
     isLoading,
     cycleCleared,
     createTransaction,
+    updateTransaction,
+    deleteTransaction,
     isSaving: createMutation.isPending,
+    isSavingEdit: updateMutation.isPending || deleteMutation.isPending,
+
+    // The API writes these for a reader ("Delete it and enter it again."), so
+    // they are shown as they arrive. Without the create one a refused entry
+    // just vanished, which is how a register loses a transaction quietly.
+    createError: createMutation.error?.message ?? null,
+    updateError: updateMutation.error?.message ?? null,
+    deleteError: deleteMutation.error?.message ?? null,
+
+    /** Drop a stale error, for when the register moves to a different row. */
+    resetStatus: () => {
+      updateMutation.reset();
+      deleteMutation.reset();
+    },
+
+    /** The same, for the add row, which clears itself on a successful save. */
+    resetCreateStatus: () => createMutation.reset(),
   };
 }

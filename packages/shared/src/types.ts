@@ -3,6 +3,15 @@
 export const CLEARED_VALUES = ["Uncleared", "Cleared", "Reconciled"] as const;
 export type ClearedValue = typeof CLEARED_VALUES[number];
 
+/**
+ * The statuses a client may put on a transaction itself. Reconciled is not one
+ * of them: it means a statement was reconciled against, which only reconciling
+ * an account can establish, and a row given it any other way would claim a
+ * statement that never existed and could sit at any date at all.
+ */
+export const ASSIGNABLE_CLEARED_VALUES = ["Uncleared", "Cleared"] as const;
+export type AssignableClearedValue = typeof ASSIGNABLE_CLEARED_VALUES[number];
+
 export const ACCOUNT_TYPES = [
   "Checking",
   "Savings",

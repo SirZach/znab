@@ -12,8 +12,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { AccountBalances } from "@/components/register/balances";
+import { ReconcilePanel, ReconcileSummary } from "@/components/register/reconcile-panel";
 import { RegisterRowFields, type RegisterRowLocks } from "@/components/register/row-fields";
-import { useAccountRegister, type RegisterTransaction } from "@/hooks/useAccountRegister";
+import {
+  isReconciled,
+  useAccountRegister,
+  type RegisterTransaction,
+} from "@/hooks/useAccountRegister";
 import { amountToFields, unsaveableReason } from "@/lib/register-row";
 import type { RegisterFields } from "@/lib/register-row";
 
@@ -75,6 +81,9 @@ function AccountRegisterPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [addBlocked, setAddBlocked] = useState<string | null>(null);
   const [editBlocked, setEditBlocked] = useState<string | null>(null);
+  const [reconciling, setReconciling] = useState(false);
+  /** The reconciled row waiting to be told to open anyway. */
+  const [warningId, setWarningId] = useState<number | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -82,6 +91,8 @@ function AccountRegisterPage() {
     account,
     transactions,
     balance,
+    clearedBalance,
+    unclearedBalance,
     hasMore,
     loadOlder,
     isLoadingMore,
@@ -95,13 +106,18 @@ function AccountRegisterPage() {
     createTransaction,
     updateTransaction,
     deleteTransaction,
+    reconcile,
     isSaving,
     isSavingEdit,
+    isReconciling,
     createError,
     updateError,
     deleteError,
+    reconcileError,
+    reconcileResult,
     resetStatus,
     resetCreateStatus,
+    resetReconcileStatus,
   } = useAccountRegister({
     budgetId: Number(budgetId),
     accountId: Number(accountId),
@@ -113,6 +129,10 @@ function AccountRegisterPage() {
       setAddBlocked(null);
     },
   });
+
+  // The row the warning is about, to word it for whichever side is reconciled.
+  const warned =
+    warningId === null ? undefined : transactions.find((t) => t.id === warningId);
 
   if (isLoading) {
     return (
@@ -181,6 +201,17 @@ function AccountRegisterPage() {
     setEditingId(id);
   }
 
+  // A reconciled row is warned about rather than locked shut: it agrees with a
+  // statement, and putting it out of step with one is a decision rather than an
+  // accident. Every other row opens on the first click, as it always has.
+  function requestEdit(txn: RegisterTransaction) {
+    if (isReconciled(txn)) {
+      setWarningId(txn.id);
+      return;
+    }
+    edit(txn.id);
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -188,12 +219,59 @@ function AccountRegisterPage() {
         <div>
           <h2 className="text-xl font-semibold">{account?.name ?? "Account"}</h2>
           <p className="text-sm text-muted-foreground capitalize">{account?.accountType}</p>
+          <p className="text-xs text-muted-foreground">
+            {account?.lastReconciledDate
+              ? `Last reconciled ${formatDate(account.lastReconciledDate)} at ${formatCurrency(
+                  account.lastReconciledBalance
+                )}`
+              : "Never reconciled"}
+          </p>
         </div>
-        <div className="text-right">
-          <p className="text-sm text-muted-foreground">Current balance</p>
-          <p className="text-lg font-semibold">{formatCurrency(balance)}</p>
+        <div className="flex items-end gap-6">
+          <AccountBalances
+            cleared={clearedBalance}
+            uncleared={unclearedBalance}
+            working={balance}
+          />
+          {!reconciling && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                resetReconcileStatus();
+                // Reconciling is about ticking rows, so an open edit row would
+                // only be in the way, and its draft is not worth keeping behind
+                // a panel the reader cannot see it through.
+                edit(null);
+                setReconciling(true);
+              }}
+            >
+              Reconcile
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Between the header and the column headers, so the rows behind it stay
+          clickable: ticking them off is how a statement gets reconciled. */}
+      {reconciling ? (
+        <ReconcilePanel
+          clearedBalance={clearedBalance}
+          rows={transactions}
+          hasMore={hasMore}
+          clearedFilter={cleared}
+          isLoadingMore={isLoadingMore}
+          onLoadOlder={loadOlder}
+          isBusy={isReconciling}
+          error={reconcileError}
+          onFinish={(input) => reconcile(input, () => setReconciling(false))}
+          onCancel={() => setReconciling(false)}
+        />
+      ) : (
+        reconcileResult && (
+          <ReconcileSummary result={reconcileResult} onDismiss={resetReconcileStatus} />
+        )
+      )}
 
       {/* Sticky table header */}
       <table className="w-full text-sm border-b border-border">
@@ -240,7 +318,7 @@ function AccountRegisterPage() {
               return (
                 <Fragment key={txn.id}>
                   <tr
-                    onClick={editing ? undefined : () => edit(txn.id)}
+                    onClick={editing ? undefined : () => requestEdit(txn)}
                     aria-selected={editing}
                     className={cn(
                       "border-b border-border/50 transition-colors",
@@ -259,7 +337,7 @@ function AccountRegisterPage() {
                         autofillForPayee={autofillForPayee}
                         isBusy={isSavingEdit}
                         onSave={(fields) => saveEdit(txn, fields)}
-                        onDelete={() => deleteTransaction(txn.id, () => setEditingId(null))}
+                        onDelete={() => deleteTransaction(txn, () => setEditingId(null))}
                         onCancel={() => edit(null)}
                         onCycleCleared={() => cycleCleared(txn.cleared, txn.id)}
                       />
@@ -350,20 +428,75 @@ function AccountRegisterPage() {
           )}
         </tbody>
       </table>
+
+      <Dialog open={warningId !== null} onOpenChange={(open) => !open && setWarningId(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            {/* A transfer can be reconciled on its far side alone, since each
+                account is reconciled against its own statement. Calling that
+                "this transaction is reconciled" would be untrue, and it is the
+                other account's statement that would be put out of step. */}
+            {warned?.cleared === "Reconciled" ? (
+              <>
+                <DialogTitle>This transaction is reconciled</DialogTitle>
+                <DialogDescription>
+                  Changing it will put this account out of step with the statement it was
+                  reconciled against
+                  {account?.lastReconciledDate
+                    ? ` on ${formatDate(account.lastReconciledDate)}`
+                    : ""}
+                  .
+                </DialogDescription>
+              </>
+            ) : (
+              <>
+                <DialogTitle>The other side of this transfer is reconciled</DialogTitle>
+                <DialogDescription>
+                  This row is not, but the matching one in the other account is, and a
+                  transfer's two halves move together. Changing it will put that account out
+                  of step with the statement it was reconciled against.
+                </DialogDescription>
+              </>
+            )}
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setWarningId(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                edit(warningId);
+                setWarningId(null);
+              }}
+            >
+              Edit anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 // ─── Cleared status ───────────────────────────────────────────────────────────
 
-/** The C column, which cycles Uncleared → Cleared → Reconciled as it is clicked. */
+/**
+ * The C column, which ticks a row off and unticks it again. Reconciled is not
+ * part of that: a row gets there by being reconciled against a statement, so a
+ * reconciled row shows its lock and stays put however often it is clicked.
+ */
 function ClearedCell({ cleared, onCycle }: { cleared: string; onCycle: () => void }) {
+  const locked = cleared === "Reconciled";
+
   return (
     <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
       <button
         onClick={onCycle}
-        className="text-muted-foreground hover:text-foreground transition-colors"
-        title={cleared}
+        className={cn(
+          "transition-colors",
+          locked ? "cursor-default" : "text-muted-foreground hover:text-foreground"
+        )}
+        title={locked ? "Reconciled against a statement" : cleared}
       >
         {cleared === "Reconciled" ? (
           <Lock size={14} className="text-primary" />

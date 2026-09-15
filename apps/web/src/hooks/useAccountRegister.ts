@@ -10,6 +10,24 @@ import type { RegisterFields } from "@/lib/register-row";
 const PAGE_SIZE = 200;
 
 /** One row of the register, read back off the hook rather than off the router. */
+/** A row's own cleared status, and the far side's where it has one. */
+export type ReconcilableSide = {
+  cleared: string;
+  counterpartCleared?: string | null;
+};
+
+/**
+ * Whether changing this row means changing reconciled history. The far side of
+ * a transfer counts: the two accounts are reconciled against their own
+ * statements, so one side is commonly reconciled while the other is not, and a
+ * delete takes both. The API refuses either case without an acknowledgement, so
+ * this is the same question it asks, asked in the one place the warning and the
+ * acknowledgement both read from.
+ */
+export function isReconciled(txn: ReconcilableSide): boolean {
+  return txn.cleared === "Reconciled" || txn.counterpartCleared === "Reconciled";
+}
+
 export type RegisterTransaction = ReturnType<
   typeof useAccountRegister
 >["transactions"][number];
@@ -67,6 +85,14 @@ export function useAccountRegister({
       // Net Worth reads month-end balances straight from the transactions, and
       // an edit can now move money in a month that has long since closed.
       utils.report.netWorth.invalidate(),
+      // Entering a payee by name makes one, and reconciling makes the payee it
+      // files a balance adjustment under, so the payee lists go stale too.
+      utils.payee.list.invalidate(),
+      utils.payee.listForManage.invalidate(),
+      // The account row carries the sidebar's balance and what this register's
+      // header says was last reconciled, so leaving it alone left a finished
+      // reconciliation looking like it had not happened.
+      utils.account.list.invalidate(),
     ]);
   }
 
@@ -82,6 +108,10 @@ export function useAccountRegister({
   });
 
   const deleteMutation = trpc.transaction.delete.useMutation({
+    onSuccess: invalidateRegister,
+  });
+
+  const reconcileMutation = trpc.account.reconcile.useMutation({
     onSuccess: invalidateRegister,
   });
 
@@ -137,17 +167,34 @@ export function useAccountRegister({
     );
   }
 
+  /**
+   * Tick a row off, or untick it. Reconciled is not part of the cycle: a row
+   * gets there by being reconciled against a statement, and the API refuses to
+   * move one back out, so a reconciled row is left alone here rather than sent
+   * a call that is already known to be refused.
+   */
   function cycleCleared(current: string, id: number) {
-    const next =
-      current === "Uncleared"
-        ? "Cleared"
-        : current === "Cleared"
-        ? "Reconciled"
-        : "Uncleared";
+    if (current === "Reconciled") return;
     setClearedMutation.mutate({
       id,
-      cleared: next as "Uncleared" | "Cleared" | "Reconciled",
+      cleared: current === "Cleared" ? "Uncleared" : "Cleared",
     });
+  }
+
+  /**
+   * Reconcile the account against a statement. `adjustment` is the reader's
+   * answer to a difference: without it the API refuses to write a
+   * reconciliation that does not add up, which is what puts the question in
+   * front of them in the first place.
+   */
+  function reconcile(
+    input: { statementDate: string; statementBalance: number; adjustment: boolean },
+    onDone?: () => void
+  ) {
+    reconcileMutation.mutate(
+      { budgetId, accountId, ...input },
+      { onSuccess: () => onDone?.() }
+    );
   }
 
   function createTransaction(fields: RegisterFields) {
@@ -175,10 +222,15 @@ export function useAccountRegister({
    * left out of the update: it is the other account's name, and the API refuses
    * to move one side of a pair to a different payee. An empty memo is sent as
    * the empty string rather than dropped, so a memo can be cleared.
+   *
+   * A reconciled row is acknowledged rather than refused: the register asks
+   * before it opens one for editing, so reaching here is the reader saying they
+   * meant it.
    */
   function updateTransaction(
     txn: {
       id: number;
+      cleared: string;
       isSplit: boolean;
       isTransfer: boolean;
       transferAccountId: number | null;
@@ -208,6 +260,7 @@ export function useAccountRegister({
         amount,
         date: format(fields.date, "yyyy-MM-dd"),
         memo: fields.memo,
+        acknowledgeReconciled: isReconciled(txn),
       },
       { onSuccess: () => onDone?.() }
     );
@@ -215,14 +268,21 @@ export function useAccountRegister({
 
   // onDone closes the row only once it is really gone, so a refused delete
   // leaves the row open with its error against it.
-  function deleteTransaction(id: number, onDone?: () => void) {
-    deleteMutation.mutate({ id }, { onSuccess: () => onDone?.() });
+  function deleteTransaction(txn: ReconcilableSide & { id: number }, onDone?: () => void) {
+    deleteMutation.mutate(
+      { id: txn.id, acknowledgeReconciled: isReconciled(txn) },
+      { onSuccess: () => onDone?.() }
+    );
   }
 
   return {
     account,
     transactions,
     balance: data?.balance ?? 0,
+    // The two halves of that working balance: what the bank has agreed to, and
+    // what it has not seen yet. Reconciling works against the cleared one.
+    clearedBalance: data?.clearedBalance ?? 0,
+    unclearedBalance: data?.unclearedBalance ?? 0,
     total: data?.total ?? 0,
     hasMore: data?.hasMore ?? false,
     loadOlder: () => setLimit((n) => n + PAGE_SIZE),
@@ -236,8 +296,10 @@ export function useAccountRegister({
     createTransaction,
     updateTransaction,
     deleteTransaction,
+    reconcile,
     isSaving: createMutation.isPending,
     isSavingEdit: updateMutation.isPending || deleteMutation.isPending,
+    isReconciling: reconcileMutation.isPending,
 
     // The API writes these for a reader ("Delete it and enter it again."), so
     // they are shown as they arrive. Without the create one a refused entry
@@ -245,6 +307,10 @@ export function useAccountRegister({
     createError: createMutation.error?.message ?? null,
     updateError: updateMutation.error?.message ?? null,
     deleteError: deleteMutation.error?.message ?? null,
+    reconcileError: reconcileMutation.error?.message ?? null,
+
+    /** What the last reconciliation actually did, for reporting it back. */
+    reconcileResult: reconcileMutation.data ?? null,
 
     /** Drop a stale error, for when the register moves to a different row. */
     resetStatus: () => {
@@ -254,5 +320,8 @@ export function useAccountRegister({
 
     /** The same, for the add row, which clears itself on a successful save. */
     resetCreateStatus: () => createMutation.reset(),
+
+    /** And for the reconcile panel, which reports what it did after closing. */
+    resetReconcileStatus: () => reconcileMutation.reset(),
   };
 }

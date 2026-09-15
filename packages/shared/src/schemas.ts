@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { ACCOUNT_TYPES, CLEARED_VALUES, FREQUENCY_VALUES } from "./types";
+import {
+  ACCOUNT_TYPES,
+  ASSIGNABLE_CLEARED_VALUES,
+  CLEARED_VALUES,
+  FREQUENCY_VALUES,
+} from "./types";
 
 // ─── Transaction ────────────────────────────────────────────────────────────
 
@@ -10,7 +15,9 @@ export const createTransactionSchema = z.object({
   categoryId: z.number().int().positive().nullable(),
   amount: z.number(), // positive = inflow, negative = outflow
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  cleared: z.enum(CLEARED_VALUES).default("Uncleared"),
+  // Not Reconciled: see ASSIGNABLE_CLEARED_VALUES. Reconciling an account is
+  // what sets that, so entering a row cannot claim it.
+  cleared: z.enum(ASSIGNABLE_CLEARED_VALUES).default("Uncleared"),
   accepted: z.boolean().default(true),
   memo: z.string().optional(),
   flagColor: z.string().optional(),
@@ -21,7 +28,7 @@ export const createTransactionSchema = z.object({
 // Re-declare them as plain optionals so absent keys stay absent.
 export const updateTransactionSchema = createTransactionSchema.partial().extend({
   id: z.number().int().positive(),
-  cleared: z.enum(CLEARED_VALUES).optional(),
+  cleared: z.enum(ASSIGNABLE_CLEARED_VALUES).optional(),
   accepted: z.boolean().optional(),
 });
 
@@ -42,6 +49,17 @@ export const createAccountSchema = z.object({
   note: z.string().optional(),
 });
 
+// What the user asserts about a statement: the balance printed on it and the
+// date it closes. `adjustment` is their consent to write the difference off as
+// a transaction, so a reconcile that does not balance is refused without it
+// rather than quietly entering money nobody asked for.
+export const reconcileAccountSchema = z.object({
+  accountId: z.number().int().positive(),
+  statementBalance: z.number(),
+  statementDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  adjustment: z.boolean().default(false),
+});
+
 // ─── Budget search params (shared with router) ───────────────────────────────
 
 export const budgetSearchSchema = z.object({
@@ -58,3 +76,4 @@ export type CreateTransaction = z.infer<typeof createTransactionSchema>;
 export type UpdateTransaction = z.infer<typeof updateTransactionSchema>;
 export type SetBudgeted = z.infer<typeof setBudgetedSchema>;
 export type CreateAccount = z.infer<typeof createAccountSchema>;
+export type ReconcileAccount = z.infer<typeof reconcileAccountSchema>;

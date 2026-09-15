@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, inArray, isNull } from "drizzle-orm";
+import { eq, and, inArray, isNull, ne } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { transactions, payees, accounts, categories, budgets } from "@znab/db";
 import { createTransactionSchema, updateTransactionSchema } from "@znab/shared";
@@ -74,6 +74,50 @@ function counterpartWhere(
     isNull(transactions.deletedAt),
     inArray(transactions.budgetId, ownedBudgetIds(ctx))
   );
+}
+
+/** The other half's cleared status, when there is another half to find. */
+async function counterpartCleared(
+  // Narrowed the way `assertIdsInBudget` is, so the caller inside an open
+  // transaction does not have to reach outside it.
+  db: Pick<AuthedContext["db"], "select">,
+  ctx: AuthedContext,
+  row: { budgetId: number; isTransfer: boolean; transferTransactionId: string | null }
+) {
+  if (!row.isTransfer || !row.transferTransactionId) return null;
+  const [far] = await db
+    .select({ cleared: transactions.cleared })
+    .from(transactions)
+    .where(counterpartWhere(ctx, row.budgetId, row.transferTransactionId))
+    .limit(1);
+  return far?.cleared ?? null;
+}
+
+/**
+ * A reconciled transaction is one a statement has already been balanced
+ * against, so changing it puts the account out of step with that statement.
+ * YNAB 4 warns and then lets the change through, and that is what the
+ * acknowledgement carries: the client has shown the warning and the user chose
+ * to go ahead anyway. Both halves of a transfer are judged, since an edit
+ * crosses over and a delete takes both.
+ */
+function assertReconciledAcknowledged(
+  near: string,
+  far: string | null,
+  acknowledged: boolean | undefined,
+  verb: "Editing" | "Deleting"
+) {
+  const subject =
+    near === "Reconciled"
+      ? "This transaction is reconciled"
+      : far === "Reconciled"
+        ? "The other side of this transfer is reconciled"
+        : null;
+  if (!subject || acknowledged) return;
+  throw new TRPCError({
+    code: "BAD_REQUEST",
+    message: `${subject}. ${verb} it would put the account out of step with the statement it was reconciled against.`,
+  });
 }
 
 export const transactionRouter = router({
@@ -253,19 +297,26 @@ export const transactionRouter = router({
     }),
 
   update: protectedProcedure
-    .input(updateTransactionSchema)
+    .input(
+      updateTransactionSchema.extend({
+        acknowledgeReconciled: z.boolean().optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
-      // `payeeName` makes a payee on the fly and is not a column, so it never
-      // reaches the query builder. `payeeId`, `categoryId` and `amount` are
-      // pulled out because a transfer decides them for itself; everything left
-      // in `rest` is written as sent, absent keys included.
-      const { id, payeeName, payeeId, categoryId, amount, ...rest } = input;
+      // `payeeName` makes a payee on the fly and `acknowledgeReconciled` is the
+      // user's answer to a warning, so neither is a column and neither reaches
+      // the query builder. `payeeId`, `categoryId` and `amount` are pulled out
+      // because a transfer decides them for itself; everything left in `rest`
+      // is written as sent, absent keys included.
+      const { id, payeeName, payeeId, categoryId, amount, acknowledgeReconciled, ...rest } =
+        input;
 
       return ctx.db.transaction(async (tx) => {
         const [row] = await tx
           .select({
             budgetId: transactions.budgetId,
             accountId: transactions.accountId,
+            cleared: transactions.cleared,
             isTransfer: transactions.isTransfer,
             transferAccountId: transactions.transferAccountId,
             transferTransactionId: transactions.transferTransactionId,
@@ -279,6 +330,13 @@ export const transactionRouter = router({
           )
           .limit(1);
         if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+
+        assertReconciledAcknowledged(
+          row.cleared,
+          await counterpartCleared(tx, ctx, row),
+          acknowledgeReconciled,
+          "Editing"
+        );
 
         // Repointing one side of a transfer at an ordinary payee would leave
         // the other side taking money from an account that no longer claims
@@ -380,10 +438,42 @@ export const transactionRouter = router({
     }),
 
   delete: protectedProcedure
-    .input(z.object({ id: z.number().int().positive() }))
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        acknowledgeReconciled: z.boolean().optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       await ctx.db.transaction(async (tx) => {
-        const [deleted] = await tx
+        // Read before writing, so a refused delete leaves the row alone rather
+        // than leaning on the rollback to put it back. The write below still
+        // carries ownership scoping of its own.
+        const [row] = await tx
+          .select({
+            budgetId: transactions.budgetId,
+            cleared: transactions.cleared,
+            isTransfer: transactions.isTransfer,
+            transferTransactionId: transactions.transferTransactionId,
+          })
+          .from(transactions)
+          .where(
+            and(
+              eq(transactions.id, input.id),
+              inArray(transactions.budgetId, ownedBudgetIds(ctx))
+            )
+          )
+          .limit(1);
+        if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+
+        assertReconciledAcknowledged(
+          row.cleared,
+          await counterpartCleared(tx, ctx, row),
+          input.acknowledgeReconciled,
+          "Deleting"
+        );
+
+        await tx
           .update(transactions)
           .set({ deletedAt: new Date(), updatedAt: new Date() })
           .where(
@@ -391,31 +481,28 @@ export const transactionRouter = router({
               eq(transactions.id, input.id),
               inArray(transactions.budgetId, ownedBudgetIds(ctx))
             )
-          )
-          .returning({
-            budgetId: transactions.budgetId,
-            isTransfer: transactions.isTransfer,
-            transferTransactionId: transactions.transferTransactionId,
-          });
-
-        if (!deleted) throw new TRPCError({ code: "NOT_FOUND" });
+          );
 
         // Both halves go together, or the account left holding one shows money
         // arriving from nowhere. A counterpart already gone leaves nothing to do.
-        if (deleted.isTransfer && deleted.transferTransactionId) {
+        if (row.isTransfer && row.transferTransactionId) {
           await tx
             .update(transactions)
             .set({ deletedAt: new Date(), updatedAt: new Date() })
-            .where(counterpartWhere(ctx, deleted.budgetId, deleted.transferTransactionId));
+            .where(counterpartWhere(ctx, row.budgetId, row.transferTransactionId));
         }
       });
     }),
 
+  // Ticking a transaction as the bank shows it, and unticking it again.
+  // Reconciled is not on offer: it is what reconciling an account against a
+  // statement sets, and a row that has been through that is no longer the
+  // register's to change.
   setClearedStatus: protectedProcedure
     .input(
       z.object({
         id: z.number().int().positive(),
-        cleared: z.enum(["Uncleared", "Cleared", "Reconciled"]),
+        cleared: z.enum(["Uncleared", "Cleared"]),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -425,11 +512,32 @@ export const transactionRouter = router({
         .where(
           and(
             eq(transactions.id, input.id),
+            ne(transactions.cleared, "Reconciled"),
             inArray(transactions.budgetId, ownedBudgetIds(ctx))
           )
         )
         .returning({ id: transactions.id });
 
-      if (!updated) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!updated) {
+        // The update refuses a reconciled row in its own WHERE, so nothing
+        // matching means one of two things. Telling them apart takes a second
+        // look, scoped the same way.
+        const [row] = await ctx.db
+          .select({ id: transactions.id })
+          .from(transactions)
+          .where(
+            and(
+              eq(transactions.id, input.id),
+              inArray(transactions.budgetId, ownedBudgetIds(ctx))
+            )
+          )
+          .limit(1);
+        if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This transaction was reconciled. Reconciling the account against a statement is what sets that, so it cannot be ticked back by hand.",
+        });
+      }
     }),
 });

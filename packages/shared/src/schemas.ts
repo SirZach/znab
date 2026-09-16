@@ -43,10 +43,13 @@ export const setBudgetedSchema = z.object({
 // ─── Account ─────────────────────────────────────────────────────────────────
 
 export const createAccountSchema = z.object({
-  name: z.string().min(1),
+  // The column is unbounded text, so the ceiling has to come from here.
+  name: z.string().min(1).max(200),
   accountType: z.enum(ACCOUNT_TYPES),
   onBudget: z.boolean().default(true),
-  note: z.string().optional(),
+  // Bounded here for the same reason, and to the same ceiling the account
+  // router puts on a note it is handed later.
+  note: z.string().max(1000).optional(),
 });
 
 // What the user asserts about a statement: the balance printed on it and the

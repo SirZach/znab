@@ -1,16 +1,72 @@
 import { z } from "zod";
-import { eq, and, isNull, inArray, lte, sql } from "drizzle-orm";
+import { eq, and, count, isNull, inArray, lte, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
-import { accounts, payees, transactions } from "@znab/db";
-import { reconcileAccountSchema } from "@znab/shared";
-import { assertBudgetAccess, ownedBudgetIds } from "../lib/authz";
+import type { db } from "@znab/db";
+import { accounts, categories, categoryGroups, payees, transactions } from "@znab/db";
+import { ACCOUNT_TYPES, createAccountSchema, reconcileAccountSchema } from "@znab/shared";
+import { assertBudgetAccess, ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import {
+  accountClass,
+  startingBalanceCategory,
+  PRE_YNAB_DEBT_GROUP_NAME,
+  PRE_YNAB_DEBT_GROUP_YNAB_ID,
+  STARTING_BALANCE_PAYEE_NAME,
+} from "../lib/account";
 import {
   balanceAdjustment,
   reconcileDifference,
   RECONCILE_MEMO,
   RECONCILE_PAYEE_NAME,
 } from "../lib/reconcile";
+import { transferPayeeName, transferPayeeYnabId } from "../lib/transfer";
+
+/** The handle inside `db.transaction`, for the helpers the writes below share. */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * The live rows an account holds. Three of the writes below turn on it: the two
+ * settings the budget engine reads as they stand today cannot be flipped under
+ * existing history, and an account that has history is closed rather than
+ * deleted.
+ */
+async function liveTransactionCount(tx: Tx, accountId: number): Promise<number> {
+  const [used] = await tx
+    .select({ value: count() })
+    .from(transactions)
+    .where(and(eq(transactions.accountId, accountId), isNull(transactions.deletedAt)));
+  return Number(used!.value);
+}
+
+/** Reads one live account of the budget, locked for the rest of the transaction. */
+async function lockAccount(
+  tx: Tx,
+  ctx: AuthedContext,
+  accountId: number,
+  budgetId: number
+) {
+  const [account] = await tx
+    .select({
+      id: accounts.id,
+      name: accounts.name,
+      accountType: accounts.accountType,
+      onBudget: accounts.onBudget,
+    })
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.id, accountId),
+        eq(accounts.budgetId, budgetId),
+        isNull(accounts.deletedAt),
+        inArray(accounts.budgetId, ownedBudgetIds(ctx))
+      )
+    )
+    .for("update");
+  if (!account) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
+  }
+  return account;
+}
 
 /** One page row from the window query: the id and its account-wide balance. */
 type PageRow = { id: number; runningBalance: string };
@@ -170,6 +226,430 @@ export const accountRouter = router({
         total: totals[0]?.count ?? 0,
         hasMore,
       };
+    }),
+
+  // A new account, together with what it already holds. YNAB 4 records an
+  // opening balance as an ordinary transaction rather than as a column on the
+  // account, so the register shows where the money came from and the budget
+  // counts it like any other row.
+  create: protectedProcedure
+    .input(
+      createAccountSchema.extend({
+        budgetId: z.number().int().positive(),
+        startingBalance: z.number().optional(),
+        startingBalanceDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      // An opening balance dated ahead of today would be income the budget
+      // cannot reach yet, and on a budget with nothing else in it the month
+      // engine starts at the earliest row it can find, so every month before
+      // that date reads as empty. There is no account that opened tomorrow.
+      if (
+        input.startingBalanceDate &&
+        input.startingBalanceDate > new Date().toISOString().slice(0, 10)
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "An account cannot open with a balance dated in the future.",
+        });
+      }
+
+      const name = input.name.trim();
+      if (!name) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Account name cannot be empty" });
+      }
+
+      // YNAB 4 names an account with a bare uuid, so nothing imported carries
+      // this shape. Prefixed the way every other authored id is, which keeps an
+      // account made here telling about where it came from.
+      const ynabId = `Account/${crypto.randomUUID()}`;
+
+      return ctx.db.transaction(async (tx) => {
+        const [top] = await tx
+          .select({ max: sql<number | null>`MAX(${accounts.sortOrder})` })
+          .from(accounts)
+          .where(and(eq(accounts.budgetId, input.budgetId), isNull(accounts.deletedAt)));
+
+        const [account] = await tx
+          .insert(accounts)
+          .values({
+            ynabId,
+            budgetId: input.budgetId,
+            name,
+            accountType: input.accountType,
+            onBudget: input.onBudget,
+            hidden: false,
+            // The sidebar orders by this, so a new account joins the end.
+            sortOrder: Number(top?.max ?? -1) + 1,
+            note: input.note?.trim() || null,
+          })
+          .returning();
+
+        // Every account is supposed to have a payee standing in for it, so
+        // that money can be moved to it from somewhere else. Minted here
+        // rather than on the first transfer, so that "every account has one"
+        // holds by construction, and enabled because a new account is open.
+        await tx.insert(payees).values({
+          ynabId: transferPayeeYnabId(ynabId),
+          budgetId: input.budgetId,
+          name: transferPayeeName(name),
+          targetAccountId: account!.id,
+          enabled: true,
+        });
+
+        const amount = input.startingBalance ?? 0;
+        if (amount !== 0) {
+          const opening = startingBalanceCategory(account!, ynabId);
+
+          // An on-budget account opening in the red owes money the budget
+          // never saw, which YNAB 4 files under a category of the account's
+          // own inside a system group. That category is new by construction,
+          // since it hangs off an id minted moments ago; the group is shared,
+          // and the imported budgets carry it already while one started here
+          // does not, so the group is resolved rather than simply made.
+          let categoryId: number | null = null;
+          if (opening.preYnabDebt) {
+            const group = await tx.query.categoryGroups.findFirst({
+              where: and(
+                eq(categoryGroups.budgetId, input.budgetId),
+                eq(categoryGroups.ynabId, PRE_YNAB_DEBT_GROUP_YNAB_ID),
+                isNull(categoryGroups.deletedAt)
+              ),
+              columns: { id: true },
+            });
+            let groupId = group?.id;
+            if (!groupId) {
+              // Two accounts opening the first debt in a budget at once would
+              // both read no group and both insert one, and the second would
+              // come back as a bare unique violation rather than anything a
+              // reader could act on. Letting the constraint decide, then
+              // reading back what won, costs a query only the first time.
+              const [created] = await tx
+                .insert(categoryGroups)
+                .values({
+                  ynabId: PRE_YNAB_DEBT_GROUP_YNAB_ID,
+                  budgetId: input.budgetId,
+                  name: PRE_YNAB_DEBT_GROUP_NAME,
+                  isSystem: true,
+                })
+                .onConflictDoNothing()
+                .returning({ id: categoryGroups.id });
+              groupId =
+                created?.id ??
+                (await tx.query.categoryGroups.findFirst({
+                  where: and(
+                    eq(categoryGroups.budgetId, input.budgetId),
+                    eq(categoryGroups.ynabId, PRE_YNAB_DEBT_GROUP_YNAB_ID)
+                  ),
+                  columns: { id: true },
+                }))!.id;
+            }
+
+            const [category] = await tx
+              .insert(categories)
+              .values({
+                ynabId: opening.categoryYnabId!,
+                budgetId: input.budgetId,
+                groupId,
+                name,
+              })
+              .returning({ id: categories.id });
+            categoryId = category!.id;
+          }
+
+          // Matched trimmed and case-insensitively, the way reconcile matches
+          // its own payee, so a stored name with stray whitespace is reused
+          // rather than doubled. A new one is disabled as the imported one is:
+          // it is the account's own bookkeeping rather than a payee anybody
+          // enters a transaction against, so it stays out of the picker.
+          const existing = await tx.query.payees.findFirst({
+            where: and(
+              eq(payees.budgetId, input.budgetId),
+              isNull(payees.deletedAt),
+              sql`lower(trim(${payees.name})) = ${STARTING_BALANCE_PAYEE_NAME.toLowerCase()}`
+            ),
+            columns: { id: true },
+          });
+          let payeeId = existing?.id;
+          if (!payeeId) {
+            const [created] = await tx
+              .insert(payees)
+              .values({
+                ynabId: `Payee/${crypto.randomUUID()}`,
+                budgetId: input.budgetId,
+                name: STARTING_BALANCE_PAYEE_NAME,
+                enabled: false,
+              })
+              .returning({ id: payees.id });
+            payeeId = created!.id;
+          }
+
+          await tx.insert(transactions).values({
+            ynabId: crypto.randomUUID(),
+            budgetId: input.budgetId,
+            accountId: account!.id,
+            payeeId,
+            // Both, the way the importer stores them: the id points at the
+            // category row and the ynab id says which envelope it stands for.
+            categoryId,
+            categoryYnabId: opening.categoryYnabId,
+            amount: String(amount),
+            date: input.startingBalanceDate ?? new Date().toISOString().slice(0, 10),
+            // The money is already there, so the bank has agreed to it.
+            cleared: "Cleared",
+            accepted: true,
+          });
+        }
+
+        return account!;
+      });
+    }),
+
+  // Renaming an account and changing what it is. Absent keys are left alone,
+  // so a form can send only what the user touched.
+  update: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        accountId: z.number().int().positive(),
+        name: z.string().max(200).optional(),
+        accountType: z.enum(ACCOUNT_TYPES).optional(),
+        note: z.string().max(1000).optional(),
+        onBudget: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      const name = input.name?.trim();
+      if (input.name !== undefined && !name) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Account name cannot be empty" });
+      }
+
+      return ctx.db.transaction(async (tx) => {
+        const account = await lockAccount(tx, ctx, input.accountId, input.budgetId);
+
+        // `on_budget`, and whether the account type counts as credit or cash,
+        // are read by the budget engine as they stand today: every month it
+        // has ever shown is computed from the account as it is now, with no
+        // point-in-time snapshot behind it. Flipping either under existing
+        // rows would silently rewrite years of arithmetic, so it is refused
+        // rather than warned about. An account with nothing in it has no
+        // history to rewrite, which is what lets a fresh mistake be corrected.
+        const crossesSplit =
+          input.accountType !== undefined &&
+          accountClass(input.accountType) !== accountClass(account.accountType);
+        const flipsOnBudget =
+          input.onBudget !== undefined && input.onBudget !== account.onBudget;
+        const live =
+          crossesSplit || flipsOnBudget ? await liveTransactionCount(tx, account.id) : 0;
+        const rows = `${live} transaction${live === 1 ? "" : "s"}`;
+
+        if (flipsOnBudget && live > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `"${account.name}" has ${rows}. Moving it ${
+              input.onBudget ? "on" : "off"
+            } budget would rewrite the activity and To be Budgeted of every month it appears in. Create a new account instead.`,
+          });
+        }
+        if (crossesSplit && live > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `"${account.name}" is a ${accountClass(
+              account.accountType
+            )} account with ${rows}. Making it a ${accountClass(
+              input.accountType!
+            )} account would rewrite how every past month's overspending was funded. Create a new account instead.`,
+          });
+        }
+
+        // payee.ts refuses to rename a transfer payee, telling the user to
+        // change the account instead. This is where that promise is kept.
+        if (name !== undefined && name !== account.name) {
+          await tx
+            .update(payees)
+            .set({ name: transferPayeeName(name), updatedAt: new Date() })
+            .where(
+              and(
+                eq(payees.targetAccountId, account.id),
+                isNull(payees.deletedAt),
+                inArray(payees.budgetId, ownedBudgetIds(ctx))
+              )
+            );
+        }
+
+        const [updated] = await tx
+          .update(accounts)
+          .set({
+            ...(name !== undefined ? { name } : {}),
+            ...(input.accountType !== undefined ? { accountType: input.accountType } : {}),
+            ...(input.onBudget !== undefined ? { onBudget: input.onBudget } : {}),
+            // An emptied note is a cleared one, not an empty string.
+            ...(input.note !== undefined ? { note: input.note.trim() || null } : {}),
+            updatedAt: new Date(),
+          })
+          .where(
+            and(eq(accounts.id, account.id), inArray(accounts.budgetId, ownedBudgetIds(ctx)))
+          )
+          .returning();
+
+        return updated!;
+      });
+    }),
+
+  // Closing an account, and reopening it. `hidden` is the only thing that
+  // moves: the budget filters on `deleted_at` and never looks at `hidden`, so
+  // a closed account's history still counts in every month it belongs to,
+  // which is the whole of why YNAB 4 closes accounts instead of deleting them.
+  setHidden: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        accountId: z.number().int().positive(),
+        hidden: z.boolean(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      return ctx.db.transaction(async (tx) => {
+        const account = await lockAccount(tx, ctx, input.accountId, input.budgetId);
+
+        // The payee standing in for the account is enabled exactly when the
+        // account is open, which is what takes a closed account out of the
+        // register's payee picker and puts a reopened one back into it.
+        await tx
+          .update(payees)
+          .set({ enabled: !input.hidden, updatedAt: new Date() })
+          .where(
+            and(
+              eq(payees.targetAccountId, account.id),
+              isNull(payees.deletedAt),
+              inArray(payees.budgetId, ownedBudgetIds(ctx))
+            )
+          );
+
+        const [updated] = await tx
+          .update(accounts)
+          .set({ hidden: input.hidden, updatedAt: new Date() })
+          .where(
+            and(eq(accounts.id, account.id), inArray(accounts.budgetId, ownedBudgetIds(ctx)))
+          )
+          .returning();
+
+        return updated!;
+      });
+    }),
+
+  // The sidebar's order, sent whole. A partial order would leave the accounts
+  // it left out sitting wherever they were, which is how two of them come to
+  // claim the same place, so anything but the complete set is refused.
+  reorder: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        accountIds: z.array(z.number().int().positive()).min(1).max(500),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      return ctx.db.transaction(async (tx) => {
+        const live = await tx
+          .select({ id: accounts.id })
+          .from(accounts)
+          .where(
+            and(
+              eq(accounts.budgetId, input.budgetId),
+              isNull(accounts.deletedAt),
+              inArray(accounts.budgetId, ownedBudgetIds(ctx))
+            )
+          )
+          .for("update");
+
+        const liveIds = new Set(live.map((a) => a.id));
+        const sent = new Set(input.accountIds);
+        if (
+          sent.size !== input.accountIds.length ||
+          sent.size !== liveIds.size ||
+          input.accountIds.some((id) => !liveIds.has(id))
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `The new order has to name each of this budget's ${liveIds.size} accounts exactly once. Reload the sidebar and try again.`,
+          });
+        }
+
+        // One statement an account, which is a few dozen for even the largest
+        // imported budget, all inside the one transaction so that no reader
+        // ever sees half an order.
+        for (const [index, id] of input.accountIds.entries()) {
+          await tx
+            .update(accounts)
+            .set({ sortOrder: index, updatedAt: new Date() })
+            .where(and(eq(accounts.id, id), inArray(accounts.budgetId, ownedBudgetIds(ctx))));
+        }
+
+        return { reordered: input.accountIds.length };
+      });
+    }),
+
+  // Deleting is only ever offered for an account that never held anything, so
+  // that one entered by mistake can be taken back. An account with history is
+  // closed instead, which is what keeps its months intact.
+  delete: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        accountId: z.number().int().positive(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      return ctx.db.transaction(async (tx) => {
+        const account = await lockAccount(tx, ctx, input.accountId, input.budgetId);
+
+        const live = await liveTransactionCount(tx, account.id);
+        if (live > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `"${account.name}" still has ${live} transaction${
+              live === 1 ? "" : "s"
+            }. Close the account instead, which keeps its history in every month it belongs to.`,
+          });
+        }
+
+        // The payee standing in for the account goes with it: left behind, it
+        // would offer a transfer to an account that is no longer there.
+        await tx
+          .update(payees)
+          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .where(
+            and(
+              eq(payees.targetAccountId, account.id),
+              isNull(payees.deletedAt),
+              inArray(payees.budgetId, ownedBudgetIds(ctx))
+            )
+          );
+
+        const [deleted] = await tx
+          .update(accounts)
+          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .where(
+            and(eq(accounts.id, account.id), inArray(accounts.budgetId, ownedBudgetIds(ctx)))
+          )
+          .returning({ id: accounts.id });
+
+        return deleted!;
+      });
     }),
 
   // Reconciling against a statement. The user asserts a balance and a closing

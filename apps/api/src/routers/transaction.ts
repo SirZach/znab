@@ -188,7 +188,7 @@ export const transactionRouter = router({
             eq(accounts.budgetId, input.budgetId),
             isNull(accounts.deletedAt)
           ),
-          columns: { id: true, name: true, ynabId: true, onBudget: true },
+          columns: { id: true, name: true, ynabId: true, onBudget: true, hidden: true },
         });
         const near = ends.find((a) => a.id === input.accountId);
         const far = ends.find((a) => a.id === farAccountId);
@@ -227,6 +227,11 @@ export const transactionRouter = router({
                 budgetId: input.budgetId,
                 name: transferPayeeName(near.name),
                 targetAccountId: near.id,
+                // A transfer payee is enabled exactly when its account is
+                // open. Taking the default here would put a closed account
+                // back in the register's picker the first time anything was
+                // transferred out of it.
+                enabled: !near.hidden,
               })
               .returning({ id: payees.id });
             farPayeeId = created!.id;

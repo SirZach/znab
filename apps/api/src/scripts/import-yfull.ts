@@ -182,6 +182,16 @@ async function importYfull(data: YfullFile, budgetId: number) {
   console.log(`  Importing ${data.accounts.length} accounts...`);
   const accountYnabToId = new Map<string, number>();
 
+  // YNAB 4's sortableIndex is a binary-subdivision key spread across the whole
+  // int32 range, so nothing about the numbers themselves means anything beyond
+  // the order they put the accounts in. Ranked densely from 0 here, which is
+  // the order the sidebar can then sort by.
+  const accountRank = new Map(
+    [...data.accounts]
+      .sort((x, y) => x.sortableIndex - y.sortableIndex)
+      .map((a, index) => [a.entityId, index] as const)
+  );
+
   for (const a of data.accounts) {
     const [row] = await db
       .insert(schema.accounts)
@@ -192,7 +202,7 @@ async function importYfull(data: YfullFile, budgetId: number) {
         accountType: a.accountType,
         onBudget: a.onBudget,
         hidden: a.hidden,
-        sortOrder: a.sortableIndex > 1_000_000 ? 9999 : a.sortableIndex,
+        sortOrder: accountRank.get(a.entityId)!,
         lastReconciledBalance: a.lastReconciledBalance != null ? toMoney(a.lastReconciledBalance) : null,
         lastReconciledDate: a.lastReconciledDate ?? null,
         lastEnteredCheckNum: a.lastEnteredCheckNumber >= 0 ? a.lastEnteredCheckNumber : null,

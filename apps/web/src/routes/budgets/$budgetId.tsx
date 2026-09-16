@@ -18,7 +18,9 @@ import {
   CreditCard,
   LogOut,
   ChevronDown,
+  Plus,
   Users,
+  Wallet,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -81,6 +83,14 @@ function BudgetLayout() {
             label="Payees"
           />
 
+          {/* Manage accounts link */}
+          <SidebarLink
+            to="/budgets/$budgetId/accounts"
+            params={{ budgetId }}
+            icon={<Wallet size={16} />}
+            label="Accounts"
+          />
+
           {/* On-budget accounts */}
           {onBudgetAccounts.length > 0 && (
             <AccountGroup
@@ -108,6 +118,18 @@ function BudgetLayout() {
               defaultOpen={false}
             />
           )}
+
+          {/* The form for a new account lives on the manage screen, so this is
+              the same destination as the link above, reached from where the
+              accounts are. */}
+          <Link
+            to="/budgets/$budgetId/accounts"
+            params={{ budgetId }}
+            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+          >
+            <Plus size={14} />
+            Add account
+          </Link>
         </nav>
 
         {/* Sign-out footer */}

@@ -19,6 +19,7 @@ import {
   LogOut,
   ChevronDown,
   Plus,
+  Tags,
   Users,
   Wallet,
 } from "lucide-react";
@@ -81,6 +82,14 @@ function BudgetLayout() {
             params={{ budgetId }}
             icon={<Users size={16} />}
             label="Payees"
+          />
+
+          {/* Categories link */}
+          <SidebarLink
+            to="/budgets/$budgetId/categories"
+            params={{ budgetId }}
+            icon={<Tags size={16} />}
+            label="Categories"
           />
 
           {/* Manage accounts link */}

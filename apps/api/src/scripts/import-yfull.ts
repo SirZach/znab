@@ -508,7 +508,11 @@ async function importYfull(data: YfullFile, budgetId: number) {
         amount: toMoney(st.amount),
         date: st.date,
         frequency: st.frequency,
-        twiceMonthDay: st.twiceAMonthStartDay ?? null,
+        // Only TwiceAMonth means anything by this. YNAB 4 writes a 0 on every
+        // other frequency, and `?? null` keeps a 0, so 35 of the 40 imported
+        // rows claimed a start day of nothing.
+        twiceMonthDay:
+          st.frequency === "TwiceAMonth" ? st.twiceAMonthStartDay || null : null,
         memo: st.memo ?? null,
         cleared: st.cleared ?? "Uncleared",
         accepted: st.accepted ?? true,

@@ -150,21 +150,54 @@ export const categoryRouter = router({
     .query(async ({ ctx, input }) => {
       await assertBudgetAccess(ctx, input.budgetId);
 
-      return ctx.db.query.categoryGroups.findMany({
-        where: and(
-          eq(categoryGroups.budgetId, input.budgetId),
-          isNull(categoryGroups.deletedAt)
-        ),
-        orderBy: (cg, { asc }) => [asc(cg.sortOrder)],
-        columns: { id: true, name: true, isSystem: true },
-        with: {
-          categories: {
-            where: (c, { isNull }) => isNull(c.deletedAt),
-            orderBy: (c, { asc }) => [asc(c.sortOrder)],
-            columns: { id: true, name: true },
+      // What points at each category, counted the way `remove` counts it, so a
+      // screen can say up front which categories it may offer to delete rather
+      // than offering them all and letting the refusal explain afterwards. One
+      // grouped pass over each table rather than four subqueries a category,
+      // the way the payee screen totals its usage: the alternative reads the
+      // 19,317 transactions once per category instead of once.
+      const [groups, usage] = await Promise.all([
+        ctx.db.query.categoryGroups.findMany({
+          where: and(
+            eq(categoryGroups.budgetId, input.budgetId),
+            isNull(categoryGroups.deletedAt)
+          ),
+          orderBy: (cg, { asc }) => [asc(cg.sortOrder)],
+          columns: { id: true, name: true, isSystem: true },
+          with: {
+            categories: {
+              where: (c, { isNull }) => isNull(c.deletedAt),
+              orderBy: (c, { asc }) => [asc(c.sortOrder)],
+              columns: { id: true, name: true },
+            },
           },
-        },
-      });
+        }),
+        ctx.db.execute(sql`
+          SELECT "categoryId", SUM(n)::int AS used FROM (
+            SELECT category_id AS "categoryId", count(*) AS n
+              FROM monthly_budgets WHERE category_id IS NOT NULL GROUP BY category_id
+            UNION ALL
+            SELECT category_id, count(*)
+              FROM transactions WHERE category_id IS NOT NULL GROUP BY category_id
+            UNION ALL
+            SELECT category_id, count(*)
+              FROM sub_transactions WHERE category_id IS NOT NULL GROUP BY category_id
+            UNION ALL
+            SELECT category_id, count(*)
+              FROM scheduled_transactions WHERE category_id IS NOT NULL GROUP BY category_id
+          ) x GROUP BY "categoryId"
+        `) as unknown as Promise<{ categoryId: number; used: number }[]>,
+      ]);
+
+      const usedById = new Map(usage.map((r) => [Number(r.categoryId), Number(r.used)]));
+
+      return groups.map((group) => ({
+        ...group,
+        categories: group.categories.map((category) => ({
+          ...category,
+          used: usedById.get(category.id) ?? 0,
+        })),
+      }));
     }),
 
   // A new category, at the end of the group it is filed under.

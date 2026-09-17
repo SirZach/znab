@@ -16,6 +16,7 @@ import {
 } from "drizzle-orm";
 import * as schema from "@znab/db";
 import { isSpecialCategoryId, PAYEE_RENAME_OPERATORS } from "@znab/shared";
+import { isSystemGroupYnabId } from "../lib/category";
 import path from "path";
 
 // ─── DB setup ────────────────────────────────────────────────────────────────
@@ -81,6 +82,9 @@ interface YnabMasterCategory {
   entityId: string;
   name: string;
   type: string;
+  // Carried by every master category in the export, and left undeclared here,
+  // which is how the group insert came to drop the ordering altogether.
+  sortableIndex: number;
   deleteable?: boolean;
   isTombstone?: boolean;
   subCategories?: YnabSubCategory[];
@@ -163,10 +167,6 @@ function toMoney(val: number | null | undefined): string {
   return parseFloat(val.toFixed(2)).toFixed(2);
 }
 
-function isSystem(masterCategoryId: string): boolean {
-  return masterCategoryId.startsWith("MasterCategory/__");
-}
-
 const SEED_DATA_DIR = path.resolve(import.meta.dir, "../../../../seed-data");
 
 function loadYfull(filename: string): YfullFile {
@@ -223,6 +223,24 @@ async function importYfull(data: YfullFile, budgetId: number) {
   console.log(`  Importing ${data.masterCategories.length} category groups...`);
   const groupYnabToId = new Map<string, number>();
 
+  // A master category's sortableIndex is the same binary-subdivision key the
+  // accounts carry, so only the order it puts them in means anything. This was
+  // being dropped entirely and every group landed on the column default, which
+  // left the grid ordering by a column that held nothing. The system groups are
+  // parked after the user's own so a reorder of those can never interleave with
+  // them: nothing shows them in the grid, and the register's picker reads
+  // better with them last.
+  const groupRank = new Map(
+    [...data.masterCategories]
+      .sort((x, y) => x.sortableIndex - y.sortableIndex)
+      .reduce<[string, number][]>((acc, mc) => {
+        const system = isSystemGroupYnabId(mc.entityId);
+        const taken = acc.filter(([, o]) => (system ? o >= 9000 : o < 9000)).length;
+        acc.push([mc.entityId, system ? 9000 + taken : taken]);
+        return acc;
+      }, [])
+  );
+
   for (const mc of data.masterCategories) {
     const [row] = await db
       .insert(schema.categoryGroups)
@@ -231,7 +249,8 @@ async function importYfull(data: YfullFile, budgetId: number) {
         budgetId,
         name: mc.name,
         type: mc.type ?? "OUTFLOW",
-        isSystem: isSystem(mc.entityId),
+        isSystem: isSystemGroupYnabId(mc.entityId),
+        sortOrder: groupRank.get(mc.entityId)!,
         deletedAt: mc.isTombstone ? new Date() : null,
       })
       .onConflictDoNothing()
@@ -251,6 +270,17 @@ async function importYfull(data: YfullFile, budgetId: number) {
   console.log(`  Importing ${allSubCats.length} categories...`);
   const catYnabToId = new Map<string, number>();
 
+  // Ranked densely within each group, which is the only place a category's
+  // order means anything. The raw key was being stored as it came, which sorts
+  // correctly but runs to within a few thousand of the int4 ceiling, so a
+  // category added later at one past the maximum would overflow the column.
+  const catRank = new Map<string, number>();
+  for (const mc of data.masterCategories) {
+    [...(mc.subCategories ?? [])]
+      .sort((x, y) => x.sortableIndex - y.sortableIndex)
+      .forEach((sc, index) => catRank.set(sc.entityId, index));
+  }
+
   for (const sc of allSubCats) {
     const groupId = groupYnabToId.get(sc.masterCategoryId);
     if (!groupId) continue;
@@ -264,7 +294,7 @@ async function importYfull(data: YfullFile, budgetId: number) {
         name: sc.name,
         type: sc.type ?? "OUTFLOW",
         cachedBalance: toMoney(sc.cachedBalance),
-        sortOrder: sc.sortableIndex,
+        sortOrder: catRank.get(sc.entityId) ?? 0,
         deletedAt: sc.isTombstone ? new Date() : null,
       })
       .onConflictDoNothing()

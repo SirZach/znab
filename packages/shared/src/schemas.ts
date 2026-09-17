@@ -32,6 +32,31 @@ export const updateTransactionSchema = createTransactionSchema.partial().extend(
   accepted: z.boolean().optional(),
 });
 
+// ─── Scheduled Transaction ───────────────────────────────────────────────────
+
+// `date` is the next occurrence rather than the day the schedule was made: it
+// is the seed the whole series is measured from, and entering or skipping one
+// occurrence moves it on to the next.
+export const createScheduledTransactionSchema = z.object({
+  accountId: z.number().int().positive(),
+  payeeId: z.number().int().positive().nullable(),
+  payeeName: z.string().min(1).optional(), // create payee on the fly
+  categoryId: z.number().int().positive().nullable(),
+  amount: z.number(), // positive = inflow, negative = outflow
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  frequency: z.enum(FREQUENCY_VALUES),
+  // Only TwiceAMonth reads this. YNAB 4 writes a 0 here on every other
+  // frequency, which is why the day is bounded to one a month actually has.
+  twiceMonthDay: z.number().int().min(1).max(31).nullable().optional(),
+  memo: z.string().optional(),
+});
+
+// Nothing here carries a `default()`, so `partial()` is safe as it stands: the
+// trap that makes `updateTransactionSchema` re-declare two fields is absent.
+export const updateScheduledTransactionSchema = createScheduledTransactionSchema
+  .partial()
+  .extend({ id: z.number().int().positive() });
+
 // ─── Monthly Budget ──────────────────────────────────────────────────────────
 
 export const setBudgetedSchema = z.object({
@@ -84,6 +109,8 @@ export const accountRegisterSearchSchema = z.object({
 
 export type CreateTransaction = z.infer<typeof createTransactionSchema>;
 export type UpdateTransaction = z.infer<typeof updateTransactionSchema>;
+export type CreateScheduledTransaction = z.infer<typeof createScheduledTransactionSchema>;
+export type UpdateScheduledTransaction = z.infer<typeof updateScheduledTransactionSchema>;
 export type SetBudgeted = z.infer<typeof setBudgetedSchema>;
 export type CreateAccount = z.infer<typeof createAccountSchema>;
 export type ReconcileAccount = z.infer<typeof reconcileAccountSchema>;

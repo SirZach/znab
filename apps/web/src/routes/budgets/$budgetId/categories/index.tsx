@@ -27,7 +27,7 @@ const SYSTEM_NOTE =
   "This group belongs to the budget itself, so neither it nor the categories in it can be renamed, reordered, moved or deleted.";
 
 const DELETE_NOTE =
-  "A category can be deleted only while nothing has been budgeted to it and nothing spent from it. One with any history is hidden instead, from the budget grid. A group can be deleted once it holds no categories.";
+  "A category can be deleted only while nothing has been budgeted to it and nothing spent from it; the rest are marked in use here and are hidden from the budget grid instead. A group can be deleted once it holds no categories.";
 
 const fieldClass =
   "rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring";
@@ -309,16 +309,33 @@ function CategoriesPage() {
                         </td>
 
                         <td className="w-10 px-6 py-2 text-right">
-                          <DeleteButton
-                            label={category.name}
-                            onClick={() =>
-                              confirmDelete({
-                                kind: "category",
-                                id: category.id,
-                                name: category.name,
-                              })
-                            }
-                          />
+                          {/* An action that would be refused is not offered,
+                              the way the accounts screen decides its own. Only
+                              a category nothing points at can go; the rest are
+                              hidden from the budget grid instead. */}
+                          {category.used > 0 ? (
+                            <span
+                              className="text-xs text-muted-foreground"
+                              title={`Used by ${category.used} allocation${
+                                category.used === 1 ? "" : "s"
+                              } or transaction${
+                                category.used === 1 ? "" : "s"
+                              }, so it cannot be deleted. Hide it from the budget grid instead.`}
+                            >
+                              in use
+                            </span>
+                          ) : (
+                            <DeleteButton
+                              label={category.name}
+                              onClick={() =>
+                                confirmDelete({
+                                  kind: "category",
+                                  id: category.id,
+                                  name: category.name,
+                                })
+                              }
+                            />
+                          )}
                         </td>
                       </tr>
                     );
@@ -354,7 +371,7 @@ function CategoriesPage() {
               <DialogDescription>
                 {doomed.kind === "group"
                   ? `"${doomed.name}" holds no categories, so nothing is lost, but it cannot be brought back from here.`
-                  : `"${doomed.name}" goes for good, and it cannot be brought back from here. If anything has been budgeted to it or spent from it, the delete is refused and it has to be hidden instead.`}
+                  : `"${doomed.name}" has never been budgeted to or spent from, so nothing is lost, but it cannot be brought back from here.`}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

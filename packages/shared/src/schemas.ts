@@ -63,6 +63,13 @@ export const reconcileAccountSchema = z.object({
   adjustment: z.boolean().default(false),
 });
 
+// ─── Category ────────────────────────────────────────────────────────────────
+
+// All a category or a group of them is ever given is a name. The column is
+// unbounded text, so the ceiling has to come from here, and it is the one an
+// account's name already carries.
+export const categoryNameSchema = z.string().min(1).max(200);
+
 // ─── Budget search params (shared with router) ───────────────────────────────
 
 export const budgetSearchSchema = z.object({

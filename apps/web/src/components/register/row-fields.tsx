@@ -128,7 +128,6 @@ export function RegisterRowFields({
   onCancel,
   tabIndexBase,
   autoFocus,
-  nextCheckNumber,
 }: {
   fields: RegisterFields;
   /** Only the keys that changed; the caller merges them into its draft. */
@@ -147,7 +146,6 @@ export function RegisterRowFields({
    * rather than typed into it: most rows are not cheques, and prefilling would
    * put a check number on every one of them.
    */
-  nextCheckNumber?: number;
 }) {
   const [payeeOpen, setPayeeOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
@@ -199,20 +197,6 @@ export function RegisterRowFields({
       </td>
 
       <td className="px-4 py-2">
-        <input
-          type="text"
-          tabIndex={tab(2)}
-          aria-label="Check number"
-          placeholder={nextCheckNumber ? String(nextCheckNumber) : "Check"}
-          maxLength={20}
-          value={fields.checkNumber}
-          onChange={(e) => onChange({ checkNumber: e.target.value })}
-          onKeyDown={handleKeyDown}
-          className={inputClass}
-        />
-      </td>
-
-      <td className="px-4 py-2">
         {locks.payee ? (
           <span title={locks.payee} className={lockedClass}>
             <Lock size={12} className="shrink-0" />
@@ -223,7 +207,7 @@ export function RegisterRowFields({
             <PopoverTrigger
               render={
                 <Button
-                  tabIndex={tab(3)}
+                  tabIndex={tab(2)}
                   variant="ghost"
                   role="combobox"
                   className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
@@ -292,7 +276,7 @@ export function RegisterRowFields({
               render={
                 <Button
                   ref={categoryTriggerRef}
-                  tabIndex={tab(4)}
+                  tabIndex={tab(3)}
                   variant="ghost"
                   role="combobox"
                   onFocus={() => setCategoryOpen(true)}
@@ -337,7 +321,7 @@ export function RegisterRowFields({
         <input
           type="text"
           ref={memoRef}
-          tabIndex={tab(5)}
+          tabIndex={tab(4)}
           autoFocus={autoFocus}
           aria-label="Memo"
           placeholder="Memo"
@@ -363,7 +347,7 @@ export function RegisterRowFields({
               // `25+13`, the same as every other money field in the app.
               type="text"
               inputMode="decimal"
-              tabIndex={tab(6 + i)}
+              tabIndex={tab(5 + i)}
               aria-label={column.label}
               placeholder="0.00"
               value={column.value}

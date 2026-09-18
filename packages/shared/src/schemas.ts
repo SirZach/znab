@@ -26,10 +26,6 @@ export const createTransactionSchema = z.object({
   // Nullable as well as optional: absent means leave it alone on an update,
   // null means take the flag off, and the two are different answers.
   flagColor: z.enum(FLAG_COLORS).nullable().optional(),
-  // Free text rather than a number. YNAB 4 accepts things that are not
-  // numbers here, and the column is text, so only the length is this schema's
-  // business. The per-account counter reads the ones that are numbers.
-  checkNumber: z.string().max(20).nullable().optional(),
 });
 
 // `partial()` leaves the defaults on `cleared`/`accepted` intact in zod 4, so a

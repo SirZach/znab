@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { accountRegisterSearchSchema } from "@znab/shared";
+import { accountRegisterSearchSchema, FLAG_COLORS, type FlagColor } from "@znab/shared";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { Check, CheckCircle2, Circle, Lock, Trash2 } from "lucide-react";
 import { Fragment, useRef, useState } from "react";
@@ -16,7 +16,11 @@ import { AccountBalances } from "@/components/register/balances";
 import { ReconcilePanel, ReconcileSummary } from "@/components/register/reconcile-panel";
 import { UpcomingPanel } from "@/components/register/upcoming-panel";
 import { ClearedFilter } from "@/components/register/cleared-filter";
-import { RegisterRowFields, type RegisterRowLocks } from "@/components/register/row-fields";
+import {
+  FlagCell,
+  RegisterRowFields,
+  type RegisterRowLocks,
+} from "@/components/register/row-fields";
 import {
   isReconciled,
   useAccountRegister,
@@ -34,7 +38,9 @@ export const Route = createFileRoute(
 
 const colgroup = (
   <colgroup>
+    <col className="w-6" />
     <col className="w-28" />
+    <col className="w-20" />
     <col />
     <col />
     <col />
@@ -59,9 +65,19 @@ const emptyFields = (): RegisterFields => ({
   payeeName: "",
   categoryId: null,
   memo: "",
+  flagColor: null,
+  checkNumber: "",
   outflow: "",
   inflow: "",
 });
+
+/**
+ * The flag as a colour this register knows how to draw. The column behind it is
+ * free text and the imported data was never checked against anything, so a
+ * value outside the six shows as no flag rather than as a swatch of nothing.
+ */
+const flagColorOf = (value: string | null): FlagColor | null =>
+  FLAG_COLORS.includes(value as FlagColor) ? (value as FlagColor) : null;
 
 /** The row as it stands, ready to be edited. */
 const fieldsFrom = (txn: RegisterTransaction): RegisterFields => ({
@@ -72,6 +88,8 @@ const fieldsFrom = (txn: RegisterTransaction): RegisterFields => ({
   payeeName: txn.payee?.name ?? "",
   categoryId: txn.categoryId,
   memo: txn.memo ?? "",
+  flagColor: flagColorOf(txn.flagColor),
+  checkNumber: txn.checkNumber ?? "",
   ...amountToFields(txn.amount),
 });
 
@@ -202,6 +220,16 @@ function AccountRegisterPage() {
     if (!reason) updateTransaction(txn, fields, () => setEditingId(null));
   }
 
+  /**
+   * Flag a row where it sits. A colour is not a change to what the row says
+   * happened, so it is written the moment it is picked rather than made to wait
+   * for the row to be opened, and a reconciled row is not warned about either:
+   * nothing here can put an account out of step with its statement.
+   */
+  function flagRow(txn: RegisterTransaction, flagColor: FlagColor | null) {
+    updateTransaction(txn, { ...fieldsFrom(txn), flagColor });
+  }
+
   const editError = updateError ?? deleteError ?? editBlocked;
 
   // A failed edit's message belongs to the row it was made against, so moving
@@ -319,7 +347,10 @@ function AccountRegisterPage() {
         {colgroup}
         <thead>
           <tr className="text-muted-foreground">
+            {/* The flag has nothing to label: it is a colour and no more. */}
+            <th className="pl-2 py-2" />
             <th className="text-left px-6 py-2 font-medium">Date</th>
+            <th className="text-left px-4 py-2 font-medium">Check</th>
             <th className="text-left px-4 py-2 font-medium">Payee</th>
             <th className="text-left px-4 py-2 font-medium">Category</th>
             <th className="text-left px-4 py-2 font-medium">Memo</th>
@@ -384,8 +415,15 @@ function AccountRegisterPage() {
                       />
                     ) : (
                       <>
+                        <FlagCell
+                          value={flagColorOf(txn.flagColor)}
+                          onSelect={(flagColor) => flagRow(txn, flagColor)}
+                        />
                         <td className="px-6 py-2 text-muted-foreground tabular-nums">
                           {formatDate(txn.date)}
+                        </td>
+                        <td className="px-4 py-2 text-muted-foreground tabular-nums">
+                          {txn.checkNumber ?? ""}
                         </td>
                         <td className="px-4 py-2">{txn.payee?.name ?? "—"}</td>
                         <td className="px-4 py-2 text-muted-foreground">
@@ -415,7 +453,7 @@ function AccountRegisterPage() {
 
                   {editing && editError && (
                     <tr className="border-b border-border/50 bg-accent/60">
-                      <td colSpan={8} className="px-6 pb-2">
+                      <td colSpan={10} className="px-6 pb-2">
                         <p className="text-xs text-destructive">{editError}</p>
                       </td>
                     </tr>
@@ -447,6 +485,9 @@ function AccountRegisterPage() {
               locks={addLocks}
               onSubmit={saveAdd}
               tabIndexBase={1}
+              nextCheckNumber={
+                account?.lastEnteredCheckNum ? account.lastEnteredCheckNum + 1 : undefined
+              }
             />
             <td className="px-2 py-2" />
             <td className="px-6 py-2 text-right">
@@ -462,7 +503,7 @@ function AccountRegisterPage() {
 
           {(addBlocked ?? createError) && (
             <tr>
-              <td colSpan={8} className="px-6 pb-2">
+              <td colSpan={10} className="px-6 pb-2">
                 <p className="text-xs text-destructive">{addBlocked ?? createError}</p>
               </td>
             </tr>

@@ -22,6 +22,21 @@ export const ACCOUNT_TYPES = [
 ] as const;
 export type AccountType = typeof ACCOUNT_TYPES[number];
 
+/**
+ * The flags YNAB 4 offers, which are colours and nothing else: it attaches no
+ * meaning to them and neither does this. The column behind them is free text,
+ * so the vocabulary has to come from here.
+ */
+export const FLAG_COLORS = [
+  "Red",
+  "Orange",
+  "Yellow",
+  "Green",
+  "Blue",
+  "Purple",
+] as const;
+export type FlagColor = typeof FLAG_COLORS[number];
+
 export const FREQUENCY_VALUES = [
   "Once",
   "Daily",

@@ -6,6 +6,8 @@
  * answer them the same way.
  */
 
+import type { FlagColor } from "@znab/shared";
+
 import { parseAmountExpression } from "./utils";
 
 /** The two money columns as they are typed, before they mean anything. */
@@ -18,6 +20,14 @@ export type RegisterFields = MoneyFields & {
   payeeName: string;
   categoryId: number | null;
   memo: string;
+  /** The flag, which is a colour and nothing else, or none. */
+  flagColor: FlagColor | null;
+  /**
+   * Free text rather than a number, the way YNAB 4 has it: cheques are not the
+   * only thing people write here. Empty means none, and the register sends that
+   * as a null so a check number can be taken off again.
+   */
+  checkNumber: string;
 };
 
 /**

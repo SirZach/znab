@@ -237,6 +237,10 @@ export function useAccountRegister({
       amount,
       date: format(fields.date, "yyyy-MM-dd"),
       memo: fields.memo || undefined,
+      flagColor: fields.flagColor,
+      // Null rather than the empty string, since null is what takes a check
+      // number off again and "" would be a check number of nothing.
+      checkNumber: fields.checkNumber || null,
       cleared: "Uncleared",
       accepted: true,
     });
@@ -285,6 +289,8 @@ export function useAccountRegister({
         amount,
         date: format(fields.date, "yyyy-MM-dd"),
         memo: fields.memo,
+        flagColor: fields.flagColor,
+        checkNumber: fields.checkNumber || null,
         acknowledgeReconciled: isReconciled(txn),
       },
       { onSuccess: () => onDone?.() }

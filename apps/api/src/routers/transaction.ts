@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, inArray, isNull, ne } from "drizzle-orm";
+import { eq, and, inArray, isNull, lt, ne, or } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { transactions, payees, accounts, budgets } from "@znab/db";
 import { createTransactionSchema, updateTransactionSchema } from "@znab/shared";
@@ -40,6 +40,40 @@ async function counterpartCleared(
     .where(counterpartWhere(ctx, row.budgetId, row.transferTransactionId))
     .limit(1);
   return far?.cleared ?? null;
+}
+
+/**
+ * Keeps an account's highest check number up to date, which is what lets the
+ * register offer the next one.
+ *
+ * YNAB 4 keeps this per account and the importer has always written it, from a
+ * field that reads -1 until a cheque is actually entered; nothing has read it
+ * since. Only numeric check numbers count, because the column is free text and
+ * a number is the only thing that can be incremented.
+ *
+ * The guard lives in the WHERE rather than in a read beforehand, so two rows
+ * entered at once cannot each read the old value and the lower one win.
+ */
+async function rememberCheckNumber(
+  db: Pick<AuthedContext["db"], "update">,
+  accountId: number,
+  checkNumber: string | null | undefined
+) {
+  if (!checkNumber) return;
+  const entered = Number(checkNumber);
+  if (!Number.isInteger(entered) || entered <= 0) return;
+  await db
+    .update(accounts)
+    .set({ lastEnteredCheckNum: entered, updatedAt: new Date() })
+    .where(
+      and(
+        eq(accounts.id, accountId),
+        or(
+          isNull(accounts.lastEnteredCheckNum),
+          lt(accounts.lastEnteredCheckNum, entered)
+        )
+      )
+    );
 }
 
 /**
@@ -200,6 +234,9 @@ export const transactionRouter = router({
               accepted: input.accepted,
               memo: input.memo,
               flagColor: input.flagColor,
+              // Only the near side: a cheque is written from one account, and
+              // the far row is the money arriving rather than the cheque.
+              checkNumber: input.checkNumber,
               isTransfer: true,
               transferAccountId: far.id,
               transferTransactionId: farYnabId,
@@ -225,6 +262,8 @@ export const transactionRouter = router({
             transferTransactionId: nearYnabId,
           });
 
+          await rememberCheckNumber(tx, near.id, input.checkNumber);
+
           // The near side is the row the register asked for and renders.
           return nearTxn!;
         });
@@ -244,8 +283,11 @@ export const transactionRouter = router({
           accepted: input.accepted,
           memo: input.memo,
           flagColor: input.flagColor,
+          checkNumber: input.checkNumber,
         })
         .returning();
+
+      await rememberCheckNumber(ctx.db, input.accountId, input.checkNumber);
 
       return txn;
     }),
@@ -386,6 +428,10 @@ export const transactionRouter = router({
             })
             .where(counterpartWhere(ctx, row.budgetId, row.transferTransactionId));
         }
+
+        // A check number given by editing counts the same as one given when the
+        // row was entered, against whichever account the row ends up in.
+        await rememberCheckNumber(tx, rest.accountId ?? row.accountId, rest.checkNumber);
 
         return updated!;
       });

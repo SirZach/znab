@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { format } from "date-fns";
-import { CalendarIcon, Lock } from "lucide-react";
+import { CalendarIcon, Lock, X } from "lucide-react";
+import { FLAG_COLORS, type FlagColor } from "@znab/shared";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -30,15 +31,90 @@ export type RegisterRowLocks = {
   amount?: string;
 };
 
+/**
+ * What each flag looks like. YNAB 4 attaches no meaning to the six, so there is
+ * nothing to show but the colour itself, and the names are spelled out in full
+ * here rather than built up, because Tailwind only ships the classes it can read.
+ */
+const FLAG_CLASS: Record<FlagColor, string> = {
+  Red: "bg-red-500",
+  Orange: "bg-orange-500",
+  Yellow: "bg-yellow-400",
+  Green: "bg-green-500",
+  Blue: "bg-blue-500",
+  Purple: "bg-purple-500",
+};
+
+/**
+ * The flag column, which YNAB 4 puts ahead of the date. It is the same control
+ * on a row being read as on one being typed, so the caller decides what picking
+ * a colour means: a patch to the draft on the add and edit rows, a write of its
+ * own on a row already on the books. The cell swallows the click either way,
+ * since the row behind it opens for editing when clicked.
+ */
+export function FlagCell({
+  value,
+  onSelect,
+  tabIndex,
+}: {
+  value: FlagColor | null;
+  onSelect: (flagColor: FlagColor | null) => void;
+  tabIndex?: number;
+}) {
+  const [open, setOpen] = useState(false);
+
+  function choose(flagColor: FlagColor | null) {
+    setOpen(false);
+    onSelect(flagColor);
+  }
+
+  return (
+    <td className="pl-2 py-2" onClick={(e) => e.stopPropagation()}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          tabIndex={tabIndex}
+          aria-label={value ? `Flagged ${value}` : "Not flagged"}
+          title={value ?? "No flag"}
+          className={cn(
+            "size-3 rounded-sm transition-colors",
+            value ? FLAG_CLASS[value] : "border border-border hover:bg-accent"
+          )}
+        />
+        <PopoverContent className="w-auto p-1.5" align="start">
+          <div className="flex items-center gap-1.5">
+            {FLAG_COLORS.map((color) => (
+              <button
+                key={color}
+                onClick={() => choose(color)}
+                aria-label={color}
+                title={color}
+                className={cn("size-4 rounded-sm", FLAG_CLASS[color])}
+              />
+            ))}
+            <button
+              onClick={() => choose(null)}
+              aria-label="No flag"
+              title="No flag"
+              className="size-4 rounded-sm border border-border flex items-center justify-center text-muted-foreground hover:bg-accent"
+            >
+              <X size={10} />
+            </button>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </td>
+  );
+}
+
 const inputClass =
   "bg-transparent border-b border-border focus:outline-none focus:border-primary text-sm w-full px-1 py-0.5";
 
 const lockedClass = "flex items-center gap-1.5 text-muted-foreground";
 
 /**
- * The six editable cells of a register row: date, payee, category, memo,
- * outflow and inflow. Shared so the add row and the row being edited cannot
- * drift apart. The row itself, its two trailing cells and its draft belong to
+ * The editable cells of a register row: flag, date, check number, payee,
+ * category, memo, outflow and inflow. Shared so the add row and the row being
+ * edited cannot drift apart. The row itself, its two trailing cells and its draft belong to
  * the caller, which is what keeps the three stacked tables' columns lined up.
  */
 export function RegisterRowFields({
@@ -52,6 +128,7 @@ export function RegisterRowFields({
   onCancel,
   tabIndexBase,
   autoFocus,
+  nextCheckNumber,
 }: {
   fields: RegisterFields;
   /** Only the keys that changed; the caller merges them into its draft. */
@@ -65,6 +142,12 @@ export function RegisterRowFields({
   /** First tab stop, for a row that sits ahead of the rest of the page. */
   tabIndexBase?: number;
   autoFocus?: boolean;
+  /**
+   * The number this account is up to, offered as the check field's placeholder
+   * rather than typed into it: most rows are not cheques, and prefilling would
+   * put a check number on every one of them.
+   */
+  nextCheckNumber?: number;
 }) {
   const [payeeOpen, setPayeeOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
@@ -81,12 +164,18 @@ export function RegisterRowFields({
 
   return (
     <>
+      <FlagCell
+        value={fields.flagColor}
+        onSelect={(flagColor) => onChange({ flagColor })}
+        tabIndex={tab(0)}
+      />
+
       <td className="px-6 py-2">
         <Popover>
           <PopoverTrigger
             render={
               <Button
-                tabIndex={tab(0)}
+                tabIndex={tab(1)}
                 variant="ghost"
                 className={cn(
                   "w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1",
@@ -110,6 +199,20 @@ export function RegisterRowFields({
       </td>
 
       <td className="px-4 py-2">
+        <input
+          type="text"
+          tabIndex={tab(2)}
+          aria-label="Check number"
+          placeholder={nextCheckNumber ? String(nextCheckNumber) : "Check"}
+          maxLength={20}
+          value={fields.checkNumber}
+          onChange={(e) => onChange({ checkNumber: e.target.value })}
+          onKeyDown={handleKeyDown}
+          className={inputClass}
+        />
+      </td>
+
+      <td className="px-4 py-2">
         {locks.payee ? (
           <span title={locks.payee} className={lockedClass}>
             <Lock size={12} className="shrink-0" />
@@ -120,7 +223,7 @@ export function RegisterRowFields({
             <PopoverTrigger
               render={
                 <Button
-                  tabIndex={tab(1)}
+                  tabIndex={tab(3)}
                   variant="ghost"
                   role="combobox"
                   className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
@@ -189,7 +292,7 @@ export function RegisterRowFields({
               render={
                 <Button
                   ref={categoryTriggerRef}
-                  tabIndex={tab(2)}
+                  tabIndex={tab(4)}
                   variant="ghost"
                   role="combobox"
                   onFocus={() => setCategoryOpen(true)}
@@ -234,7 +337,7 @@ export function RegisterRowFields({
         <input
           type="text"
           ref={memoRef}
-          tabIndex={tab(3)}
+          tabIndex={tab(5)}
           autoFocus={autoFocus}
           aria-label="Memo"
           placeholder="Memo"
@@ -260,7 +363,7 @@ export function RegisterRowFields({
               // `25+13`, the same as every other money field in the app.
               type="text"
               inputMode="decimal"
-              tabIndex={tab(4 + i)}
+              tabIndex={tab(6 + i)}
               aria-label={column.label}
               placeholder="0.00"
               value={column.value}

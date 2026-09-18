@@ -136,6 +136,8 @@ describe("unsaveableReason", () => {
     payeeName: "",
     categoryId: null,
     memo: "",
+    flagColor: null,
+    checkNumber: "",
     outflow: "12.00",
     inflow: "",
     ...over,

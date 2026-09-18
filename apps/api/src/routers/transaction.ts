@@ -56,18 +56,26 @@ async function counterpartCleared(
  */
 async function rememberCheckNumber(
   db: Pick<AuthedContext["db"], "update">,
+  ctx: AuthedContext,
   accountId: number,
   checkNumber: string | null | undefined
 ) {
   if (!checkNumber) return;
   const entered = Number(checkNumber);
-  if (!Number.isInteger(entered) || entered <= 0) return;
+  // Integers only, and only ones that fit: the column is an int4, so a cheque
+  // numbered past that would be rejected by the database rather than remembered.
+  if (!Number.isInteger(entered) || entered <= 0 || entered > 2147483647) return;
   await db
     .update(accounts)
     .set({ lastEnteredCheckNum: entered, updatedAt: new Date() })
     .where(
       and(
         eq(accounts.id, accountId),
+        // Scoped like every other write here. Each caller reaches this with an
+        // id that has already been checked, but a helper taking a bare row id
+        // and writing to it is the exact shape of the defect this repo has had
+        // four times, and it costs nothing to close.
+        inArray(accounts.budgetId, ownedBudgetIds(ctx)),
         or(
           isNull(accounts.lastEnteredCheckNum),
           lt(accounts.lastEnteredCheckNum, entered)
@@ -262,7 +270,7 @@ export const transactionRouter = router({
             transferTransactionId: nearYnabId,
           });
 
-          await rememberCheckNumber(tx, near.id, input.checkNumber);
+          await rememberCheckNumber(tx, ctx, near.id, input.checkNumber);
 
           // The near side is the row the register asked for and renders.
           return nearTxn!;
@@ -287,7 +295,7 @@ export const transactionRouter = router({
         })
         .returning();
 
-      await rememberCheckNumber(ctx.db, input.accountId, input.checkNumber);
+      await rememberCheckNumber(ctx.db, ctx, input.accountId, input.checkNumber);
 
       return txn;
     }),
@@ -431,7 +439,7 @@ export const transactionRouter = router({
 
         // A check number given by editing counts the same as one given when the
         // row was entered, against whichever account the row ends up in.
-        await rememberCheckNumber(tx, rest.accountId ?? row.accountId, rest.checkNumber);
+        await rememberCheckNumber(tx, ctx, rest.accountId ?? row.accountId, rest.checkNumber);
 
         return updated!;
       });

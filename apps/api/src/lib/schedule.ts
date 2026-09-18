@@ -18,6 +18,14 @@ export type Recurrence = {
   frequency: FrequencyValue;
   /** For TwiceAMonth: the first of the month's two days. */
   twiceMonthDay?: number | null;
+  /**
+   * The day of the month the series means, for the frequencies that step in
+   * months. It has to be carried separately from the date because the date is
+   * written back every time an occurrence is entered, and a date that landed in
+   * February was clamped on the way: read the day off that and a schedule due
+   * on the 31st quietly becomes one due on the 28th, for good.
+   */
+  anchorDay?: number | null;
 };
 
 /** A civil date, pulled apart. `month` is 1-12, as people write it. */
@@ -42,7 +50,7 @@ const MONTH_STEP: Partial<Record<FrequencyValue, number>> = {
 };
 
 /**
- * The second of a TwiceAMonth pair sits a fortnight after the first. YNAB 4
+ * The second of a TwiceAMonth pair sits fifteen days after the first. YNAB 4
  * asks only for the start day and puts the other occurrence half a month later.
  */
 const TWICE_A_MONTH_GAP = 15;
@@ -119,8 +127,17 @@ export function addMonths(iso: string, months: number, anchorDay?: number): stri
 }
 
 /**
+ * The day of the month a month-stepping series means, which is the anchor when
+ * one is carried and the date's own day when it is not. A schedule that has
+ * never been entered has not been clamped yet, so its date still says.
+ */
+function anchorOf(recurrence: Recurrence): number {
+  return recurrence.anchorDay || parseDate(recurrence.date).day;
+}
+
+/**
  * The start day of a TwiceAMonth pair. YNAB 4 writes `twiceAMonthStartDay: 0`
- * on every schedule that is not TwiceAMonth, and the importer stores that 0
+ * on every schedule that is not TwiceAMonth, and the importer stored that 0
  * rather than a null, so a zero here means "not set" and the schedule's own
  * date says which day it means.
  */
@@ -131,7 +148,7 @@ function startDay(recurrence: Recurrence): number {
 /** The two days of the month a TwiceAMonth schedule falls on, in order. */
 function twiceAMonthDays(year: number, month: number, day: number): number[] {
   const last = daysInMonth(year, month);
-  const first = Math.min(Math.max(day, 1), last);
+  const first = Math.min(day, last);
   const second = Math.min(day + TWICE_A_MONTH_GAP, last);
   // A start day late enough that both land on the month's last day is one
   // occurrence, not two: the 30th of a 28-day February cannot come round twice.
@@ -168,7 +185,7 @@ export function occurrencesThrough(
 
   const monthStep = MONTH_STEP[frequency];
   if (monthStep) {
-    const anchor = parseDate(date).day;
+    const anchor = anchorOf(recurrence);
     for (let k = 0; dates.length < cap; k += 1) {
       const next = addMonths(date, monthStep * k, anchor);
       if (next > through) break;
@@ -176,6 +193,8 @@ export function occurrencesThrough(
     }
     return dates;
   }
+
+  if (frequency !== "TwiceAMonth") throw new Error(`Unknown frequency: ${frequency}`);
 
   // TwiceAMonth, the only frequency whose occurrences are not evenly spaced.
   const day = startDay(recurrence);
@@ -212,7 +231,7 @@ export function nextOccurrence(recurrence: Recurrence, after: string): string | 
 
   const monthStep = MONTH_STEP[frequency];
   if (monthStep) {
-    const anchor = parseDate(date).day;
+    const anchor = anchorOf(recurrence);
     const from = parseDate(date);
     const to = parseDate(after);
     const monthsApart = (to.year - from.year) * 12 + (to.month - from.month);
@@ -226,6 +245,8 @@ export function nextOccurrence(recurrence: Recurrence, after: string): string | 
     return next;
   }
 
+  if (frequency !== "TwiceAMonth") throw new Error(`Unknown frequency: ${frequency}`);
+
   const day = startDay(recurrence);
   // Two months is always enough: a pair falls in every single one of them.
   for (let k = 0; k <= 2; k += 1) {
@@ -236,6 +257,30 @@ export function nextOccurrence(recurrence: Recurrence, after: string): string | 
     }
   }
   return null;
+}
+
+/**
+ * The first date on or after `from` that the series actually falls on.
+ *
+ * Only TwiceAMonth can be asked for a date that is not one of its own: every
+ * other frequency defines its series from the date it is given. A schedule
+ * whose date sits off its pair is invisible to `occurrencesThrough`, which
+ * skips it, while the routines that enter one read the date directly, so it
+ * would be entered on a day nothing ever showed as due. Snapping the date onto
+ * the series when it is written keeps that from ever being stored.
+ */
+export function seriesStart(recurrence: Recurrence, from: string): string {
+  if (recurrence.frequency !== "TwiceAMonth") return from;
+
+  const day = startDay({ ...recurrence, date: from });
+  for (let k = 0; k <= 1; k += 1) {
+    const { year, month } = parseDate(addMonths(from, k, 1));
+    for (const dayOfMonth of twiceAMonthDays(year, month, day)) {
+      const candidate = formatDate({ year, month, day: dayOfMonth });
+      if (candidate >= from) return candidate;
+    }
+  }
+  return from;
 }
 
 /** Whole days from `from` to `to`, negative when `to` is the earlier one. */

@@ -24,8 +24,14 @@ export const scheduledTransactions = pgTable("scheduled_transactions", {
   date: date("date").notNull(),
   // Monthly | TwiceAMonth | Weekly | EveryOtherWeek | etc.
   frequency: text("frequency").notNull(),
-  // For TwiceAMonth: start day (1-31)
+  // For TwiceAMonth: start day (1-15)
   twiceMonthDay: integer("twice_month_day"),
+  // The day of the month a month-stepping series means. Carried apart from
+  // `date` because the date is written back every time an occurrence is
+  // entered, and a date that landed in a short month was clamped on the way:
+  // read the day off that and a schedule due on the 31st quietly becomes one
+  // due on the 28th, for good.
+  anchorDay: integer("anchor_day"),
   memo: text("memo"),
   cleared: text("cleared").default("Uncleared"),
   accepted: boolean("accepted").default(true),

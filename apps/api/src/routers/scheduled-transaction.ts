@@ -3,6 +3,7 @@ import { eq, and, inArray, isNull, asc } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { scheduledTransactions, transactions, payees, accounts } from "@znab/db";
 import {
+  FREQUENCY_VALUES,
   createScheduledTransactionSchema,
   updateScheduledTransactionSchema,
   type FrequencyValue,
@@ -10,7 +11,14 @@ import {
 import { TRPCError } from "@trpc/server";
 import { assertBudgetAccess, assertIdsInBudget, ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import { transferCategoryId, transferPayeeName, transferPayeeYnabId } from "../lib/transfer";
-import { isOneOff, nextOccurrence, occurrencesThrough, parseDate } from "../lib/schedule";
+import {
+  addDays,
+  isOneOff,
+  nextOccurrence,
+  occurrencesThrough,
+  parseDate,
+  seriesStart,
+} from "../lib/schedule";
 
 /** An open transaction, the way the account router names the same thing. */
 type Tx = Parameters<Parameters<AuthedContext["db"]["transaction"]>[0]>[0];
@@ -29,13 +37,6 @@ const DEFAULT_HORIZON_DAYS = 30;
 /** The server's own calendar day, the way the account router reads it. */
 function today(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-/** `days` after today, as a civil date. */
-function horizon(days: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 /**
@@ -57,19 +58,36 @@ function recurrenceOf(row: {
   date: string;
   frequency: string;
   twiceMonthDay: number | null;
+  anchorDay: number | null;
 }) {
+  const frequency = row.frequency as FrequencyValue;
+  // The column is plain text and the importer writes whatever the export said,
+  // so a value the rules do not know would otherwise fall through to the one
+  // branch that has no step of its own and come back as a twice-a-month series.
+  if (!FREQUENCY_VALUES.includes(frequency)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `"${row.frequency}" is not a frequency this app knows how to work out.`,
+    });
+  }
   return {
     date: row.date,
-    frequency: row.frequency as FrequencyValue,
+    frequency,
     twiceMonthDay: row.twiceMonthDay,
+    anchorDay: row.anchorDay,
   };
 }
 
 /** A schedule as the client reads it, with the dates the rules work out. */
-function withDueness<T extends { date: string; frequency: string; twiceMonthDay: number | null }>(
-  row: T,
-  asOf: string,
-) {
+function withDueness<
+  T extends {
+    date: string;
+    frequency: string;
+    twiceMonthDay: number | null;
+    anchorDay: number | null;
+    payee: { targetAccountId: number | null } | null;
+  },
+>(row: T, asOf: string) {
   const due = occurrencesThrough(recurrenceOf(row), asOf, MAX_CATCH_UP);
   return {
     ...row,
@@ -77,22 +95,64 @@ function withDueness<T extends { date: string; frequency: string; twiceMonthDay:
     // imported years ago and never run is behind by more than one.
     dueCount: due.length,
     isDue: due.length > 0,
-    nextDate: nextOccurrence(recurrenceOf(row), asOf) ?? (due.length > 0 ? null : row.date),
+    // A schedule is a transfer when its payee stands in for another account,
+    // which is the same rule the register reads, worked out in one place.
+    isTransfer: row.payee?.targetAccountId != null,
   };
 }
 
 /**
- * Reads one schedule, scoped to the budgets the caller owns, for a write that
- * addresses it by row id alone.
+ * Refuses a schedule whose payee stands in for the very account it pays from.
+ *
+ * Entering one is impossible, and it is checked here rather than only there so
+ * the schedule cannot be stored at all: left to be discovered at entry, a
+ * single one of these would refuse every sweep of the budget it sits in.
  */
-async function loadScheduled(db: Pick<Tx, "query">, ctx: AuthedContext, id: number) {
-  const row = await db.query.scheduledTransactions.findFirst({
+async function assertNotSelfTransfer(
+  db: Pick<AuthedContext["db"], "query">,
+  budgetId: number,
+  payeeId: number | null | undefined,
+  accountId: number,
+) {
+  if (payeeId == null) return;
+  const payee = await db.query.payees.findFirst({
     where: and(
-      eq(scheduledTransactions.id, id),
-      isNull(scheduledTransactions.deletedAt),
-      inArray(scheduledTransactions.budgetId, ownedBudgetIds(ctx)),
+      eq(payees.id, payeeId),
+      eq(payees.budgetId, budgetId),
+      isNull(payees.deletedAt),
     ),
+    columns: { targetAccountId: true },
   });
+  if (payee?.targetAccountId === accountId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A transfer has to go to a different account.",
+    });
+  }
+}
+
+/**
+ * Reads one schedule, scoped to the budgets the caller owns, and locks it for
+ * the rest of the transaction.
+ *
+ * The lock is what stops the same occurrence being entered twice. Entering is a
+ * read of the date followed by a write of the next one, so two calls racing,
+ * which a double-click on the register's Enter button is enough to produce,
+ * would each read the same date, each write a transaction for it, and then both
+ * advance the schedule once.
+ */
+async function loadScheduled(tx: Tx, ctx: AuthedContext, id: number) {
+  const [row] = await tx
+    .select()
+    .from(scheduledTransactions)
+    .where(
+      and(
+        eq(scheduledTransactions.id, id),
+        isNull(scheduledTransactions.deletedAt),
+        inArray(scheduledTransactions.budgetId, ownedBudgetIds(ctx)),
+      ),
+    )
+    .for("update");
   if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Scheduled transaction not found" });
   return row;
 }
@@ -101,18 +161,31 @@ async function loadScheduled(db: Pick<Tx, "query">, ctx: AuthedContext, id: numb
  * A "Once" schedule that has been entered is spent, and leaving it in place
  * would offer it forever.
  */
-async function retire(tx: Tx, id: number) {
+async function retire(tx: Tx, ctx: AuthedContext, id: number) {
   await tx
     .update(scheduledTransactions)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(eq(scheduledTransactions.id, id));
+    .where(
+      and(
+        eq(scheduledTransactions.id, id),
+        inArray(scheduledTransactions.budgetId, ownedBudgetIds(ctx)),
+      ),
+    );
 }
 
-async function moveTo(tx: Tx, id: number, date: string) {
+// Scoped the way `retire` is: every caller reaches these through a read that
+// was already scoped, but a helper taking a bare row id and writing to it is
+// the exact shape of the defect this repo has already had four times.
+async function moveTo(tx: Tx, ctx: AuthedContext, id: number, date: string) {
   await tx
     .update(scheduledTransactions)
     .set({ date, updatedAt: new Date() })
-    .where(eq(scheduledTransactions.id, id));
+    .where(
+      and(
+        eq(scheduledTransactions.id, id),
+        inArray(scheduledTransactions.budgetId, ownedBudgetIds(ctx)),
+      ),
+    );
 }
 
 /**
@@ -121,15 +194,22 @@ async function moveTo(tx: Tx, id: number, date: string) {
  */
 async function advance(
   tx: Tx,
-  row: { id: number; date: string; frequency: string; twiceMonthDay: number | null },
+  ctx: AuthedContext,
+  row: {
+    id: number;
+    date: string;
+    frequency: string;
+    twiceMonthDay: number | null;
+    anchorDay: number | null;
+  },
   past: string,
 ) {
   const next = nextOccurrence(recurrenceOf(row), past);
   if (next === null) {
-    await retire(tx, row.id);
+    await retire(tx, ctx, row.id);
     return null;
   }
-  await moveTo(tx, row.id, next);
+  await moveTo(tx, ctx, row.id, next);
   return next;
 }
 
@@ -147,6 +227,24 @@ async function enterOccurrence(
   row: typeof scheduledTransactions.$inferSelect,
   date: string,
 ) {
+  // The account can go while the schedule pointing at it stays, so the row is
+  // only good as long as what it names still exists.
+  const into = await tx.query.accounts.findFirst({
+    where: and(
+      eq(accounts.id, row.accountId),
+      eq(accounts.budgetId, row.budgetId),
+      isNull(accounts.deletedAt),
+    ),
+    columns: { id: true },
+  });
+  if (!into) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "The account this schedule pays from has been deleted, so there is nowhere to enter it. Point the schedule at another account first.",
+    });
+  }
+
   const payee = row.payeeId
     ? await tx.query.payees.findFirst({
         where: and(
@@ -157,6 +255,18 @@ async function enterOccurrence(
         columns: { id: true, name: true, targetAccountId: true },
       })
     : null;
+
+  // A schedule naming a payee that is no longer there must not quietly become
+  // one naming nobody. It matters most for a transfer: the payee is the only
+  // record of which account the money goes to, so losing it would write the
+  // near side alone and let money leave the budget with nothing facing it.
+  if (row.payeeId && !payee) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "The payee this schedule names has been deleted, so there is nothing to enter it against. Point the schedule at another payee first.",
+    });
+  }
 
   if (payee && payee.targetAccountId !== null) {
     const farAccountId = payee.targetAccountId;
@@ -323,36 +433,31 @@ export const scheduledTransactionRouter = router({
           ...(input.accountId ? [eq(scheduledTransactions.accountId, input.accountId)] : []),
         ),
         with: {
-          payee: { columns: { id: true, name: true, targetAccountId: true } },
-          category: { columns: { id: true, name: true } },
-          account: { columns: { id: true, name: true } },
+          payee: { columns: { name: true, targetAccountId: true } },
+          category: { columns: { name: true } },
         },
       });
 
       const asOf = today();
-      const through = horizon(input.days);
+      const through = addDays(asOf, input.days);
       const occurrences = rows.flatMap((row) =>
         occurrencesThrough(recurrenceOf(row), through, MAX_CATCH_UP).map((date) => ({
           scheduledTransactionId: row.id,
           date,
-          // Only the first occurrence of an overdue schedule can be entered:
-          // entering it is what moves the schedule on to the next.
           due: date <= asOf,
-          accountId: row.accountId,
-          accountName: row.account.name,
-          payeeId: row.payeeId,
           payeeName: row.payee?.name ?? null,
-          categoryId: row.categoryId,
           categoryName: row.category?.name ?? null,
           isTransfer: row.payee?.targetAccountId != null,
           amount: row.amount,
-          memo: row.memo,
           frequency: row.frequency as FrequencyValue,
         })),
       );
 
-      occurrences.sort((a, b) => a.date.localeCompare(b.date) || a.scheduledTransactionId - b.scheduledTransactionId);
-      return { occurrences, asOf, through };
+      occurrences.sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) || a.scheduledTransactionId - b.scheduledTransactionId,
+      );
+      return occurrences;
     }),
 
   create: protectedProcedure
@@ -363,42 +468,58 @@ export const scheduledTransactionRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await assertBudgetAccess(ctx, input.budgetId);
-      await assertIdsInBudget(ctx.db, input.budgetId, {
-        categoryId: input.categoryId,
-        accountId: input.accountId,
-      });
 
-      let payeeId = input.payeeId;
-      if (!payeeId && input.payeeName) {
-        const [newPayee] = await ctx.db
-          .insert(payees)
+      // The payee is made and the schedule written together, so a refused
+      // schedule does not leave a payee nobody asked for behind it.
+      return ctx.db.transaction(async (tx) => {
+        await assertIdsInBudget(tx, input.budgetId, {
+          categoryId: input.categoryId,
+          accountId: input.accountId,
+        });
+
+        let payeeId = input.payeeId;
+        if (!payeeId && input.payeeName) {
+          const [newPayee] = await tx
+            .insert(payees)
+            .values({
+              ynabId: `Payee/${crypto.randomUUID()}`,
+              budgetId: input.budgetId,
+              name: input.payeeName,
+            })
+            .returning();
+          payeeId = newPayee!.id;
+        }
+        await assertIdsInBudget(tx, input.budgetId, { payeeId });
+        await assertNotSelfTransfer(tx, input.budgetId, payeeId, input.accountId);
+
+        const twiceMonthDay = twiceMonthDayFor(
+          input.frequency,
+          input.twiceMonthDay,
+          input.date,
+        );
+
+        const [created] = await tx
+          .insert(scheduledTransactions)
           .values({
-            ynabId: `Payee/${crypto.randomUUID()}`,
+            ynabId: crypto.randomUUID(),
             budgetId: input.budgetId,
-            name: input.payeeName,
+            accountId: input.accountId,
+            payeeId,
+            categoryId: input.categoryId,
+            amount: String(input.amount),
+            date: seriesStart(
+              { date: input.date, frequency: input.frequency, twiceMonthDay },
+              input.date,
+            ),
+            frequency: input.frequency,
+            twiceMonthDay,
+            anchorDay: parseDate(input.date).day,
+            memo: input.memo,
           })
           .returning();
-        payeeId = newPayee!.id;
-      }
-      await assertIdsInBudget(ctx.db, input.budgetId, { payeeId });
 
-      const [created] = await ctx.db
-        .insert(scheduledTransactions)
-        .values({
-          ynabId: crypto.randomUUID(),
-          budgetId: input.budgetId,
-          accountId: input.accountId,
-          payeeId,
-          categoryId: input.categoryId,
-          amount: String(input.amount),
-          date: input.date,
-          frequency: input.frequency,
-          twiceMonthDay: twiceMonthDayFor(input.frequency, input.twiceMonthDay, input.date),
-          memo: input.memo,
-        })
-        .returning();
-
-      return created!;
+        return created!;
+      });
     }),
 
   update: protectedProcedure
@@ -428,10 +549,22 @@ export const scheduledTransactionRouter = router({
           resolvedPayeeId = newPayee!.id;
         }
 
-        // The start day follows whichever frequency and date the row ends up
-        // with, not just the ones this call happened to send.
+        await assertNotSelfTransfer(
+          tx,
+          row.budgetId,
+          resolvedPayeeId !== undefined ? resolvedPayeeId : row.payeeId,
+          rest.accountId ?? row.accountId,
+        );
+
+        // The start day and the anchor follow whichever frequency and date the
+        // row ends up with, not just the ones this call happened to send.
         const nextFrequency = (frequency ?? row.frequency) as FrequencyValue;
         const nextDate = rest.date ?? row.date;
+        const nextTwiceMonthDay = twiceMonthDayFor(
+          nextFrequency,
+          twiceMonthDay !== undefined ? twiceMonthDay : row.twiceMonthDay,
+          nextDate,
+        );
 
         const [updated] = await tx
           .update(scheduledTransactions)
@@ -440,11 +573,14 @@ export const scheduledTransactionRouter = router({
             ...(resolvedPayeeId !== undefined ? { payeeId: resolvedPayeeId } : {}),
             ...(amount != null ? { amount: String(amount) } : {}),
             ...(frequency !== undefined ? { frequency } : {}),
-            twiceMonthDay: twiceMonthDayFor(
-              nextFrequency,
-              twiceMonthDay !== undefined ? twiceMonthDay : row.twiceMonthDay,
+            date: seriesStart(
+              { date: nextDate, frequency: nextFrequency, twiceMonthDay: nextTwiceMonthDay },
               nextDate,
             ),
+            twiceMonthDay: nextTwiceMonthDay,
+            // A date given by hand is the day the series now means, so it
+            // replaces the anchor rather than being clamped against the old one.
+            ...(rest.date !== undefined ? { anchorDay: parseDate(rest.date).day } : {}),
             updatedAt: new Date(),
           })
           .where(
@@ -487,7 +623,7 @@ export const scheduledTransactionRouter = router({
       return ctx.db.transaction(async (tx) => {
         const row = await loadScheduled(tx, ctx, input.id);
         const entered = await enterOccurrence(tx, row, row.date);
-        const next = await advance(tx, row, row.date);
+        const next = await advance(tx, ctx, row, row.date);
         return { transaction: entered, enteredDate: row.date, nextDate: next };
       });
     }),
@@ -505,7 +641,7 @@ export const scheduledTransactionRouter = router({
               "This happens only once, so there is nothing to skip to. Delete it instead.",
           });
         }
-        const next = await advance(tx, row, row.date);
+        const next = await advance(tx, ctx, row, row.date);
         return { skippedDate: row.date, nextDate: next };
       });
     }),
@@ -517,62 +653,60 @@ export const scheduledTransactionRouter = router({
    * register the moment a page loads is worse than a button that says so.
    */
   enterDue: protectedProcedure
-    .input(
-      z.object({
-        budgetId: z.number().int().positive(),
-        accountId: z.number().int().positive().optional(),
-      }),
-    )
+    .input(z.object({ budgetId: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       await assertBudgetAccess(ctx, input.budgetId);
       const asOf = today();
 
       return ctx.db.transaction(async (tx) => {
-        const rows = await tx.query.scheduledTransactions.findMany({
-          where: and(
-            eq(scheduledTransactions.budgetId, input.budgetId),
-            isNull(scheduledTransactions.deletedAt),
-            ...(input.accountId ? [eq(scheduledTransactions.accountId, input.accountId)] : []),
-          ),
-        });
+        const rows = await tx
+          .select()
+          .from(scheduledTransactions)
+          .where(
+            and(
+              eq(scheduledTransactions.budgetId, input.budgetId),
+              isNull(scheduledTransactions.deletedAt),
+            ),
+          )
+          .for("update");
 
         let entered = 0;
         let caughtUp = 0;
         let cappedOut = false;
+        const skipped: { id: number; reason: string }[] = [];
 
         for (const row of rows) {
-          // The cursor walks the series, and where it stops is where the
-          // schedule is left standing: the first occurrence still to come.
-          let cursor = row.date;
-          let written = 0;
-          let spent = false;
+          try {
+            // A savepoint per schedule, so one that cannot be entered does not
+            // roll back the ones that already were. The catch-up of a single
+            // schedule stays all or nothing inside it.
+            const written = await tx.transaction(async (inner) => {
+              // The dates to write are the ones the screens listed as due,
+              // read from the same routine, rather than walked separately.
+              const due = occurrencesThrough(recurrenceOf(row), asOf, MAX_CATCH_UP);
+              for (const date of due) await enterOccurrence(inner, row, date);
+              if (due.length > 0) {
+                await advance(inner, ctx, row, due[due.length - 1]!);
+              }
+              return due.length;
+            });
 
-          while (cursor <= asOf && written < MAX_CATCH_UP) {
-            await enterOccurrence(tx, row, cursor);
-            written += 1;
-            const next = nextOccurrence(recurrenceOf({ ...row, date: cursor }), cursor);
-            if (next === null) {
-              spent = true;
-              break;
-            }
-            cursor = next;
-          }
-
-          if (written === 0) continue;
-          entered += written;
-          caughtUp += 1;
-
-          if (spent) {
-            await retire(tx, row.id);
-          } else {
-            // Stopping with the cursor still in the past means the cap stopped
-            // it, not the calendar: there is more of this one still to enter.
-            if (cursor <= asOf) cappedOut = true;
-            await moveTo(tx, row.id, cursor);
+            if (written === 0) continue;
+            entered += written;
+            caughtUp += 1;
+            // Hitting the cap means the calendar did not stop it: there is more
+            // of this one still waiting.
+            if (written >= MAX_CATCH_UP) cappedOut = true;
+          } catch (error) {
+            skipped.push({
+              id: row.id,
+              reason:
+                error instanceof TRPCError ? error.message : "This one could not be entered.",
+            });
           }
         }
 
-        return { entered, schedules: caughtUp, cappedOut, asOf };
+        return { entered, schedules: caughtUp, cappedOut, skipped, asOf };
       });
     }),
 });

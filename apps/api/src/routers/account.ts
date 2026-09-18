@@ -3,7 +3,14 @@ import { eq, and, count, isNull, inArray, lte, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import type { db } from "@znab/db";
-import { accounts, categories, categoryGroups, payees, transactions } from "@znab/db";
+import {
+  accounts,
+  categories,
+  categoryGroups,
+  payees,
+  scheduledTransactions,
+  transactions,
+} from "@znab/db";
 import { ACCOUNT_TYPES, createAccountSchema, reconcileAccountSchema } from "@znab/shared";
 import { assertBudgetAccess, ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import {
@@ -624,6 +631,28 @@ export const accountRouter = router({
             message: `"${account.name}" still has ${live} transaction${
               live === 1 ? "" : "s"
             }. Close the account instead, which keeps its history in every month it belongs to.`,
+          });
+        }
+
+        // A schedule outlives the account it pays from, and entering one after
+        // the account had gone would either write into a deleted account or
+        // refuse every sweep of the budget from then on.
+        const [scheduled] = await tx
+          .select({ value: count() })
+          .from(scheduledTransactions)
+          .where(
+            and(
+              eq(scheduledTransactions.accountId, account.id),
+              isNull(scheduledTransactions.deletedAt)
+            )
+          );
+        const stillScheduled = Number(scheduled!.value);
+        if (stillScheduled > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `"${account.name}" still has ${stillScheduled} scheduled transaction${
+              stillScheduled === 1 ? "" : "s"
+            }. Delete those first, or close the account instead.`,
           });
         }
 

@@ -17,6 +17,31 @@ const every = (
   twiceMonthDay?: number | null,
 ): Recurrence => ({ date, frequency, twiceMonthDay });
 
+/** The same, carrying the day of the month the series means. */
+const anchored = (
+  frequency: Recurrence["frequency"],
+  date: string,
+  anchorDay: number,
+): Recurrence => ({ date, frequency, anchorDay });
+
+/**
+ * Walks a schedule the way the router does: enter the occurrence it is standing
+ * on, write the next one back, and read the next from what was written. This is
+ * the loop a single `nextOccurrence` call cannot stand in for, because the
+ * write-back is where a clamped date would lose the day it means.
+ */
+const walk = (recurrence: Recurrence, times: number): string[] => {
+  const dates: string[] = [];
+  let current = recurrence;
+  for (let k = 0; k < times; k += 1) {
+    dates.push(current.date);
+    const next = nextOccurrence(current, current.date);
+    if (next === null) break;
+    current = { ...current, date: next };
+  }
+  return dates;
+};
+
 describe("daysInMonth: the lengths the calendar actually has", () => {
   test("the short months are short", () => {
     expect(daysInMonth(2026, 4)).toBe(30);
@@ -257,7 +282,9 @@ describe("nextOccurrence: where entering or skipping moves the schedule on to", 
   });
 
   test("catching up keeps the anchor, so the 31st is still the 31st", () => {
-    expect(nextOccurrence(every("Monthly", "2026-01-31"), "2026-02-28")).toBe("2026-03-31");
+    expect(nextOccurrence(anchored("Monthly", "2026-01-31", 31), "2026-02-28")).toBe(
+      "2026-03-31",
+    );
   });
 
   test("the answer is always strictly after the date asked about", () => {
@@ -279,6 +306,66 @@ describe("nextOccurrence: where entering or skipping moves the schedule on to", 
     expect(nextOccurrence(every("TwiceAMonth", "2017-05-15", 15), "2026-09-17")).toBe(
       "2026-09-30",
     );
+  });
+
+  test("entering a schedule over and over walks the series it was listed as", () => {
+    // The bug this guards: the date is written back on every enter, and a date
+    // that landed in February was clamped on the way. Reading the day off that
+    // turned a bill due on the 31st into one due on the 28th, for good, while
+    // the screens went on showing the unclamped series.
+    const rent = anchored("Monthly", "2026-01-31", 31);
+    expect(walk(rent, 7)).toEqual(occurrencesThrough(rent, "2026-07-31", 7));
+    expect(walk(rent, 7)).toEqual([
+      "2026-01-31",
+      "2026-02-28",
+      "2026-03-31",
+      "2026-04-30",
+      "2026-05-31",
+      "2026-06-30",
+      "2026-07-31",
+    ]);
+  });
+
+  test("a yearly schedule on a leap day comes back to the leap day", () => {
+    const leap = anchored("Yearly", "2024-02-29", 29);
+    expect(walk(leap, 5)).toEqual([
+      "2024-02-29",
+      "2025-02-28",
+      "2026-02-28",
+      "2027-02-28",
+      "2028-02-29",
+    ]);
+  });
+
+  test("walking a twice-a-month pair stays on the pair", () => {
+    const pay = every("TwiceAMonth", "2026-01-05", 5);
+    expect(walk(pay, 6)).toEqual(occurrencesThrough(pay, "2026-03-20", 6));
+    expect(walk(pay, 6)).toEqual([
+      "2026-01-05",
+      "2026-01-20",
+      "2026-02-05",
+      "2026-02-20",
+      "2026-03-05",
+      "2026-03-20",
+    ]);
+  });
+
+  test("every month-stepping frequency walks the series it lists", () => {
+    for (const frequency of [
+      "Monthly",
+      "EveryOtherMonth",
+      "Every3Months",
+      "Every4Months",
+      "TwiceAYear",
+      "Yearly",
+    ] as const) {
+      for (const day of [1, 15, 28, 29, 30, 31]) {
+        const seed = `2026-01-${String(day).padStart(2, "0")}`;
+        const schedule = anchored(frequency, seed, day);
+        const walked = walk(schedule, 6);
+        expect(walked).toEqual(occurrencesThrough(schedule, walked[5]!, 6));
+      }
+    }
   });
 
   test("every frequency moves forward rather than standing still", () => {

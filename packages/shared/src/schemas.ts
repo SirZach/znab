@@ -45,9 +45,11 @@ export const createScheduledTransactionSchema = z.object({
   amount: z.number(), // positive = inflow, negative = outflow
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   frequency: z.enum(FREQUENCY_VALUES),
-  // Only TwiceAMonth reads this. YNAB 4 writes a 0 here on every other
-  // frequency, which is why the day is bounded to one a month actually has.
-  twiceMonthDay: z.number().int().min(1).max(31).nullable().optional(),
+  // Only TwiceAMonth reads this, and only the first day of the pair: the second
+  // falls fifteen days later. Past the 15th the pair collapses towards the end
+  // of the month, so a start day of 30 would mean two occurrences a day apart
+  // in January and a single one in February.
+  twiceMonthDay: z.number().int().min(1).max(15).nullable().optional(),
   memo: z.string().optional(),
 });
 

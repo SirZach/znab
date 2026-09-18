@@ -116,6 +116,8 @@ function AccountRegisterPage() {
   const [bulkNote, setBulkNote] = useState<string | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  /** The add row's payee control, so a saved row hands the keyboard straight back. */
+  const addPayeeRef = useRef<HTMLButtonElement>(null);
 
   const {
     account,
@@ -167,6 +169,12 @@ function AccountRegisterPage() {
     onSaveSuccess: () => {
       setAddFields(emptyFields());
       setAddBlocked(null);
+      // Entering a run of transactions is the same few keystrokes over and
+      // over, and the row let go of the keyboard the moment it was used, so
+      // every transaction after the first began with reaching for the mouse.
+      // The date is already back to today, so the payee is the next thing
+      // anybody types.
+      setTimeout(() => addPayeeRef.current?.focus(), 0);
     },
   });
 
@@ -676,6 +684,7 @@ function AccountRegisterPage() {
               locks={addLocks}
               onSubmit={saveAdd}
               tabIndexBase={1}
+              payeeTriggerRef={addPayeeRef}
             />
             <td className="px-2 py-2" />
             <td className="px-6 py-2 text-right">

@@ -309,6 +309,8 @@ export function useAccountRegister({
     clearedBalance: data?.clearedBalance ?? 0,
     unclearedBalance: data?.unclearedBalance ?? 0,
     total: data?.total ?? 0,
+    /** How many rows each choice of the cleared filter would show. */
+    counts: data?.counts ?? { all: 0, Uncleared: 0, Cleared: 0, Reconciled: 0 },
     hasMore: data?.hasMore ?? false,
     loadOlder: () => setLimit((n) => n + PAGE_SIZE),
     isLoadingMore: isFetching && !isLoading,

@@ -1,5 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { accountRegisterSearchSchema, FLAG_COLORS, type FlagColor } from "@znab/shared";
+import {
+  accountRegisterSearchSchema,
+  FLAG_COLORS,
+  type FlagColor,
+  type RegisterSort,
+  type SortDirection,
+} from "@znab/shared";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { Check, CheckCircle2, Circle, Lock, Trash2 } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -16,6 +22,7 @@ import { AccountBalances } from "@/components/register/balances";
 import { ReconcilePanel, ReconcileSummary } from "@/components/register/reconcile-panel";
 import { UpcomingPanel } from "@/components/register/upcoming-panel";
 import { ClearedFilter } from "@/components/register/cleared-filter";
+import { SortHeader } from "@/components/register/sort-header";
 import { RegisterBulkPanel } from "@/components/register/bulk-panel";
 import {
   FlagCell,
@@ -96,7 +103,7 @@ const fieldsFrom = (txn: RegisterTransaction): RegisterFields => ({
 
 function AccountRegisterPage() {
   const { budgetId, accountId } = Route.useParams();
-  const { cleared, q } = Route.useSearch();
+  const { cleared, q, sort, dir } = Route.useSearch();
   const navigate = Route.useNavigate();
 
   const [addFields, setAddFields] = useState<RegisterFields>(emptyFields);
@@ -157,6 +164,8 @@ function AccountRegisterPage() {
     accountId: Number(accountId),
     cleared: cleared as "all" | "Uncleared" | "Cleared" | "Reconciled",
     q,
+    sort,
+    dir,
     scrollRef: scrollContainerRef,
     onSaveSuccess: () => {
       setAddFields(emptyFields());
@@ -262,6 +271,15 @@ function AccountRegisterPage() {
   function flagRow(txn: RegisterTransaction, flagColor: FlagColor | null) {
     updateTransaction(txn, { ...fieldsFrom(txn), flagColor });
   }
+
+  // Sorting lives in the URL beside the filter, so a sorted register is a link
+  // too, and going back to the date order is going back a page.
+  const sortProps = {
+    sort,
+    dir,
+    onSort: (column: RegisterSort, nextDir: SortDirection) =>
+      navigate({ search: (prev) => ({ ...prev, sort: column, dir: nextDir }) }),
+  };
 
   const editError = updateError ?? deleteError ?? editBlocked;
 
@@ -500,15 +518,42 @@ function AccountRegisterPage() {
           <tr className="text-muted-foreground">
             {/* The flag has nothing to label: it is a colour and no more. */}
             <th className="pl-2 py-2" />
-            <th className="text-left px-6 py-2 font-medium">Date</th>
-            <th className="text-left px-4 py-2 font-medium">Check</th>
-            <th className="text-left px-4 py-2 font-medium">Payee</th>
-            <th className="text-left px-4 py-2 font-medium">Category</th>
-            <th className="text-left px-4 py-2 font-medium">Memo</th>
-            <th className="text-right px-4 py-2 font-medium">Outflow</th>
-            <th className="text-right px-4 py-2 font-medium">Inflow</th>
-            <th className="text-center px-2 py-2 font-medium">C</th>
-            <th className="text-right px-6 py-2 font-medium">Balance</th>
+            <SortHeader column="date" label="Date" className="px-6" {...sortProps} />
+            <SortHeader column="checkNumber" label="Check" className="px-4" {...sortProps} />
+            <SortHeader column="payee" label="Payee" className="px-4" {...sortProps} />
+            <SortHeader column="category" label="Category" className="px-4" {...sortProps} />
+            <SortHeader column="memo" label="Memo" className="px-4" {...sortProps} />
+            {/* Outflow and Inflow are the two halves of one signed amount, so
+                both head the same sort rather than two that cannot both exist. */}
+            <SortHeader
+              column="amount"
+              label="Outflow"
+              align="right"
+              className="px-4"
+              {...sortProps}
+            />
+            <SortHeader
+              column="amount"
+              label="Inflow"
+              align="right"
+              className="px-4"
+              {...sortProps}
+            />
+            <SortHeader column="cleared" label="C" align="center" className="px-2" {...sortProps} />
+            {/* Not sortable: it is a running total measured down the date
+                order, so ordering by it would ask for the rows in the order of
+                a number that only exists in another order. */}
+            <th
+              className="text-right px-6 py-2 font-medium"
+              title={
+                sort === "date"
+                  ? undefined
+                  : "Each row's balance as of its own date. Sorted by something other than date, the column no longer adds up down the page."
+              }
+            >
+              Balance
+              {sort !== "date" && <span className="ml-1 opacity-60">*</span>}
+            </th>
           </tr>
         </thead>
       </table>

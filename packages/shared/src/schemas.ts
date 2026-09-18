@@ -5,6 +5,8 @@ import {
   CLEARED_VALUES,
   FLAG_COLORS,
   FREQUENCY_VALUES,
+  REGISTER_SORTS,
+  SORT_DIRECTIONS,
 } from "./types";
 
 // ─── Transaction ────────────────────────────────────────────────────────────
@@ -114,6 +116,10 @@ export const budgetSearchSchema = z.object({
 export const accountRegisterSearchSchema = z.object({
   cleared: z.enum(["all", ...CLEARED_VALUES]).default("all"),
   q: z.string().optional(),
+  // A register is a chronological ledger first, so date ascending is what it
+  // falls back to and what it returns to.
+  sort: z.enum(REGISTER_SORTS).default("date"),
+  dir: z.enum(SORT_DIRECTIONS).default("asc"),
 });
 
 export type CreateTransaction = z.infer<typeof createTransactionSchema>;

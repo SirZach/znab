@@ -15,6 +15,7 @@ import {
 import { AccountBalances } from "@/components/register/balances";
 import { ReconcilePanel, ReconcileSummary } from "@/components/register/reconcile-panel";
 import { UpcomingPanel } from "@/components/register/upcoming-panel";
+import { ClearedFilter } from "@/components/register/cleared-filter";
 import { RegisterRowFields, type RegisterRowLocks } from "@/components/register/row-fields";
 import {
   isReconciled,
@@ -77,6 +78,7 @@ const fieldsFrom = (txn: RegisterTransaction): RegisterFields => ({
 function AccountRegisterPage() {
   const { budgetId, accountId } = Route.useParams();
   const { cleared, q } = Route.useSearch();
+  const navigate = Route.useNavigate();
 
   const [addFields, setAddFields] = useState<RegisterFields>(emptyFields);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -102,6 +104,7 @@ function AccountRegisterPage() {
     autofillForPayee,
     transferKeepsCategory,
     total,
+    counts,
     isLoading,
     cycleCleared,
     createTransaction,
@@ -258,6 +261,24 @@ function AccountRegisterPage() {
             </Button>
           )}
         </div>
+      </div>
+
+      {/* Which rows to show. It writes to the URL rather than to state, so a
+          filtered register is a link, and reloading keeps what was chosen. */}
+      <div className="flex items-center gap-3 px-6 py-2 border-b border-border">
+        <ClearedFilter
+          value={cleared}
+          counts={counts}
+          onChange={(next) =>
+            navigate({ search: (prev) => ({ ...prev, cleared: next }) })
+          }
+        />
+        {cleared !== "all" && (
+          <span className="text-xs text-muted-foreground">
+            Showing {counts[cleared]} of {counts.all}. The balances above are the
+            whole account either way.
+          </span>
+        )}
       </div>
 
       {/* Between the header and the column headers, so the rows behind it stay

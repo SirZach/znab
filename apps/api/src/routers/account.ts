@@ -82,6 +82,9 @@ type TotalsRow = {
   clearedBalance: string;
   unclearedBalance: string;
   count: number;
+  unclearedCount: number;
+  clearedCount: number;
+  reconciledCount: number;
 };
 
 export const accountRouter = router({
@@ -152,7 +155,12 @@ export const accountRouter = router({
             WHERE cleared IN ('Cleared', 'Reconciled')
           ), 0) AS "clearedBalance",
           COALESCE(SUM(amount) FILTER (WHERE cleared = 'Uncleared'), 0) AS "unclearedBalance",
-          COUNT(*)::int AS count
+          COUNT(*)::int AS count,
+          -- What the filter control puts beside each choice. They come off the
+          -- scan the balances above already pay for, rather than a query each.
+          COUNT(*) FILTER (WHERE cleared = 'Uncleared')::int AS "unclearedCount",
+          COUNT(*) FILTER (WHERE cleared = 'Cleared')::int AS "clearedCount",
+          COUNT(*) FILTER (WHERE cleared = 'Reconciled')::int AS "reconciledCount"
         FROM transactions
         WHERE budget_id = ${input.budgetId}
           AND account_id = ${input.accountId}
@@ -231,6 +239,14 @@ export const accountRouter = router({
         clearedBalance: parseFloat(totals[0]?.clearedBalance ?? "0"),
         unclearedBalance: parseFloat(totals[0]?.unclearedBalance ?? "0"),
         total: totals[0]?.count ?? 0,
+        // Counted over the whole account, like the balances above, so the
+        // filter keeps saying what each choice holds while one is in force.
+        counts: {
+          all: totals[0]?.count ?? 0,
+          Uncleared: totals[0]?.unclearedCount ?? 0,
+          Cleared: totals[0]?.clearedCount ?? 0,
+          Reconciled: totals[0]?.reconciledCount ?? 0,
+        },
         hasMore,
       };
     }),

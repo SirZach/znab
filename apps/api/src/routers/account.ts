@@ -97,7 +97,10 @@ const SORT_EXPR = {
   memo: sql`x.memo`,
   amount: sql`x.amount`,
   cleared: sql`x.cleared`,
-  checkNumber: sql`CASE WHEN x.check_number ~ '^[0-9]+$' THEN x.check_number::bigint END`,
+  // numeric rather than bigint: the column takes twenty characters, and twenty
+  // digits is past what a bigint holds, so a cheque numbered that high would
+  // not sort oddly but error the whole query and take the register with it.
+  checkNumber: sql`CASE WHEN x.check_number ~ '^[0-9]+$' THEN x.check_number::numeric END`,
 } as const;
 
 /** One page row from the window query: the id and its account-wide balance. */
@@ -165,9 +168,11 @@ export const accountRouter = router({
       const pageFromEnd = input.sort === "date" && input.dir === "asc";
       const ascending = pageFromEnd ? false : input.dir === "asc";
       const d = ascending ? sql`ASC` : sql`DESC`;
-      // An unfiled row sorts to the far end rather than the near one, so
-      // narrowing by a column never opens with the rows that have nothing in it.
-      const nulls = ascending ? sql`NULLS LAST` : sql`NULLS FIRST`;
+      // An unfiled row sorts to the end whichever way round the column goes, so
+      // sorting by it never opens with the rows that have nothing in it. Last
+      // means last here because only the date order is ever turned round, and
+      // the date is never null, so this applies where the two orders agree.
+      const nulls = sql`NULLS LAST`;
       const tieBreak = sql`x.date ${d}, x.created_at ${d}, x.id ${d}`;
       const orderBy =
         input.sort === "date"

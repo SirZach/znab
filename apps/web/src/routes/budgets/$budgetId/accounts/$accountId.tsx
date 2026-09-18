@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { accountRegisterSearchSchema, FLAG_COLORS, type FlagColor } from "@znab/shared";
 import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import { Check, CheckCircle2, Circle, Lock, Trash2 } from "lucide-react";
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,6 +16,7 @@ import { AccountBalances } from "@/components/register/balances";
 import { ReconcilePanel, ReconcileSummary } from "@/components/register/reconcile-panel";
 import { UpcomingPanel } from "@/components/register/upcoming-panel";
 import { ClearedFilter } from "@/components/register/cleared-filter";
+import { RegisterBulkPanel } from "@/components/register/bulk-panel";
 import {
   FlagCell,
   RegisterRowFields,
@@ -105,6 +106,10 @@ function AccountRegisterPage() {
   const [reconciling, setReconciling] = useState(false);
   /** The reconciled row waiting to be told to open anyway. */
   const [warningId, setWarningId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [anchorId, setAnchorId] = useState<number | null>(null);
+  /** What the last bulk action did, including the rows it would not touch. */
+  const [bulkNote, setBulkNote] = useState<string | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -162,6 +167,34 @@ function AccountRegisterPage() {
   // The row the warning is about, to word it for whichever side is reconciled.
   const warned =
     warningId === null ? undefined : transactions.find((t) => t.id === warningId);
+
+  // The selection resolved against what is actually on screen, rather than held
+  // as ids alone. A row that has been deleted, or that the cleared filter has
+  // taken away, stops counting as selected on its own, which is what closes the
+  // panel once a bulk delete has really happened and leaves it open, against the
+  // rows that survived, when one was refused.
+  const selectedRows = transactions.filter((t) => selectedIds.has(t.id));
+
+  // Every row on screen in the order it appears, so a shift-click range and the
+  // register agree on what lies between two rows.
+  const visibleRowIds = transactions.map((t) => t.id);
+
+  // Escape is the way out of a selection from the keyboard, since a plain click
+  // no longer opens a row while one is held. A dialog or a picker takes Escape
+  // for itself, so backing out of the delete confirmation does not also throw
+  // away the selection it was about. The setters are stable, so this listens
+  // once rather than reattaching as the selection changes.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (e.target instanceof Element && e.target.closest("[role=dialog]")) return;
+      setSelectedIds(new Set());
+      setAnchorId(null);
+      setBulkNote(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   if (isLoading) {
     return (
@@ -249,6 +282,118 @@ function AccountRegisterPage() {
       return;
     }
     edit(txn.id);
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setAnchorId(null);
+    setBulkNote(null);
+  }
+
+  /**
+   * Which rows the selection covers, the same three gestures the budget grid
+   * uses: shift-click takes everything between the anchor and here, ctrl or
+   * cmd-click adds or drops a single row, and anything else starts again from
+   * this row alone.
+   */
+  function selectRow(event: React.MouseEvent, id: number) {
+    setBulkNote(null);
+    if (event.shiftKey && anchorId !== null) {
+      const from = visibleRowIds.indexOf(anchorId);
+      const to = visibleRowIds.indexOf(id);
+      if (from !== -1 && to !== -1) {
+        const [lo, hi] = from < to ? [from, to] : [to, from];
+        setSelectedIds(new Set(visibleRowIds.slice(lo, hi + 1)));
+        return;
+      }
+    }
+    if (event.metaKey || event.ctrlKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (!next.delete(id)) next.add(id);
+        return next;
+      });
+      setAnchorId(id);
+      return;
+    }
+    setSelectedIds(new Set([id]));
+    setAnchorId(id);
+  }
+
+  /**
+   * What clicking a row means. The click was already spoken for: it opens the
+   * row for editing, which is the register's main gesture and is not worth
+   * taking away, so the modifiers decide instead. Ctrl or cmd-click and
+   * shift-click always select. A plain click opens the row while nothing is
+   * selected, and once something is, it moves the selection to that row rather
+   * than opening it, so a selection can be built up and started over without
+   * holding a key down the whole time. The panel's clear button and Escape both
+   * end the selection, which puts a plain click back to opening rows.
+   */
+  function clickRow(event: React.MouseEvent, txn: RegisterTransaction) {
+    if (
+      !event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      selectedRows.length === 0
+    ) {
+      requestEdit(txn);
+      return;
+    }
+    // A row being edited holds a draft that the panel would hide, and it is the
+    // one row a bulk action has no business writing over, so selecting drops it
+    // the same way clicking another row always has.
+    if (editingId !== null) edit(null);
+    selectRow(event, txn.id);
+  }
+
+  /**
+   * Set one category on every selected row that can hold one, as the same
+   * single-row update the editor sends. A split's categories belong to its
+   * parts and a transfer between two budgeted accounts carries none, so those
+   * rows are counted and left alone rather than sent a change that would be
+   * refused. A reconciled row is written the way a flag is: a category moves
+   * budget activity, not what the account says it holds, so it cannot put an
+   * account out of step with the statement it was reconciled against.
+   */
+  function categoriseSelected(categoryId: number) {
+    const eligible = selectedRows.filter((row) => !locksFor(row).category);
+    for (const row of eligible) {
+      updateTransaction(row, { ...fieldsFrom(row), categoryId });
+    }
+    const skipped = selectedRows.length - eligible.length;
+    setBulkNote(
+      `Categorised ${eligible.length} of ${selectedRows.length}.` +
+        (skipped > 0 ? ` ${skipped} carry no category here and were left alone.` : "")
+    );
+  }
+
+  /**
+   * Tick every selected row off against the statement, or untick it. Rows
+   * already where they are being asked to go are nothing to write, and a
+   * reconciled one is refused by the API rather than moved back, so both are
+   * counted out of the pass.
+   */
+  function setClearedOnSelected(target: "Cleared" | "Uncleared") {
+    const locked = selectedRows.filter((row) => row.cleared === "Reconciled");
+    const moving = selectedRows.filter(
+      (row) => row.cleared !== "Reconciled" && row.cleared !== target
+    );
+    for (const row of moving) cycleCleared(row.cleared, row.id);
+    setBulkNote(
+      `Marked ${moving.length} of ${selectedRows.length} ${target.toLowerCase()}.` +
+        (locked.length > 0
+          ? ` ${locked.length} are reconciled, which cannot be undone from the register.`
+          : "")
+    );
+  }
+
+  // The selection is left as it is: a row that is really gone falls out of it on
+  // the next read, and one whose delete was refused stays, with the error
+  // against it in the panel.
+  function deleteSelected() {
+    for (const row of selectedRows) deleteTransaction(row);
+    setBulkNote(`Deleting ${selectedRows.length}.`);
   }
 
   return (
@@ -342,6 +487,12 @@ function AccountRegisterPage() {
         />
       )}
 
+      {/* The register itself, with the bulk panel alongside it. The three
+          stacked tables share a colgroup to keep their columns lined up, so
+          they have to narrow together when the panel opens. */}
+      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+
       {/* Sticky table header */}
       <table className="w-full text-sm border-b border-border">
         {colgroup}
@@ -386,15 +537,17 @@ function AccountRegisterPage() {
               const amount = parseFloat(txn.amount);
               const isInflow = amount > 0;
               const editing = txn.id === editingId;
+              const selected = selectedIds.has(txn.id);
 
               return (
                 <Fragment key={txn.id}>
                   <tr
-                    onClick={editing ? undefined : () => requestEdit(txn)}
-                    aria-selected={editing}
+                    onClick={editing ? undefined : (e) => clickRow(e, txn)}
+                    aria-selected={editing || selected}
                     className={cn(
                       "border-b border-border/50 transition-colors",
-                      editing ? "bg-accent/60" : "cursor-pointer hover:bg-accent/30"
+                      !editing && "cursor-pointer",
+                      editing || selected ? "bg-accent/60" : "hover:bg-accent/30"
                     )}
                   >
                     {editing ? (
@@ -510,6 +663,31 @@ function AccountRegisterPage() {
           )}
         </tbody>
       </table>
+
+      </div>
+
+        {selectedRows.length > 0 && (
+          <RegisterBulkPanel
+            rows={selectedRows.map((row) => ({
+              id: row.id,
+              date: row.date,
+              payeeName: row.payee?.name ?? "—",
+              amount: row.amount,
+              cleared: row.cleared,
+              isTransfer: row.isTransfer,
+              canCategorise: !locksFor(row).category,
+            }))}
+            categoryOptions={categoryOptions}
+            onCategorise={categoriseSelected}
+            onSetCleared={setClearedOnSelected}
+            onDelete={deleteSelected}
+            onClear={clearSelection}
+            isBusy={isSavingEdit}
+            note={bulkNote}
+            error={updateError ?? deleteError}
+          />
+        )}
+      </div>
 
       <Dialog open={warningId !== null} onOpenChange={(open) => !open && setWarningId(null)}>
         <DialogContent className="max-w-md">

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { AccountBalances } from "@/components/register/balances";
 import { ReconcilePanel, ReconcileSummary } from "@/components/register/reconcile-panel";
+import { UpcomingPanel } from "@/components/register/upcoming-panel";
 import { RegisterRowFields, type RegisterRowLocks } from "@/components/register/row-fields";
 import {
   isReconciled,
@@ -107,6 +108,13 @@ function AccountRegisterPage() {
     updateTransaction,
     deleteTransaction,
     reconcile,
+    upcoming,
+    enterScheduled,
+    skipScheduled,
+    isEnteringScheduled,
+    isSkippingScheduled,
+    enterScheduledError,
+    skipScheduledError,
     isSaving,
     isSavingEdit,
     isReconciling,
@@ -271,6 +279,18 @@ function AccountRegisterPage() {
         reconcileResult && (
           <ReconcileSummary result={reconcileResult} onDismiss={resetReconcileStatus} />
         )
+      )}
+
+      {/* What is due and coming up, out of the way while a statement is being
+          reconciled: that panel owns the screen until it is finished. */}
+      {!reconciling && (
+        <UpcomingPanel
+          occurrences={upcoming}
+          onEnter={enterScheduled}
+          onSkip={skipScheduled}
+          isBusy={isEnteringScheduled || isSkippingScheduled}
+          error={enterScheduledError ?? skipScheduledError}
+        />
       )}
 
       {/* Sticky table header */}

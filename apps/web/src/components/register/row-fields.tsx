@@ -1,5 +1,4 @@
 import { useRef, useState } from "react";
-import { format } from "date-fns";
 import { CalendarIcon, Lock, X } from "lucide-react";
 import { FLAG_COLORS, type FlagColor } from "@znab/shared";
 import { Button } from "@/components/ui/button";
@@ -14,6 +13,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { formatDateEntry, offsetDays, parseDateEntry } from "@/lib/date-entry";
 import type { PayeeAutofillPatch, PayeeAutofillSource } from "@/lib/payee-autofill";
 import type { RegisterFields } from "@/lib/register-row";
 
@@ -128,6 +128,7 @@ export function RegisterRowFields({
   onCancel,
   tabIndexBase,
   autoFocus,
+  payeeTriggerRef,
 }: {
   fields: RegisterFields;
   /** Only the keys that changed; the caller merges them into its draft. */
@@ -142,6 +143,13 @@ export function RegisterRowFields({
   tabIndexBase?: number;
   autoFocus?: boolean;
   /**
+   * The payee control, handed back so the register can return to it once a row
+   * has saved. Entering a run of transactions is the same few keystrokes over
+   * and over, and the one thing that stopped it being continuous was that the
+   * add row let go of the keyboard the moment it was used.
+   */
+  payeeTriggerRef?: React.Ref<HTMLButtonElement>;
+  /**
    * The number this account is up to, offered as the check field's placeholder
    * rather than typed into it: most rows are not cheques, and prefilling would
    * put a check number on every one of them.
@@ -152,11 +160,38 @@ export function RegisterRowFields({
 
   const categoryTriggerRef = useRef<HTMLButtonElement>(null);
   const memoRef = useRef<HTMLInputElement>(null);
+  const outflowRef = useRef<HTMLInputElement>(null);
+  const dateRef = useRef<HTMLInputElement>(null);
+  const [dateOpen, setDateOpen] = useState(false);
+  // What is in the date field while it is being typed into. Null means nothing
+  // is being typed, so the field shows the date the row actually holds.
+  const [dateDraft, setDateDraft] = useState<string | null>(null);
 
   const tab = (n: number) => (tabIndexBase === undefined ? undefined : tabIndexBase + n);
 
+  /**
+   * Lets a picker be typed at rather than opened first. The trigger is a button,
+   * so a letter would otherwise go nowhere and the reader would have to press
+   * Enter to open the list before typing the name they already know. This makes
+   * the first letter do both, which is the difference between four keystrokes
+   * for a payee and two.
+   */
+  function openOnType(
+    e: React.KeyboardEvent,
+    open: () => void,
+    seed?: (text: string) => void
+  ) {
+    if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey) return;
+    e.preventDefault();
+    seed?.(e.key);
+    open();
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") onSubmit();
+    if (e.key === "Enter") {
+      setDateDraft(null);
+      onSubmit();
+    }
     if (e.key === "Escape") onCancel?.();
   }
 
@@ -169,31 +204,64 @@ export function RegisterRowFields({
       />
 
       <td className="px-6 py-2">
-        <Popover>
-          <PopoverTrigger
-            render={
-              <Button
-                tabIndex={tab(1)}
-                variant="ghost"
-                className={cn(
-                  "w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1",
-                  !fields.date && "text-muted-foreground"
-                )}
+        <div className="flex items-center gap-0.5">
+          <input
+            type="text"
+            ref={dateRef}
+            tabIndex={tab(1)}
+            aria-label="Date"
+            placeholder="Date"
+            // The date the row holds, unless somebody is part way through
+            // typing another one, in which case theirs stands untouched.
+            value={dateDraft ?? (fields.date ? formatDateEntry(fields.date) : "")}
+            onChange={(e) => {
+              setDateDraft(e.target.value);
+              const parsed = parseDateEntry(e.target.value);
+              if (parsed) onChange({ date: parsed });
+            }}
+            // Whatever was typed is dropped on the way out and the field falls
+            // back to the date that was understood, so half a date never sticks.
+            onBlur={() => setDateDraft(null)}
+            onKeyDown={(e) => {
+              // A day either side is the commonest correction there is, and
+              // the arrows are otherwise doing nothing in a text field.
+              if ((e.key === "ArrowUp" || e.key === "ArrowDown") && fields.date) {
+                e.preventDefault();
+                setDateDraft(null);
+                onChange({ date: offsetDays(fields.date, e.key === "ArrowUp" ? 1 : -1) });
+                return;
+              }
+              handleKeyDown(e);
+            }}
+            className={cn(inputClass, "tabular-nums")}
+          />
+          <Popover open={dateOpen} onOpenChange={setDateOpen}>
+            <PopoverTrigger
+              render={
+                <Button
+                  tabIndex={-1}
+                  variant="ghost"
+                  aria-label="Pick a date from a calendar"
+                  className="h-auto shrink-0 px-1 py-0.5"
+                />
+              }
+            >
+              <CalendarIcon className="h-3.5 w-3.5 opacity-50" />
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={fields.date}
+                onSelect={(date) => {
+                  setDateDraft(null);
+                  onChange({ date });
+                  setDateOpen(false);
+                }}
+                autoFocus
               />
-            }
-          >
-            <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-50" />
-            {fields.date ? format(fields.date, "MM/dd/yyyy") : "Pick a date"}
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={fields.date}
-              onSelect={(date) => onChange({ date })}
-              autoFocus
-            />
-          </PopoverContent>
-        </Popover>
+            </PopoverContent>
+          </Popover>
+        </div>
       </td>
 
       <td className="px-4 py-2">
@@ -205,8 +273,16 @@ export function RegisterRowFields({
         ) : (
           <Popover open={payeeOpen} onOpenChange={setPayeeOpen}>
             <PopoverTrigger
+              onKeyDown={(e) =>
+                openOnType(
+                  e,
+                  () => setPayeeOpen(true),
+                  (text) => onChange({ payeeName: text, payeeId: null })
+                )
+              }
               render={
                 <Button
+                  ref={payeeTriggerRef}
                   tabIndex={tab(2)}
                   variant="ghost"
                   role="combobox"
@@ -245,12 +321,18 @@ export function RegisterRowFields({
 
                           // Once the category is settled its picker is a stop the
                           // user does not need, and landing on it would pop the
-                          // menu open over an answer they already have. A transfer
-                          // has no picker to land on at all, so the memo catches
-                          // whatever the category cannot.
+                          // menu open over an answer they already have. What is
+                          // worth landing on is the amount: it is the one field
+                          // that differs every time even for a payee used
+                          // weekly, and selecting what autofill put there means
+                          // typing replaces it and Enter accepts it.
                           const next =
-                            patch.categoryId !== undefined ? memoRef : categoryTriggerRef;
-                          setTimeout(() => (next.current ?? memoRef.current)?.focus(), 0);
+                            patch.categoryId !== undefined ? outflowRef : categoryTriggerRef;
+                          setTimeout(() => {
+                            const el = next.current ?? memoRef.current;
+                            el?.focus();
+                            if (el === outflowRef.current) outflowRef.current?.select();
+                          }, 0);
                         }}
                       >
                         {p.name}
@@ -346,6 +428,7 @@ export function RegisterRowFields({
               // Text rather than a number input: these take arithmetic like
               // `25+13`, the same as every other money field in the app.
               type="text"
+              ref={i === 0 ? outflowRef : undefined}
               inputMode="decimal"
               tabIndex={tab(5 + i)}
               aria-label={column.label}

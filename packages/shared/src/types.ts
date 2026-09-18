@@ -23,6 +23,25 @@ export const ACCOUNT_TYPES = [
 export type AccountType = typeof ACCOUNT_TYPES[number];
 
 /**
+ * The register columns worth sorting by. Balance is not among them: it is a
+ * running total measured down the date order, so sorting by it would ask for
+ * the rows in the order of a number that only exists in another order.
+ */
+export const REGISTER_SORTS = [
+  "date",
+  "payee",
+  "category",
+  "memo",
+  "amount",
+  "cleared",
+  "checkNumber",
+] as const;
+export type RegisterSort = typeof REGISTER_SORTS[number];
+
+export const SORT_DIRECTIONS = ["asc", "desc"] as const;
+export type SortDirection = typeof SORT_DIRECTIONS[number];
+
+/**
  * The flags YNAB 4 offers, which are colours and nothing else: it attaches no
  * meaning to them and neither does this. The column behind them is free text,
  * so the vocabulary has to come from here.

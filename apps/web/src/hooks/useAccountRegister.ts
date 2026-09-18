@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { format } from "date-fns";
+import type { RegisterSort, SortDirection } from "@znab/shared";
 import { trpc } from "@/trpc";
 import { payeeAutofillPatch } from "@/lib/payee-autofill";
 import type { PayeeAutofillSource, RegisterDraft } from "@/lib/payee-autofill";
@@ -37,6 +38,8 @@ export function useAccountRegister({
   accountId,
   cleared,
   q,
+  sort,
+  dir,
   scrollRef,
   onSaveSuccess,
 }: {
@@ -44,6 +47,8 @@ export function useAccountRegister({
   accountId: number;
   cleared: "all" | "Uncleared" | "Cleared" | "Reconciled";
   q: string | undefined;
+  sort: RegisterSort;
+  dir: SortDirection;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onSaveSuccess?: () => void;
 }) {
@@ -56,13 +61,15 @@ export function useAccountRegister({
   // Reset back to one page whenever the register being viewed changes.
   React.useEffect(() => {
     setLimit(PAGE_SIZE);
-  }, [accountId, cleared, q]);
+  }, [accountId, cleared, q, sort, dir]);
 
   const { data, isLoading, isFetching } = trpc.account.transactions.useQuery({
     budgetId,
     accountId,
     cleared,
     q,
+    sort,
+    dir,
     limit,
   });
 

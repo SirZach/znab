@@ -11,7 +11,13 @@ import {
   scheduledTransactions,
   transactions,
 } from "@znab/db";
-import { ACCOUNT_TYPES, createAccountSchema, reconcileAccountSchema } from "@znab/shared";
+import {
+  ACCOUNT_TYPES,
+  REGISTER_SORTS,
+  SORT_DIRECTIONS,
+  createAccountSchema,
+  reconcileAccountSchema,
+} from "@znab/shared";
 import { assertBudgetAccess, ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import {
   accountClass,
@@ -75,6 +81,25 @@ async function lockAccount(
   return account;
 }
 
+/**
+ * What each sortable column orders by, named against the subquery the register
+ * page is selected from.
+ *
+ * A check number is text, because YNAB 4 lets one be written that is not a
+ * number, and text puts 10 before 9. The ones that are numbers are ordered as
+ * numbers and the rest fall in behind them, which is the only reading that is
+ * any use in a cheque book.
+ */
+const SORT_EXPR = {
+  date: sql`x.date`,
+  payee: sql`x.payee_name`,
+  category: sql`x.category_name`,
+  memo: sql`x.memo`,
+  amount: sql`x.amount`,
+  cleared: sql`x.cleared`,
+  checkNumber: sql`CASE WHEN x.check_number ~ '^[0-9]+$' THEN x.check_number::bigint END`,
+} as const;
+
 /** One page row from the window query: the id and its account-wide balance. */
 type PageRow = { id: number; runningBalance: string };
 type TotalsRow = {
@@ -118,6 +143,8 @@ export const accountRouter = router({
         accountId: z.number().int().positive(),
         cleared: z.enum(["all", "Uncleared", "Cleared", "Reconciled"]).default("all"),
         q: z.string().optional(),
+        sort: z.enum(REGISTER_SORTS).default("date"),
+        dir: z.enum(SORT_DIRECTIONS).default("asc"),
         limit: z.number().int().min(1).max(1000).default(200),
         offset: z.number().int().min(0).default(0),
       })
@@ -131,20 +158,41 @@ export const accountRouter = router({
         ? sql`x.memo ILIKE ${`%${input.q}%`}`
         : sql`TRUE`;
 
+      // A register is read from its recent end, so its own order takes the
+      // newest page and turns it round to render oldest first. Any other sort
+      // is a question about the whole account rather than about recent history,
+      // so it takes the top of that sort and renders it as it comes.
+      const pageFromEnd = input.sort === "date" && input.dir === "asc";
+      const ascending = pageFromEnd ? false : input.dir === "asc";
+      const d = ascending ? sql`ASC` : sql`DESC`;
+      // An unfiled row sorts to the far end rather than the near one, so
+      // narrowing by a column never opens with the rows that have nothing in it.
+      const nulls = ascending ? sql`NULLS LAST` : sql`NULLS FIRST`;
+      const tieBreak = sql`x.date ${d}, x.created_at ${d}, x.id ${d}`;
+      const orderBy =
+        input.sort === "date"
+          ? tieBreak
+          : sql`${SORT_EXPR[input.sort]} ${d} ${nulls}, ${tieBreak}`;
+
       // Fetch one extra row to learn whether older transactions remain.
       const pageRows = (await ctx.db.execute(sql`
         SELECT x.id, x.running_balance AS "runningBalance"
         FROM (
           SELECT
-            t.id, t.cleared, t.memo, t.date, t.created_at,
+            t.id, t.cleared, t.memo, t.date, t.created_at, t.amount, t.check_number,
+            p.name AS payee_name, c.name AS category_name,
             SUM(t.amount) OVER (ORDER BY t.date, t.created_at, t.id) AS running_balance
           FROM transactions t
+          -- Both joins are on a primary key, so neither can multiply a row and
+          -- the window above still totals the account exactly once.
+          LEFT JOIN payees p ON p.id = t.payee_id
+          LEFT JOIN categories c ON c.id = t.category_id
           WHERE t.budget_id = ${input.budgetId}
             AND t.account_id = ${input.accountId}
             AND t.deleted_at IS NULL
         ) x
         WHERE ${clearedFilter} AND ${searchFilter}
-        ORDER BY x.date DESC, x.created_at DESC, x.id DESC
+        ORDER BY ${orderBy}
         LIMIT ${input.limit + 1} OFFSET ${input.offset}
       `)) as unknown as PageRow[];
 
@@ -211,10 +259,8 @@ export const accountRouter = router({
         : [];
       const clearedByYnabId = new Map(counterparts.map((c) => [c.ynabId, c.cleared]));
 
-      // `visible` is newest-first for paging; the register reads oldest-first.
-      const page = visible
-        .slice()
-        .reverse()
+      // Turned round only when the page was taken from the far end.
+      const page = (pageFromEnd ? visible.slice().reverse() : visible)
         .flatMap((r) => {
           const row = byId.get(r.id);
           return row

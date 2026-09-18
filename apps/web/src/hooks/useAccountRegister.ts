@@ -72,6 +72,12 @@ export function useAccountRegister({
   const { data: categoryGroups } = trpc.category.list.useQuery({ budgetId });
   const { data: allPayees } = trpc.payee.list.useQuery({ budgetId });
 
+  // What this account has due or coming up, for the band above the register.
+  const { data: upcoming } = trpc.scheduledTransaction.upcoming.useQuery({
+    budgetId,
+    accountId,
+  });
+
   // An account cannot transfer to itself, and the API refuses it, so its own
   // stand-in payee is not worth offering in its own register.
   const payeeList = allPayees?.filter((p) => p.targetAccountId !== accountId);
@@ -95,6 +101,25 @@ export function useAccountRegister({
       utils.account.list.invalidate(),
     ]);
   }
+
+  // Entering or skipping an occurrence does everything a register write does
+  // and moves the schedule on as well, so what lists the schedules goes stale
+  // alongside the register itself.
+  function invalidateSchedules() {
+    return Promise.all([
+      invalidateRegister(),
+      utils.scheduledTransaction.upcoming.invalidate(),
+      utils.scheduledTransaction.list.invalidate(),
+    ]);
+  }
+
+  const enterScheduledMutation = trpc.scheduledTransaction.enter.useMutation({
+    onSuccess: invalidateSchedules,
+  });
+
+  const skipScheduledMutation = trpc.scheduledTransaction.skip.useMutation({
+    onSuccess: invalidateSchedules,
+  });
 
   const setClearedMutation = trpc.transaction.setClearedStatus.useMutation({
     onSuccess: invalidateRegister,
@@ -297,6 +322,16 @@ export function useAccountRegister({
     updateTransaction,
     deleteTransaction,
     reconcile,
+
+    /** The occurrences due or coming up in this account, earliest first. */
+    upcoming: upcoming ?? [],
+    enterScheduled: (id: number) => enterScheduledMutation.mutate({ id }),
+    skipScheduled: (id: number) => skipScheduledMutation.mutate({ id }),
+    isEnteringScheduled: enterScheduledMutation.isPending,
+    isSkippingScheduled: skipScheduledMutation.isPending,
+    enterScheduledError: enterScheduledMutation.error?.message ?? null,
+    skipScheduledError: skipScheduledMutation.error?.message ?? null,
+
     isSaving: createMutation.isPending,
     isSavingEdit: updateMutation.isPending || deleteMutation.isPending,
     isReconciling: reconcileMutation.isPending,

@@ -15,6 +15,7 @@ import { cn, currentMonthParam } from "@/lib/utils";
 import {
   LayoutDashboard,
   BarChart2,
+  CalendarClock,
   CreditCard,
   LogOut,
   ChevronDown,
@@ -90,6 +91,14 @@ function BudgetLayout() {
             params={{ budgetId }}
             icon={<Tags size={16} />}
             label="Categories"
+          />
+
+          {/* Scheduled transactions link */}
+          <SidebarLink
+            to="/budgets/$budgetId/scheduled"
+            params={{ budgetId }}
+            icon={<CalendarClock size={16} />}
+            label="Scheduled"
           />
 
           {/* Manage accounts link */}

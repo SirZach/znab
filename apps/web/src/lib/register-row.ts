@@ -27,7 +27,6 @@ export type RegisterFields = MoneyFields & {
    * only thing people write here. Empty means none, and the register sends that
    * as a null so a check number can be taken off again.
    */
-  checkNumber: string;
 };
 
 /**

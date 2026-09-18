@@ -34,7 +34,6 @@ export const REGISTER_SORTS = [
   "memo",
   "amount",
   "cleared",
-  "checkNumber",
 ] as const;
 export type RegisterSort = typeof REGISTER_SORTS[number];
 

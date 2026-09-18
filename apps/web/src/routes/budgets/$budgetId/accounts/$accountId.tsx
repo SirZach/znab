@@ -48,7 +48,6 @@ const colgroup = (
   <colgroup>
     <col className="w-6" />
     <col className="w-28" />
-    <col className="w-20" />
     <col />
     <col />
     <col />
@@ -74,7 +73,6 @@ const emptyFields = (): RegisterFields => ({
   categoryId: null,
   memo: "",
   flagColor: null,
-  checkNumber: "",
   outflow: "",
   inflow: "",
 });
@@ -97,7 +95,6 @@ const fieldsFrom = (txn: RegisterTransaction): RegisterFields => ({
   categoryId: txn.categoryId,
   memo: txn.memo ?? "",
   flagColor: flagColorOf(txn.flagColor),
-  checkNumber: txn.checkNumber ?? "",
   ...amountToFields(txn.amount),
 });
 
@@ -519,7 +516,6 @@ function AccountRegisterPage() {
             {/* The flag has nothing to label: it is a colour and no more. */}
             <th className="pl-2 py-2" />
             <SortHeader column="date" label="Date" className="px-6" {...sortProps} />
-            <SortHeader column="checkNumber" label="Check" className="px-4" {...sortProps} />
             <SortHeader column="payee" label="Payee" className="px-4" {...sortProps} />
             <SortHeader column="category" label="Category" className="px-4" {...sortProps} />
             <SortHeader column="memo" label="Memo" className="px-4" {...sortProps} />
@@ -620,9 +616,6 @@ function AccountRegisterPage() {
                         <td className="px-6 py-2 text-muted-foreground tabular-nums">
                           {formatDate(txn.date)}
                         </td>
-                        <td className="px-4 py-2 text-muted-foreground tabular-nums">
-                          {txn.checkNumber ?? ""}
-                        </td>
                         <td className="px-4 py-2">{txn.payee?.name ?? "—"}</td>
                         <td className="px-4 py-2 text-muted-foreground">
                           {txn.isSplit
@@ -651,7 +644,7 @@ function AccountRegisterPage() {
 
                   {editing && editError && (
                     <tr className="border-b border-border/50 bg-accent/60">
-                      <td colSpan={10} className="px-6 pb-2">
+                      <td colSpan={9} className="px-6 pb-2">
                         <p className="text-xs text-destructive">{editError}</p>
                       </td>
                     </tr>
@@ -683,9 +676,6 @@ function AccountRegisterPage() {
               locks={addLocks}
               onSubmit={saveAdd}
               tabIndexBase={1}
-              nextCheckNumber={
-                account?.lastEnteredCheckNum ? account.lastEnteredCheckNum + 1 : undefined
-              }
             />
             <td className="px-2 py-2" />
             <td className="px-6 py-2 text-right">
@@ -701,7 +691,7 @@ function AccountRegisterPage() {
 
           {(addBlocked ?? createError) && (
             <tr>
-              <td colSpan={10} className="px-6 pb-2">
+              <td colSpan={9} className="px-6 pb-2">
                 <p className="text-xs text-destructive">{addBlocked ?? createError}</p>
               </td>
             </tr>

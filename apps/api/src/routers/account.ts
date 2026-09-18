@@ -84,11 +84,6 @@ async function lockAccount(
 /**
  * What each sortable column orders by, named against the subquery the register
  * page is selected from.
- *
- * A check number is text, because YNAB 4 lets one be written that is not a
- * number, and text puts 10 before 9. The ones that are numbers are ordered as
- * numbers and the rest fall in behind them, which is the only reading that is
- * any use in a cheque book.
  */
 const SORT_EXPR = {
   date: sql`x.date`,
@@ -97,10 +92,6 @@ const SORT_EXPR = {
   memo: sql`x.memo`,
   amount: sql`x.amount`,
   cleared: sql`x.cleared`,
-  // numeric rather than bigint: the column takes twenty characters, and twenty
-  // digits is past what a bigint holds, so a cheque numbered that high would
-  // not sort oddly but error the whole query and take the register with it.
-  checkNumber: sql`CASE WHEN x.check_number ~ '^[0-9]+$' THEN x.check_number::numeric END`,
 } as const;
 
 /** One page row from the window query: the id and its account-wide balance. */
@@ -184,7 +175,7 @@ export const accountRouter = router({
         SELECT x.id, x.running_balance AS "runningBalance"
         FROM (
           SELECT
-            t.id, t.cleared, t.memo, t.date, t.created_at, t.amount, t.check_number,
+            t.id, t.cleared, t.memo, t.date, t.created_at, t.amount,
             p.name AS payee_name, c.name AS category_name,
             SUM(t.amount) OVER (ORDER BY t.date, t.created_at, t.id) AS running_balance
           FROM transactions t

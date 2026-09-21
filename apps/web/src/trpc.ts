@@ -8,10 +8,19 @@ export type { MonthSummary, CategoryMonth } from "../../api/src/routers/budget";
 
 export const trpc = createTRPCReact<AppRouter>();
 
-// Talk to the API on whatever host served this page (localhost, zachbox,
-// a .ts.net Tailscale address, …) rather than hardcoding localhost, so the
-// app works both locally and when accessed from another device.
-const apiUrl = `${window.location.protocol}//${window.location.hostname}:3001/trpc`;
+// Two servers in development and one in production, so the API is in two
+// different places and the build is what knows which.
+//
+// A built app is served by the API itself, so the API is wherever the page came
+// from and a relative path is both shorter and truer: it survives being served
+// on another port, or behind something in front of it, without being told.
+// The dev server is a second server on a second port, so there it has to be
+// named, on whatever host served the page (localhost, zachbox, a .ts.net
+// Tailscale address) rather than a hardcoded localhost that would only work
+// from the machine itself.
+const apiUrl = import.meta.env.PROD
+  ? "/trpc"
+  : `${window.location.protocol}//${window.location.hostname}:3001/trpc`;
 
 export function createTRPCClient() {
   return trpc.createClient({

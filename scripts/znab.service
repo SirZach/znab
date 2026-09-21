@@ -1,0 +1,68 @@
+# znab as one supervised process: the API, serving the built web app itself.
+#
+# This replaces a pair of nohup'd dev servers that nothing owned. Two things
+# follow from being supervised rather than detached. It comes back after a
+# crash and after a reboot, which nohup never did. And its output goes to
+# journald instead of to a shell that closes, which is what turned a failure
+# into a white page with no error behind it.
+#
+# It is a user service rather than a system one: znab runs as one person on one
+# machine, needs nothing root owns, and keeps working with the same DATABASE_URL
+# the dev servers already use.
+#
+# Install:
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp scripts/znab.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#
+#   # Build the web app first, or the service refuses to start and says so.
+#   # Worth doing with the dev server stopped: this machine has 2GB and the
+#   # build wants a few hundred MB that a long-lived vite is otherwise holding.
+#   bun run build
+#
+#   systemctl --user enable --now znab
+#
+#   # Without this it stops when you log out and does not come back on reboot.
+#   sudo loginctl enable-linger zach
+#
+# Then: http://zachbox:3001
+#
+#   systemctl --user status znab
+#   journalctl --user -u znab -f
+#   systemctl --user restart znab     # after a rebuild
+#
+# Developing is unchanged and unaffected: `bun run dev` still runs the two dev
+# servers on 5173 and 3001. Stop this service first, since it wants the same
+# port the API does.
+
+[Unit]
+Description=znab
+Documentation=https://github.com/SirZach/znab
+# Postgres lives in docker, which is a system service, so this is a hint rather
+# than a guarantee: the Restart below is what actually covers starting early.
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/workspace/znab
+Environment=SERVE_WEB=1
+EnvironmentFile=%h/workspace/znab/apps/api/.env
+ExecStart=%h/.bun/bin/bun apps/api/src/index.ts
+
+# Postgres may not be accepting connections yet on a cold boot, and the app
+# exits rather than waiting, so coming straight back is the whole recovery.
+Restart=always
+RestartSec=3
+
+# 2GB total on this machine, and the app sits around 40MB. A cap this far above
+# that is not a budget, it is a tripwire: reaching it means something is wrong
+# and being restarted beats taking the machine into swap.
+MemoryMax=512M
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

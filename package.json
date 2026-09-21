@@ -11,6 +11,8 @@
     "dev:api": "bun run --filter api dev",
     "dev:web": "bun run --filter web dev",
     "web:restart": "bash scripts/restart-web.sh",
+    "build": "bun run --filter web build",
+    "start": "SERVE_WEB=1 bun run --filter api start",
     "db:generate": "bun run --filter @znab/db generate",
     "db:migrate": "bun run --filter @znab/db migrate",
     "db:studio": "bun run --filter @znab/db studio",

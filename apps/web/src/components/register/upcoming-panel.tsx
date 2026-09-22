@@ -7,7 +7,7 @@ import {
   upcomingRows,
   type UpcomingOccurrence,
 } from "@/lib/schedule";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDateShort } from "@/lib/utils";
 
 /**
  * What this account has due and coming up, above its register the way YNAB 4
@@ -75,7 +75,7 @@ export function UpcomingPanel({
                   </span>
                 )}
               </span>
-              <span className="w-24 shrink-0 tabular-nums">{formatDate(row.date)}</span>
+              <span className="w-24 shrink-0 tabular-nums">{formatDateShort(row.date)}</span>
               <span className="flex-1 min-w-0 flex items-center gap-1.5">
                 {row.isTransfer && (
                   <ArrowLeftRight

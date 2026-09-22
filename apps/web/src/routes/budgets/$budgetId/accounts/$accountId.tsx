@@ -6,7 +6,7 @@ import {
   type RegisterSort,
   type SortDirection,
 } from "@znab/shared";
-import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateShort, cn } from "@/lib/utils";
 import { Check, CheckCircle2, Circle, Lock, Trash2 } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -59,14 +59,20 @@ export const Route = createFileRoute(
  * Every column now has a width and the tables are laid out fixed, which is what
  * makes a colgroup binding rather than advisory. The widths are proportions so
  * they hold at any width the window is, and they sum to 100.
+ *
+ * Memo is the narrowest of the three that hold words, deliberately. It is the
+ * least important thing on a row and the emptiest: 120 of the 10,527
+ * transactions in the largest budget carry one at all. Payee and category are
+ * what a register is read for, so the width goes there and a long memo ends in
+ * an ellipsis rather than pushing everything else about.
  */
 const colgroup = (
   <colgroup>
     <col className="w-[2%]" />
     <col className="w-[9%]" />
-    <col className="w-[22%]" />
-    <col className="w-[20%]" />
-    <col className="w-[17%]" />
+    <col className="w-[27%]" />
+    <col className="w-[23%]" />
+    <col className="w-[9%]" />
     <col className="w-[9%]" />
     <col className="w-[9%]" />
     <col className="w-[3%]" />
@@ -651,16 +657,23 @@ function AccountRegisterPage() {
                           value={flagColorOf(txn.flagColor)}
                           onSelect={(flagColor) => flagRow(txn, flagColor)}
                         />
-                        <td className="px-6 py-2 text-muted-foreground tabular-nums">
-                          {formatDate(txn.date)}
+                        <td className="px-6 py-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                          {formatDateShort(txn.date)}
                         </td>
-                        <td className="px-4 py-2">{txn.payee?.name ?? "—"}</td>
-                        <td className="px-4 py-2 text-muted-foreground">
+                        <td className="px-4 py-2 truncate" title={txn.payee?.name ?? undefined}>
+                          {txn.payee?.name ?? "—"}
+                        </td>
+                        <td className="px-4 py-2 text-muted-foreground truncate">
                           {txn.isSplit
                             ? "Split"
                             : txn.category?.name ?? txn.categoryYnabId?.split("/").pop() ?? "—"}
                         </td>
-                        <td className="px-4 py-2 text-muted-foreground truncate max-w-48">
+                        {/* The whole memo on hover, since this is the column
+                            most likely to be cut and the least costly to cut. */}
+                        <td
+                          className="px-4 py-2 text-muted-foreground truncate"
+                          title={txn.memo ?? undefined}
+                        >
                           {txn.memo ?? ""}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums">

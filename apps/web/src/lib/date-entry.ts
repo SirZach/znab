@@ -85,10 +85,3 @@ export function parseDateEntry(input: string, today = new Date()): Date | null {
 export function offsetDays(from: Date, days: number): Date {
   return localDate(from.getFullYear(), from.getMonth() + 1, from.getDate() + days);
 }
-
-/** How a date is written back into the field once it has been understood. */
-export function formatDateEntry(date: Date): string {
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${mm}/${dd}/${date.getFullYear()}`;
-}

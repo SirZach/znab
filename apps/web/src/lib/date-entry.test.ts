@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { formatDateEntry, offsetDays, parseDateEntry } from "./date-entry";
+import { offsetDays, parseDateEntry } from "./date-entry";
+import { formatDateShort } from "./utils";
 
 /** A fixed day to read everything against: a Friday in September. */
 const today = new Date(2026, 8, 18);
@@ -7,7 +8,7 @@ const today = new Date(2026, 8, 18);
 /** What a parsed date says, in a form that is easy to read in a failure. */
 const on = (input: string, from = today) => {
   const d = parseDateEntry(input, from);
-  return d === null ? null : formatDateEntry(d);
+  return d === null ? null : formatDateShort(d);
 };
 
 describe("parseDateEntry: nothing to read yet", () => {
@@ -108,18 +109,18 @@ describe("parseDateEntry: month and day", () => {
 
 describe("offsetDays: stays on local midnight", () => {
   test("crosses a month end", () => {
-    expect(formatDateEntry(offsetDays(new Date(2026, 8, 30), 1))).toBe("10/01/2026");
+    expect(formatDateShort(offsetDays(new Date(2026, 8, 30), 1))).toBe("10/01/2026");
   });
 
   test("and a leap day", () => {
-    expect(formatDateEntry(offsetDays(new Date(2024, 1, 28), 1))).toBe("02/29/2024");
+    expect(formatDateShort(offsetDays(new Date(2024, 1, 28), 1))).toBe("02/29/2024");
   });
 
   test("a date taken apart and put back together is the same day", () => {
     // The register reads dates at local midnight throughout, so a round trip
     // through here must not shift one into the day before.
     const d = offsetDays(new Date(2026, 8, 18, 23, 30), 0);
-    expect(formatDateEntry(d)).toBe("09/18/2026");
+    expect(formatDateShort(d)).toBe("09/18/2026");
     expect(d.getHours()).toBe(0);
   });
 });

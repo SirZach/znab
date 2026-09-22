@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { format } from "date-fns";
 import { CalendarIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -15,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { BalanceFigure } from "@/components/register/balances";
 import { clearedBalanceAsOf, coversStatement, reconcileDifference } from "@/lib/reconcile";
 import type { ReconcilableRow } from "@/lib/reconcile";
-import { cn, formatCurrency, parseAmountExpression } from "@/lib/utils";
+import { cn, formatCurrency, formatDateISO, formatDateShort, parseAmountExpression } from "@/lib/utils";
 
 /** What Finish sends, once the reader has agreed to any adjustment it needs. */
 export type ReconcileInput = {
@@ -64,7 +63,7 @@ export function ReconcilePanel({
   const [statement, setStatement] = useState("");
   const [confirming, setConfirming] = useState(false);
 
-  const statementDate = format(date, "yyyy-MM-dd");
+  const statementDate = formatDateISO(date);
   const clearedAsOf = clearedBalanceAsOf(clearedBalance, rows, statementDate);
 
   // The cleared balance is dated back by taking loaded rows off it, so a
@@ -116,7 +115,7 @@ export function ReconcilePanel({
                 }
               >
                 <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-50" />
-                {format(date, "MM/dd/yyyy")}
+                {formatDateShort(date)}
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
                 <Calendar

@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment, useRef, useState } from "react";
-import { format } from "date-fns";
 import { CalendarIcon, ChevronDown, ChevronUp, X } from "lucide-react";
 import { ACCOUNT_TYPES, type AccountType } from "@znab/shared";
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { groupAccounts } from "@/hooks/useBudgetLayout";
 import { useAccounts, type ManagedAccount } from "@/hooks/useAccounts";
 import { trpc } from "@/trpc";
-import { cn, parseAmountExpression } from "@/lib/utils";
+import { cn, formatDateISO, formatDateShort, parseAmountExpression } from "@/lib/utils";
 
 export const Route = createFileRoute("/budgets/$budgetId/accounts/")({
   component: AccountsPage,
@@ -346,7 +345,7 @@ function NewAccountForm({
         ...(balanceValue
           ? {
               startingBalance: balanceValue,
-              startingBalanceDate: format(date, "yyyy-MM-dd"),
+              startingBalanceDate: formatDateISO(date),
             }
           : {}),
       },
@@ -444,7 +443,7 @@ function NewAccountForm({
               }
             >
               <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-50" />
-              {format(date, "MM/dd/yyyy")}
+              {formatDateShort(date)}
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
               <Calendar

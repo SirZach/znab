@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatDateShort, parseAmountExpression } from "./utils";
+import { adjustAmount, formatDateShort, parseAmountExpression } from "./utils";
 
 describe("parseAmountExpression", () => {
   test("reads plain amounts", () => {
@@ -44,6 +44,42 @@ describe("parseAmountExpression", () => {
   test("does not evaluate anything but arithmetic", () => {
     expect(parseAmountExpression("1;alert(1)")).toBeNull();
     expect(parseAmountExpression("process.exit(1)")).toBeNull();
+  });
+});
+
+describe("adjustAmount", () => {
+  test("adds the typed amount to the cell", () => {
+    expect(adjustAmount(125.24, "+", "76.54")).toBe(201.78);
+  });
+
+  test("subtracts the typed amount from the cell", () => {
+    expect(adjustAmount(250, "-", "50")).toBe(200);
+  });
+
+  test("works from a cell that is already negative", () => {
+    expect(adjustAmount(-30, "+", "10")).toBe(-20);
+  });
+
+  test("works from a cell of zero", () => {
+    expect(adjustAmount(0, "+", "5")).toBe(5);
+    expect(adjustAmount(0, "-", "5")).toBe(-5);
+  });
+
+  test("reads the typed amount as a magnitude, not a signed number", () => {
+    // The button already chose the operation, so a minus typed into the
+    // minus popup does not flip it into an add.
+    expect(adjustAmount(250, "-", "-50")).toBe(200);
+    expect(adjustAmount(250, "+", "-50")).toBe(300);
+  });
+
+  test("refuses to save when the typed amount cannot be read", () => {
+    expect(adjustAmount(100, "+", "")).toBeNull();
+    expect(adjustAmount(100, "+", "+")).toBeNull();
+    expect(adjustAmount(100, "+", "abc")).toBeNull();
+  });
+
+  test("rounds to cents, same as every other money field", () => {
+    expect(adjustAmount(0.1, "+", "0.2")).toBe(0.3);
   });
 });
 

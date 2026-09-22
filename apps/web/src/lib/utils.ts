@@ -164,3 +164,18 @@ export function parseAmountExpression(input: string): number | null {
 
   return Math.round(result * 100) / 100;
 }
+
+/**
+ * Add to or subtract from a budgeted amount without making the user do the sum
+ * themselves. `typed` is read as a magnitude rather than a signed number, so
+ * typing `-50` into the minus button still subtracts 50 rather than adding it:
+ * the button already says what operation this is. Returns null for unreadable
+ * input, matching how the rest of the app treats it: leave the amount alone.
+ */
+export function adjustAmount(value: number, op: "+" | "-", typed: string): number | null {
+  const parsed = parseAmountExpression(typed);
+  if (parsed === null) return null;
+  const magnitude = Math.abs(parsed);
+  const result = op === "+" ? value + magnitude : value - magnitude;
+  return Math.round(result * 100) / 100;
+}

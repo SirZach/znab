@@ -45,17 +45,32 @@ export const Route = createFileRoute(
   component: AccountRegisterPage,
 });
 
+/**
+ * The register is three stacked tables, the header, the rows and the add row,
+ * and they only line up if every one of them resolves its columns identically.
+ *
+ * Sharing this colgroup was not enough on its own, because the tables laid out
+ * automatically: three of the columns carried no width, so each table sized
+ * those to its own contents, the header to the word Payee, the rows to real
+ * payee names, the add row to its inputs. Three answers and three sets of
+ * column edges. The widths on the rest were hints under that layout rather than
+ * instructions, so they drifted too.
+ *
+ * Every column now has a width and the tables are laid out fixed, which is what
+ * makes a colgroup binding rather than advisory. The widths are proportions so
+ * they hold at any width the window is, and they sum to 100.
+ */
 const colgroup = (
   <colgroup>
-    <col className="w-6" />
-    <col className="w-28" />
-    <col />
-    <col />
-    <col />
-    <col className="w-24" />
-    <col className="w-24" />
-    <col className="w-10" />
-    <col className="w-28" />
+    <col className="w-[2%]" />
+    <col className="w-[9%]" />
+    <col className="w-[22%]" />
+    <col className="w-[20%]" />
+    <col className="w-[17%]" />
+    <col className="w-[9%]" />
+    <col className="w-[9%]" />
+    <col className="w-[3%]" />
+    <col className="w-[9%]" />
   </colgroup>
 );
 
@@ -532,7 +547,7 @@ function AccountRegisterPage() {
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
 
       {/* Sticky table header */}
-      <table className="w-full text-sm border-b border-border">
+      <table className="w-full table-fixed text-sm border-b border-border">
         {colgroup}
         <thead>
           <tr className="text-muted-foreground">
@@ -594,7 +609,7 @@ function AccountRegisterPage() {
           </div>
         )}
 
-        <table className="w-full text-sm">
+        <table className="w-full table-fixed text-sm">
           {colgroup}
           <tbody>
             {transactions.map((txn) => {
@@ -686,7 +701,7 @@ function AccountRegisterPage() {
       </div>
 
       {/* Sticky add transaction row */}
-      <table className="w-full text-sm border-t border-border bg-accent/20">
+      <table className="w-full table-fixed text-sm border-t border-border bg-accent/20">
         {colgroup}
         <tbody>
           <tr>

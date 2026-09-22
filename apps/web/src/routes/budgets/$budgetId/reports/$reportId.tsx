@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { NetWorthReport } from "@/components/reports/net-worth-report";
+import { SpendingByCategoryReport } from "@/components/reports/spending-by-category-report";
 
 export const Route = createFileRoute(
   "/budgets/$budgetId/reports/$reportId"
@@ -12,7 +13,7 @@ function ReportPage() {
 
   switch (reportId) {
     case "spending":
-      return <SpendingReport />;
+      return <SpendingByCategoryReport budgetId={Number(budgetId)} />;
     case "income-vs-expenses":
       return <IncomeVsExpensesReport />;
     case "net-worth":
@@ -27,14 +28,6 @@ function ReportPage() {
 }
 
 // ─── Report stubs (to be implemented) ────────────────────────────────────────
-
-function SpendingReport() {
-  return (
-    <ReportShell title="Spending by Category">
-      <p className="text-muted-foreground">Charts coming soon.</p>
-    </ReportShell>
-  );
-}
 
 function IncomeVsExpensesReport() {
   return (

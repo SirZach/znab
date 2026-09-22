@@ -95,7 +95,7 @@ const SORT_EXPR = {
 } as const;
 
 /** One page row from the window query: the id and its account-wide balance. */
-type PageRow = { id: number; runningBalance: string };
+type PageRow = { id: number; runningBalance: string; matchCount: number };
 type TotalsRow = {
   balance: string;
   clearedBalance: string;
@@ -148,8 +148,20 @@ export const accountRouter = router({
 
       const clearedFilter =
         input.cleared === "all" ? sql`TRUE` : sql`x.cleared = ${input.cleared}`;
+      // The whole row, the way YNAB 4 searches one. Memo alone was next to
+      // useless on this data: 120 of the 10,527 transactions in the largest
+      // budget carry one, so search reached about one row in ninety and could
+      // not find anything by who it was paid to, which is how anybody actually
+      // looks for a transaction. The amount is matched as text so a partial
+      // one works, which is what somebody half remembering a figure types.
+      const like = `%${input.q ?? ""}%`;
       const searchFilter = input.q
-        ? sql`x.memo ILIKE ${`%${input.q}%`}`
+        ? sql`(
+            x.payee_name ILIKE ${like}
+            OR x.category_name ILIKE ${like}
+            OR x.memo ILIKE ${like}
+            OR x.amount::text ILIKE ${like}
+          )`
         : sql`TRUE`;
 
       // A register is read from its recent end, so its own order takes the
@@ -172,7 +184,13 @@ export const accountRouter = router({
 
       // Fetch one extra row to learn whether older transactions remain.
       const pageRows = (await ctx.db.execute(sql`
-        SELECT x.id, x.running_balance AS "runningBalance"
+        SELECT
+          x.id,
+          x.running_balance AS "runningBalance",
+          -- How many rows the filters leave, counted in the same pass: a window
+          -- is worked out after the WHERE and before the LIMIT, so this is the
+          -- whole matching set rather than the page, and costs no second scan.
+          (COUNT(*) OVER ())::int AS "matchCount"
         FROM (
           SELECT
             t.id, t.cleared, t.memo, t.date, t.created_at, t.amount,
@@ -281,6 +299,8 @@ export const accountRouter = router({
         clearedBalance: parseFloat(totals[0]?.clearedBalance ?? "0"),
         unclearedBalance: parseFloat(totals[0]?.unclearedBalance ?? "0"),
         total: totals[0]?.count ?? 0,
+        /** How many rows the cleared filter and the search leave between them. */
+        matches: pageRows[0]?.matchCount ?? 0,
         // Counted over the whole account, like the balances above, so the
         // filter keeps saying what each choice holds while one is in force.
         counts: {

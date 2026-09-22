@@ -12,8 +12,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
-import { formatDateEntry, offsetDays, parseDateEntry } from "@/lib/date-entry";
+import { cn, formatDateShort } from "@/lib/utils";
+import { offsetDays, parseDateEntry } from "@/lib/date-entry";
 import type { PayeeAutofillPatch, PayeeAutofillSource } from "@/lib/payee-autofill";
 import type { RegisterFields } from "@/lib/register-row";
 
@@ -213,7 +213,7 @@ export function RegisterRowFields({
             placeholder="Date"
             // The date the row holds, unless somebody is part way through
             // typing another one, in which case theirs stands untouched.
-            value={dateDraft ?? (fields.date ? formatDateEntry(fields.date) : "")}
+            value={dateDraft ?? (fields.date ? formatDateShort(fields.date) : "")}
             onChange={(e) => {
               setDateDraft(e.target.value);
               const parsed = parseDateEntry(e.target.value);

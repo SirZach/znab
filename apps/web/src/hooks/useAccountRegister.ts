@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { format } from "date-fns";
 import type { RegisterSort, SortDirection } from "@znab/shared";
+import { formatDateISO } from "@/lib/utils";
 import { trpc } from "@/trpc";
 import { payeeAutofillPatch } from "@/lib/payee-autofill";
 import type { PayeeAutofillSource, RegisterDraft } from "@/lib/payee-autofill";
@@ -242,7 +242,7 @@ export function useAccountRegister({
       payeeName: fields.payeeId ? undefined : fields.payeeName || undefined,
       categoryId: fields.categoryId,
       amount,
-      date: format(fields.date, "yyyy-MM-dd"),
+      date: formatDateISO(fields.date),
       memo: fields.memo || undefined,
       flagColor: fields.flagColor,
       // Null rather than the empty string, since null is what takes a check
@@ -293,7 +293,7 @@ export function useAccountRegister({
           ? { categoryId: fields.categoryId }
           : {}),
         amount,
-        date: format(fields.date, "yyyy-MM-dd"),
+        date: formatDateISO(fields.date),
         memo: fields.memo,
         flagColor: fields.flagColor,
         acknowledgeReconciled: isReconciled(txn),

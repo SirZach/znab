@@ -44,21 +44,43 @@ export function formatDate(date: string): string {
 }
 
 /**
- * The same date in a column rather than a sentence: 11/11/2024.
+ * A date in the two shapes the app actually keeps asking for.
  *
- * A register is mostly dates, and the long form is wide enough that the column
- * wrapped to two lines, which costs more than the month name is worth when
+ * Everything here deals in calendar days rather than instants, so both of these
+ * take a day either as the string the API stores it as or as the Date a picker
+ * hands back, and neither goes near a timezone. A string is taken apart rather
+ * than parsed, because building a Date only to ask it what day it is invites
+ * the shift off midnight the rest of the app spends its time undoing.
+ */
+function parts(date: Date | string): [string, string, string] {
+  if (typeof date === "string") {
+    const [year, month, day] = date.split("-");
+    return [year!, month!, day!];
+  }
+  return [
+    String(date.getFullYear()),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ];
+}
+
+/**
+ * What a reader sees in a column: 11/11/2024.
+ *
+ * A register is mostly dates, and the long form above is wide enough that the
+ * column wrapped to two lines, which costs more than a month name is worth when
  * every row carries one. Sentences keep the long form, where a date is read
  * once and reads better spelled out.
- *
- * Built by hand rather than by the locale, because a date here is a calendar
- * day and the parts are already in the string: going through Date only to ask
- * it what day it is invites the shift back off midnight that the rest of the
- * app spends its time undoing.
  */
-export function formatDateShort(date: string): string {
-  const [year, month, day] = date.split("-");
+export function formatDateShort(date: Date | string): string {
+  const [year, month, day] = parts(date);
   return `${month}/${day}/${year}`;
+}
+
+/** What the API stores, and the only shape it accepts: 2024-11-11. */
+export function formatDateISO(date: Date | string): string {
+  const [year, month, day] = parts(date);
+  return `${year}-${month}-${day}`;
 }
 
 /**

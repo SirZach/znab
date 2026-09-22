@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { format } from "date-fns";
 import { ArrowLeftRight, CalendarIcon, X } from "lucide-react";
 import type { FrequencyValue } from "@znab/shared";
 import { Button } from "@/components/ui/button";
@@ -29,7 +28,14 @@ import {
 } from "@/hooks/useScheduledTransactions";
 import { trpc } from "@/trpc";
 import { FREQUENCY_OPTIONS, behindLabel, canSkip, frequencyLabel } from "@/lib/schedule";
-import { cn, formatCurrency, formatDate, parseAmountExpression } from "@/lib/utils";
+import {
+  cn,
+  formatCurrency,
+  formatDate,
+  formatDateISO,
+  formatDateShort,
+  parseAmountExpression,
+} from "@/lib/utils";
 
 export const Route = createFileRoute("/budgets/$budgetId/scheduled/")({
   component: ScheduledPage,
@@ -505,7 +511,7 @@ function ScheduleForm({
         ...(draft.payeeId === null && name ? { payeeName: name } : {}),
         categoryId: draft.categoryId,
         amount: draft.outflow ? -Math.abs(amountValue) : Math.abs(amountValue),
-        date: format(draft.date, "yyyy-MM-dd"),
+        date: formatDateISO(draft.date),
         frequency: draft.frequency,
         twiceMonthDay: draft.frequency === "TwiceAMonth" ? startDay : null,
         memo: draft.memo.trim(),
@@ -696,7 +702,7 @@ function ScheduleForm({
               }
             >
               <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-50" />
-              {format(draft.date, "MM/dd/yyyy")}
+              {formatDateShort(draft.date)}
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
               <Calendar

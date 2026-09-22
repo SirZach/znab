@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDateShort } from "@/lib/utils";
 
 /** A selected row, as much of it as the panel has to list or reason about. */
 export type BulkRow = {
@@ -223,7 +223,7 @@ export function RegisterBulkPanel({
           {rows.map((r) => (
             <li key={r.id} className="flex justify-between gap-2 text-sm">
               <span className="truncate text-muted-foreground">
-                {formatDate(r.date)} {r.payeeName}
+                {formatDateShort(r.date)} {r.payeeName}
               </span>
               <span className="tabular-nums shrink-0">{formatCurrency(r.amount)}</span>
             </li>

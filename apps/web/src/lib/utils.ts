@@ -44,6 +44,24 @@ export function formatDate(date: string): string {
 }
 
 /**
+ * The same date in a column rather than a sentence: 11/11/2024.
+ *
+ * A register is mostly dates, and the long form is wide enough that the column
+ * wrapped to two lines, which costs more than the month name is worth when
+ * every row carries one. Sentences keep the long form, where a date is read
+ * once and reads better spelled out.
+ *
+ * Built by hand rather than by the locale, because a date here is a calendar
+ * day and the parts are already in the string: going through Date only to ask
+ * it what day it is invites the shift back off midnight that the rest of the
+ * app spends its time undoing.
+ */
+export function formatDateShort(date: string): string {
+  const [year, month, day] = date.split("-");
+  return `${month}/${day}/${year}`;
+}
+
+/**
  * Evaluate what someone typed into a money field, YNAB 4 style: a plain number,
  * or arithmetic like `25+13`, `120/3`, `(40+5)*2`. A leading `=`, dollar signs
  * and thousands separators are all tolerated.

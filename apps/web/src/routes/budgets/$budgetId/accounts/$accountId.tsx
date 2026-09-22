@@ -22,6 +22,7 @@ import { AccountBalances } from "@/components/register/balances";
 import { ReconcilePanel, ReconcileSummary } from "@/components/register/reconcile-panel";
 import { UpcomingPanel } from "@/components/register/upcoming-panel";
 import { ClearedFilter } from "@/components/register/cleared-filter";
+import { RegisterSearch } from "@/components/register/register-search";
 import { SortHeader } from "@/components/register/sort-header";
 import { RegisterBulkPanel } from "@/components/register/bulk-panel";
 import {
@@ -134,6 +135,7 @@ function AccountRegisterPage() {
     transferKeepsCategory,
     total,
     counts,
+    matches,
     isLoading,
     cycleCleared,
     createTransaction,
@@ -469,7 +471,20 @@ function AccountRegisterPage() {
             navigate({ search: (prev) => ({ ...prev, cleared: next }) })
           }
         />
-        {cleared !== "all" && (
+        <RegisterSearch
+          value={q ?? ""}
+          matches={q ? matches : null}
+          total={counts.all}
+          onSearch={(next) =>
+            navigate({
+              // Replace rather than push: typing a word should not put five
+              // entries in the history between here and the way back.
+              replace: true,
+              search: (prev) => ({ ...prev, q: next || undefined }),
+            })
+          }
+        />
+        {cleared !== "all" && !q && (
           <span className="text-xs text-muted-foreground">
             Showing {counts[cleared]} of {counts.all}. The balances above are the
             whole account either way.

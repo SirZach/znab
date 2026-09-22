@@ -322,6 +322,8 @@ export function useAccountRegister({
     total: data?.total ?? 0,
     /** How many rows each choice of the cleared filter would show. */
     counts: data?.counts ?? { all: 0, Uncleared: 0, Cleared: 0, Reconciled: 0 },
+    /** How many rows the cleared filter and the search leave between them. */
+    matches: data?.matches ?? 0,
     hasMore: data?.hasMore ?? false,
     loadOlder: () => setLimit((n) => n + PAGE_SIZE),
     isLoadingMore: isFetching && !isLoading,

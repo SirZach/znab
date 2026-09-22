@@ -66,6 +66,9 @@ function BudgetLayout() {
             to="/budgets/$budgetId"
             params={{ budgetId }}
             search={{ month: currentMonthParam() }}
+            // Every other section sits under this path, so a prefix match would
+            // leave Budget lit on all of them.
+            activeOptions={{ exact: true }}
             icon={<LayoutDashboard size={16} />}
             label="Budget"
           />
@@ -191,6 +194,7 @@ function BudgetLayout() {
 function SidebarLink({
   icon,
   label,
+  activeOptions,
   ...link
 }: LinkProps & {
   icon: React.ReactNode;
@@ -199,7 +203,11 @@ function SidebarLink({
   return (
     <Link
       {...link}
-      activeOptions={{ includeSearch: false }}
+      // A link matches on a prefix of the path unless it says otherwise, which
+      // is what a section wants: an account's own register is still Accounts.
+      // The section that is the parent of all the others has to say otherwise,
+      // or it is the current one everywhere.
+      activeOptions={{ includeSearch: false, ...activeOptions }}
       className="flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
       activeProps={{ className: "bg-sidebar-accent text-sidebar-accent-foreground font-medium" }}
     >

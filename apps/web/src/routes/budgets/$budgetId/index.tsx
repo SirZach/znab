@@ -9,11 +9,13 @@ import {
   currentMonthParam,
   formatCurrency,
   parseAmountExpression,
+  adjustAmount,
   cn,
 } from "@/lib/utils";
-import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, Minus } from "lucide-react";
 import { CategoryInspector } from "@/components/budget/category-inspector";
 import { BulkBudgetPanel } from "@/components/budget/bulk-budget-panel";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { format, addMonths, subMonths, parseISO } from "date-fns";
 
@@ -598,6 +600,10 @@ function BudgetedCell({
   const [draft, setDraft] = useState(() => value.toFixed(2));
   const [editing, setEditing] = useState(false);
 
+  // Which +/- popup, if any, is open. Kept here rather than in each popup so
+  // the hover affordances know to stay visible while one of them is open.
+  const [adjusting, setAdjusting] = useState<"+" | "-" | null>(null);
+
   // Whether this cell has been typed into since it was last committed. Arrow
   // keys commit and then move focus, which fires blur and would otherwise
   // commit the same amount a second time.
@@ -623,42 +629,155 @@ function BudgetedCell({
     setDraft(parsed.toFixed(2));
   }
 
+  // Adjust what the cell is showing, not the amount last fetched. Reaching for
+  // one of these buttons blurs the input, which commits anything typed there,
+  // and the fetched value will not have caught that up yet: adding 50 to a
+  // freshly typed 200 has to give 250, not 50 more than whatever it held
+  // before. The draft is normalised on every commit, so it is always readable.
+  function applyAdjustment(op: "+" | "-", typed: string) {
+    setAdjusting(null);
+    const next = adjustAmount(parseAmountExpression(draft) ?? value, op, typed);
+    if (next === null) return; // unreadable, so leave the amount as it was
+    onSave(next);
+  }
+
   return (
-    <input
-      ref={(el) => registerRef(categoryId, el)}
-      type="text"
-      inputMode="decimal"
-      aria-label="Budgeted amount"
-      value={draft}
-      onFocus={(e) => {
-        setEditing(true);
-        e.currentTarget.select();
+    <div className="relative inline-block group">
+      {/* Out of the flow entirely, over the empty left of a right-aligned
+          amount, so appearing cannot shift the figure by a pixel and cannot
+          reach into the category beside it. Hidden rather than transparent,
+          since a transparent button still swallows the clicks meant for the
+          amount underneath it. */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={cn(
+          "absolute inset-y-0 left-0 z-10 flex items-center gap-0.5 invisible",
+          "group-hover:visible group-focus-within:visible",
+          adjusting && "visible"
+        )}
+      >
+        <AdjustButton
+          op="+"
+          open={adjusting === "+"}
+          onOpenChange={(open) => setAdjusting(open ? "+" : null)}
+          onApply={(typed) => applyAdjustment("+", typed)}
+        />
+        <AdjustButton
+          op="-"
+          open={adjusting === "-"}
+          onOpenChange={(open) => setAdjusting(open ? "-" : null)}
+          onApply={(typed) => applyAdjustment("-", typed)}
+        />
+      </div>
+      <input
+        ref={(el) => registerRef(categoryId, el)}
+        type="text"
+        inputMode="decimal"
+        aria-label="Budgeted amount"
+        value={draft}
+        onFocus={(e) => {
+          setEditing(true);
+          e.currentTarget.select();
+        }}
+        onChange={(e) => {
+          dirty.current = true;
+          setDraft(e.target.value);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          // Enter and the arrows all commit and hand focus to the neighbouring
+          // cell, so a whole month can be budgeted without reaching for a mouse.
+          if (e.key === "Enter" || e.key === "ArrowDown") {
+            e.preventDefault();
+            commit();
+            onMove(1);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            commit();
+            onMove(-1);
+          } else if (e.key === "Escape") {
+            dirty.current = false;
+            setDraft(value.toFixed(2));
+            setEditing(false);
+            e.currentTarget.blur();
+          }
+        }}
+        className="w-24 text-right bg-transparent focus:bg-accent rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
+      />
+    </div>
+  );
+}
+
+/**
+ * One of the two +/- buttons on a Budgeted cell, and the small popup it opens.
+ * The popup reads a plain magnitude, never a signed one: the button pressed is
+ * what decides whether it is added or subtracted, so `onApply` gets the raw
+ * text and leaves the sign to the caller.
+ */
+function AdjustButton({
+  op,
+  open,
+  onOpenChange,
+  onApply,
+}: {
+  op: "+" | "-";
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onApply: (typed: string) => void;
+}) {
+  const [typed, setTyped] = useState("");
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        if (!next) setTyped("");
       }}
-      onChange={(e) => {
-        dirty.current = true;
-        setDraft(e.target.value);
-      }}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        // Enter and the arrows all commit and hand focus to the neighbouring
-        // cell, so a whole month can be budgeted without reaching for a mouse.
-        if (e.key === "Enter" || e.key === "ArrowDown") {
-          e.preventDefault();
-          commit();
-          onMove(1);
-        } else if (e.key === "ArrowUp") {
-          e.preventDefault();
-          commit();
-          onMove(-1);
-        } else if (e.key === "Escape") {
-          dirty.current = false;
-          setDraft(value.toFixed(2));
-          setEditing(false);
-          e.currentTarget.blur();
-        }
-      }}
-      className="w-24 text-right bg-transparent focus:bg-accent rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring tabular-nums"
-    />
+    >
+      <PopoverTrigger
+        tabIndex={-1}
+        aria-label={op === "+" ? "Add to budgeted amount" : "Subtract from budgeted amount"}
+        className="rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent"
+      >
+        {op === "+" ? <Plus size={12} /> : <Minus size={12} />}
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-auto p-2"
+        align="center"
+        // Portalled out of the row in the DOM, but a React event still travels
+        // the tree it was rendered in, so without this a click in here would
+        // reach the row underneath and change what is selected.
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          // This popup sits over a cell with its own Enter/Escape handling.
+          // Its keystrokes are for the amount being typed here, not the cell.
+          e.stopPropagation();
+          if (e.key === "Enter") {
+            onApply(typed);
+          } else if (e.key === "Escape") {
+            onOpenChange(false);
+          }
+        }}
+      >
+        <div className="flex items-center gap-1">
+          {/* Which of the two buttons was pressed, said again where the amount
+              is being typed, since the button itself is now behind a popup. */}
+          <span aria-hidden className="text-muted-foreground">
+            {op}
+          </span>
+          <input
+            type="text"
+            inputMode="decimal"
+            aria-label={op === "+" ? "Amount to add" : "Amount to subtract"}
+            autoFocus
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            className="w-20 text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 py-0.5 tabular-nums"
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { sql, eq, and, isNull } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { budgets, accounts, transactions } from "@znab/db";
+import { assertBudgetAccess } from "../lib/authz";
 
 const TIMEFRAMES = ["all", "thisYear", "last12", "last4Years"] as const;
 
@@ -12,7 +13,87 @@ type NetWorthPoint = {
   netWorth: number;
 };
 
+type CategorySpend = {
+  categoryId: number;
+  category: string;
+  group: string;
+  spent: number;
+};
+
 export const reportRouter = router({
+  // What a budget was spent on, by category, over a timeframe.
+  //
+  // Spending is the net of a category rather than the sum of its outflows, so
+  // a refund reduces what the category cost rather than being dropped, which
+  // is what makes the figures here agree with the register. Categories that
+  // come out net positive over the window are left out: they were not spent.
+  spendingByCategory: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        timeframe: z.enum(TIMEFRAMES).default("all"),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      const cutoff = timeframeCutoff(input.timeframe);
+      const since = cutoff ? `${cutoff}-01` : null;
+
+      // Two sources, because a split files its money on its parts and leaves
+      // the row the register shows uncategorised. Income needs no excluding:
+      // it carries no category of its own, only a ynab id, so it never joins.
+      const rows = (await ctx.db.execute(sql`
+        WITH spend AS (
+          SELECT t.category_id, t.amount
+          FROM transactions t
+          WHERE t.budget_id = ${input.budgetId}
+            AND t.deleted_at IS NULL
+            AND t.is_transfer = false
+            AND t.category_id IS NOT NULL
+            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+          UNION ALL
+          SELECT s.category_id, s.amount
+          FROM sub_transactions s
+          JOIN transactions t ON t.id = s.transaction_id
+          WHERE t.budget_id = ${input.budgetId}
+            AND t.deleted_at IS NULL
+            AND s.deleted_at IS NULL
+            AND t.is_transfer = false
+            AND s.category_id IS NOT NULL
+            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+        )
+        SELECT c.id AS "categoryId",
+               c.name AS "category",
+               g.name AS "group",
+               SUM(spend.amount) AS "net"
+        FROM spend
+        JOIN categories c ON c.id = spend.category_id
+        JOIN category_groups g ON g.id = c.group_id
+        WHERE g.type <> 'INFLOW'
+        GROUP BY c.id, c.name, g.name
+        HAVING SUM(spend.amount) < 0
+        ORDER BY SUM(spend.amount) ASC
+      `)) as unknown as {
+        categoryId: number;
+        category: string;
+        group: string;
+        net: string;
+      }[];
+
+      const spending: CategorySpend[] = rows.map((row) => ({
+        categoryId: row.categoryId,
+        category: row.category,
+        group: row.group,
+        spent: Math.round(-parseFloat(row.net) * 100) / 100,
+      }));
+
+      return {
+        spending,
+        total: Math.round(spending.reduce((sum, row) => sum + row.spent, 0) * 100) / 100,
+      };
+    }),
+
   // Monthly net-worth time series across all accounts in a budget.
   // Each account's month-end balance is an asset if positive, a debt if
   // negative (YNAB's sign-based split). Net worth = assets - debts.

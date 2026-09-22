@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-router";
 import { useBudgetLayout } from "@/hooks/useBudgetLayout";
 import { useUserStore } from "@/store/user";
-import { cn, currentMonthParam } from "@/lib/utils";
+import { cn, currentMonthParam, formatCurrency } from "@/lib/utils";
 import {
   LayoutDashboard,
   BarChart2,
@@ -206,11 +206,15 @@ function AccountGroup({
   defaultOpen = true,
 }: {
   label: string;
-  accounts: Array<{ id: number; name: string }>;
+  accounts: Array<{ id: number; name: string; balance: number }>;
   budgetId: string;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+
+  // What the section is worth, which is the figure the sidebar was missing.
+  // Summed from the same balances the rows show, so the two cannot disagree.
+  const total = accounts.reduce((sum, a) => sum + a.balance, 0);
 
   return (
     <div>
@@ -222,7 +226,12 @@ function AccountGroup({
           size={12}
           className={cn("transition-transform", !open && "-rotate-90")}
         />
-        {label}
+        <span className="truncate">{label}</span>
+        {/* Kept on the header while the section is shut, since a closed group
+            that still says what it holds is the point of collapsing one. */}
+        <span className="ml-auto shrink-0 tabular-nums normal-case tracking-normal">
+          {formatCurrency(total)}
+        </span>
       </button>
 
       {open &&
@@ -236,6 +245,9 @@ function AccountGroup({
           >
             <CreditCard size={13} className="shrink-0 opacity-60" />
             <span className="truncate">{account.name}</span>
+            <span className="ml-auto shrink-0 text-xs tabular-nums opacity-70">
+              {formatCurrency(account.balance)}
+            </span>
           </Link>
         ))}
     </div>

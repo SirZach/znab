@@ -150,7 +150,9 @@ export const accountRouter = router({
     .input(
       z.object({
         budgetId: z.number().int().positive(),
-        accountId: z.number().int().positive(),
+        // Absent means every account in the budget, which is the All
+        // Accounts register: one list to search rather than 27.
+        accountId: z.number().int().positive().optional(),
         cleared: z.enum(["all", "Uncleared", "Cleared", "Reconciled"]).default("all"),
         q: z.string().optional(),
         sort: z.enum(REGISTER_SORTS).default("date"),
@@ -161,6 +163,15 @@ export const accountRouter = router({
     )
     .query(async ({ ctx, input }) => {
       await assertBudgetAccess(ctx, input.budgetId);
+
+      // Spanning accounts, the running balance below totals them all in date
+      // order, which is the money there was across the budget at that point.
+      const accountFilter = input.accountId
+        ? sql`AND t.account_id = ${input.accountId}`
+        : sql``;
+      const totalsAccountFilter = input.accountId
+        ? sql`AND account_id = ${input.accountId}`
+        : sql``;
 
       const clearedFilter =
         input.cleared === "all" ? sql`TRUE` : sql`x.cleared = ${input.cleared}`;
@@ -218,7 +229,7 @@ export const accountRouter = router({
           LEFT JOIN payees p ON p.id = t.payee_id
           LEFT JOIN categories c ON c.id = t.category_id
           WHERE t.budget_id = ${input.budgetId}
-            AND t.account_id = ${input.accountId}
+            ${accountFilter}
             AND t.deleted_at IS NULL
         ) x
         WHERE ${clearedFilter} AND ${searchFilter}
@@ -241,7 +252,7 @@ export const accountRouter = router({
           COUNT(*) FILTER (WHERE cleared = 'Reconciled')::int AS "reconciledCount"
         FROM transactions
         WHERE budget_id = ${input.budgetId}
-          AND account_id = ${input.accountId}
+          ${totalsAccountFilter}
           AND deleted_at IS NULL
       `)) as unknown as TotalsRow[];
 
@@ -260,6 +271,9 @@ export const accountRouter = router({
             with: {
               payee: true,
               category: true,
+              // Which account a row belongs to only matters when the register
+              // spans them, but it costs one join either way.
+              account: true,
               subTransactions: { with: { category: true } },
             },
           })

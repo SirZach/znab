@@ -33,7 +33,6 @@ import {
   LayoutDashboard,
   BarChart2,
   CalendarClock,
-  CreditCard,
   LogOut,
   ChevronDown,
   Plus,
@@ -275,7 +274,6 @@ function AccountGroup({
                   />
                 }
               >
-                <CreditCard className="opacity-60" />
                 <span className="truncate">{account.name}</span>
                 <span className="ml-auto shrink-0 text-xs tabular-nums opacity-70">
                   {formatCurrency(account.balance)}

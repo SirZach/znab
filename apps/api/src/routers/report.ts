@@ -20,6 +20,12 @@ type CategorySpend = {
   spent: number;
 };
 
+type PayeeSpend = {
+  payeeId: number;
+  payee: string;
+  spent: number;
+};
+
 type IncomeVsExpensePoint = {
   month: string;
   income: number;
@@ -37,6 +43,78 @@ type IncomeVsExpensePoint = {
 const IS_INCOME = sql`category_ynab_id IN ('Category/__ImmediateIncome__', 'Category/__DeferredIncome__')`;
 
 export const reportRouter = router({
+  // Who a budget paid, over a timeframe.
+  //
+  // The same money as Spending by Category, asked the other way round, so the
+  // two totals agree by construction. A split's parts carry no payee of their
+  // own, so they are attributed to the payee on the row the register shows,
+  // which is the one the money was actually paid to.
+  spendingByPayee: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        timeframe: z.enum(TIMEFRAMES).default("last12"),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      const cutoff = timeframeCutoff(input.timeframe);
+      const since = cutoff ? `${cutoff}-01` : null;
+
+      const rows = (await ctx.db.execute(sql`
+        WITH spend AS (
+          SELECT t.payee_id, t.category_id, t.amount
+          FROM transactions t
+          JOIN accounts a ON a.id = t.account_id
+          WHERE t.budget_id = ${input.budgetId}
+            AND t.deleted_at IS NULL
+            AND t.is_transfer = false
+            AND t.category_id IS NOT NULL
+            AND t.payee_id IS NOT NULL
+            AND a.on_budget = true
+            AND a.deleted_at IS NULL
+            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+          UNION ALL
+          SELECT t.payee_id, s.category_id, s.amount
+          FROM sub_transactions s
+          JOIN transactions t ON t.id = s.transaction_id
+          JOIN accounts a ON a.id = t.account_id
+          WHERE t.budget_id = ${input.budgetId}
+            AND t.deleted_at IS NULL
+            AND s.deleted_at IS NULL
+            AND t.is_transfer = false
+            AND s.category_id IS NOT NULL
+            AND t.payee_id IS NOT NULL
+            AND a.on_budget = true
+            AND a.deleted_at IS NULL
+            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+        )
+        SELECT p.id AS "payeeId",
+               p.name AS "payee",
+               SUM(spend.amount) AS "net"
+        FROM spend
+        JOIN payees p ON p.id = spend.payee_id
+        JOIN categories c ON c.id = spend.category_id
+        JOIN category_groups g ON g.id = c.group_id
+        WHERE g.type <> 'INFLOW'
+        GROUP BY p.id, p.name
+        HAVING SUM(spend.amount) < 0
+        ORDER BY SUM(spend.amount) ASC
+      `)) as unknown as { payeeId: number; payee: string; net: string }[];
+
+      const spending: PayeeSpend[] = rows.map((row) => ({
+        payeeId: row.payeeId,
+        payee: row.payee,
+        spent: Math.round(-parseFloat(row.net) * 100) / 100,
+      }));
+
+      return {
+        spending,
+        total: Math.round(spending.reduce((sum, row) => sum + row.spent, 0) * 100) / 100,
+      };
+    }),
+
   // What came in against what went out, by month.
   //
   // Both sides are budget money only. A tracking account's interest is a gain

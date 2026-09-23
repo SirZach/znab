@@ -36,6 +36,7 @@ import {
   LogOut,
   ChevronDown,
   Plus,
+  Layers,
   Tags,
   Users,
   Wallet,
@@ -114,12 +115,25 @@ function BudgetLayout() {
               <NavItem
                 to="/budgets/$budgetId/accounts"
                 params={{ budgetId }}
+                // All Accounts and every individual register sit under this
+                // path, and each of them has its own row in the sidebar, so a
+                // prefix match here would light two things at once.
+                activeOptions={{ exact: true }}
                 icon={<Wallet />}
                 label="Accounts"
+              />
+              {/* Every account's transactions in one register, where YNAB 4
+                  puts it: across the accounts rather than inside any one. */}
+              <NavItem
+                to="/budgets/$budgetId/accounts/all"
+                params={{ budgetId }}
+                icon={<Layers />}
+                label="All Accounts"
               />
             </SidebarMenu>
           </SidebarGroup>
 
+          {/* On-budget accounts */}
           {onBudgetAccounts.length > 0 && (
             <AccountGroup
               label="Budget Accounts"

@@ -43,24 +43,35 @@ export const reportRouter = router({
       // Two sources, because a split files its money on its parts and leaves
       // the row the register shows uncategorised. Income needs no excluding:
       // it carries no category of its own, only a ynab id, so it never joins.
+      //
+      // Only budget accounts count. A tracking account's money was never
+      // budgeted, so spending it is not spending the budget: eleven such rows
+      // here are inflows filed against a real category, and counting them made
+      // that category look 5,668.73 cheaper than it was.
       const rows = (await ctx.db.execute(sql`
         WITH spend AS (
           SELECT t.category_id, t.amount
           FROM transactions t
+          JOIN accounts a ON a.id = t.account_id
           WHERE t.budget_id = ${input.budgetId}
             AND t.deleted_at IS NULL
             AND t.is_transfer = false
             AND t.category_id IS NOT NULL
+            AND a.on_budget = true
+            AND a.deleted_at IS NULL
             ${since ? sql`AND t.date >= ${since}::date` : sql``}
           UNION ALL
           SELECT s.category_id, s.amount
           FROM sub_transactions s
           JOIN transactions t ON t.id = s.transaction_id
+          JOIN accounts a ON a.id = t.account_id
           WHERE t.budget_id = ${input.budgetId}
             AND t.deleted_at IS NULL
             AND s.deleted_at IS NULL
             AND t.is_transfer = false
             AND s.category_id IS NOT NULL
+            AND a.on_budget = true
+            AND a.deleted_at IS NULL
             ${since ? sql`AND t.date >= ${since}::date` : sql``}
         )
         SELECT c.id AS "categoryId",

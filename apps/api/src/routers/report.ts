@@ -20,7 +20,114 @@ type CategorySpend = {
   spent: number;
 };
 
+type IncomeVsExpensePoint = {
+  month: string;
+  income: number;
+  expense: number;
+  net: number;
+};
+
+/**
+ * The two categories YNAB 4 files income under. They are not rows in the
+ * category table, so a transaction points at them by ynab id alone, which is
+ * why income has to be named here rather than joined to. Fixed ids out of the
+ * export rather than anything a caller supplies, so they are written straight
+ * into the statement.
+ */
+const IS_INCOME = sql`category_ynab_id IN ('Category/__ImmediateIncome__', 'Category/__DeferredIncome__')`;
+
 export const reportRouter = router({
+  // What came in against what went out, by month.
+  //
+  // Both sides are budget money only. A tracking account's interest is a gain
+  // in net worth rather than income to spend, and thirteen such rows here are
+  // worth 153,696.27, which would have swamped every real month.
+  incomeVsExpense: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        timeframe: z.enum(TIMEFRAMES).default("last12"),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      const cutoff = timeframeCutoff(input.timeframe);
+      const since = cutoff ? `${cutoff}-01` : null;
+
+      const rows = (await ctx.db.execute(sql`
+        WITH moved AS (
+          SELECT t.date,
+                 t.amount,
+                 t.category_ynab_id,
+                 t.category_id
+          FROM transactions t
+          JOIN accounts a ON a.id = t.account_id
+          WHERE t.budget_id = ${input.budgetId}
+            AND t.deleted_at IS NULL
+            AND t.is_transfer = false
+            AND a.on_budget = true
+            AND a.deleted_at IS NULL
+            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+          UNION ALL
+          SELECT t.date,
+                 s.amount,
+                 s.category_ynab_id,
+                 s.category_id
+          FROM sub_transactions s
+          JOIN transactions t ON t.id = s.transaction_id
+          JOIN accounts a ON a.id = t.account_id
+          WHERE t.budget_id = ${input.budgetId}
+            AND t.deleted_at IS NULL
+            AND s.deleted_at IS NULL
+            AND t.is_transfer = false
+            AND a.on_budget = true
+            AND a.deleted_at IS NULL
+            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+        )
+        SELECT to_char(date_trunc('month', moved.date), 'YYYY-MM') AS "month",
+               COALESCE(SUM(moved.amount) FILTER (WHERE ${IS_INCOME}), 0) AS "income",
+               COALESCE(SUM(moved.amount) FILTER (
+                 WHERE moved.category_id IS NOT NULL
+               ), 0) AS "categorised"
+        FROM moved
+        GROUP BY date_trunc('month', moved.date)
+        ORDER BY date_trunc('month', moved.date)
+      `)) as unknown as { month: string; income: string; categorised: string }[];
+
+      // A split parent counts on neither side: it carries no category of its
+      // own, and its parts are already in the union above.
+      const series: IncomeVsExpensePoint[] = rows.map((row) => {
+        const income = Math.round(parseFloat(row.income) * 100) / 100;
+        // Categorised money nets out to a negative in any month that spent
+        // more than it was refunded, and that net is the expense.
+        const expense = Math.round(-parseFloat(row.categorised) * 100) / 100;
+        return {
+          month: row.month,
+          income,
+          expense,
+          net: Math.round((income - expense) * 100) / 100,
+        };
+      });
+
+      const totals = series.reduce(
+        (acc, point) => ({
+          income: acc.income + point.income,
+          expense: acc.expense + point.expense,
+        }),
+        { income: 0, expense: 0 }
+      );
+
+      return {
+        series,
+        summary: {
+          income: Math.round(totals.income * 100) / 100,
+          expense: Math.round(totals.expense * 100) / 100,
+          net: Math.round((totals.income - totals.expense) * 100) / 100,
+        },
+      };
+    }),
+
   // What a budget was spent on, by category, over a timeframe.
   //
   // Spending is the net of a category rather than the sum of its outflows, so

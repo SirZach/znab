@@ -258,7 +258,7 @@ function AccountGroup({
       </SidebarGroupLabel>
 
       {open && (
-        <SidebarMenuSub>
+        <SidebarMenuSub className="mr-0 pr-0">
           {accounts.map((account) => (
             <SidebarMenuSubItem key={account.id}>
               <SidebarMenuSubButton

@@ -14,6 +14,22 @@ import { useBudgetLayout } from "@/hooks/useBudgetLayout";
 import { useUserStore } from "@/store/user";
 import { cn, currentMonthParam, formatCurrency } from "@/lib/utils";
 import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
+import {
   LayoutDashboard,
   BarChart2,
   CalendarClock,
@@ -52,68 +68,59 @@ function BudgetLayout() {
   });
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
-      {/* ── Sidebar ───────────────────────────────────────────────── */}
-      <aside className="flex w-64 flex-col border-r border-sidebar-border bg-sidebar-background text-sidebar-foreground shrink-0">
-        {/* Budget name header */}
-        <div className="flex h-14 items-center px-4 border-b border-sidebar-border">
+    <SidebarProvider className="h-svh overflow-hidden">
+      {/* Always shown at every width: no collapsing and no mobile sheet */}
+      <Sidebar collapsible="none" className="border-r border-sidebar-border">
+        <SidebarHeader className="h-14 justify-center border-b border-sidebar-border px-4">
           <span className="font-semibold truncate">{budget?.name ?? "Budget"}</span>
-        </div>
+        </SidebarHeader>
 
-        <nav className="flex-1 overflow-y-auto p-2 space-y-1">
-          {/* Budget link */}
-          <SidebarLink
-            to="/budgets/$budgetId"
-            params={{ budgetId }}
-            search={{ month: currentMonthParam() }}
-            // Every other section sits under this path, so a prefix match would
-            // leave Budget lit on all of them.
-            activeOptions={{ exact: true }}
-            icon={<LayoutDashboard size={16} />}
-            label="Budget"
-          />
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarMenu>
+              <NavItem
+                to="/budgets/$budgetId"
+                params={{ budgetId }}
+                search={{ month: currentMonthParam() }}
+                // Every other section sits under this path, so a prefix match would
+                // leave Budget lit on all of them.
+                activeOptions={{ exact: true }}
+                icon={<LayoutDashboard />}
+                label="Budget"
+              />
+              <NavItem
+                to="/budgets/$budgetId/reports"
+                params={{ budgetId }}
+                icon={<BarChart2 />}
+                label="Reports"
+              />
+              <NavItem
+                to="/budgets/$budgetId/payees"
+                params={{ budgetId }}
+                icon={<Users />}
+                label="Payees"
+              />
+              <NavItem
+                to="/budgets/$budgetId/categories"
+                params={{ budgetId }}
+                icon={<Tags />}
+                label="Categories"
+              />
+              <NavItem
+                to="/budgets/$budgetId/scheduled"
+                params={{ budgetId }}
+                icon={<CalendarClock />}
+                label="Scheduled"
+              />
+              <NavItem
+                to="/budgets/$budgetId/accounts"
+                params={{ budgetId }}
+                icon={<Wallet />}
+                label="Accounts"
+              />
+            </SidebarMenu>
+          </SidebarGroup>
 
-          {/* Reports link */}
-          <SidebarLink
-            to="/budgets/$budgetId/reports"
-            params={{ budgetId }}
-            icon={<BarChart2 size={16} />}
-            label="Reports"
-          />
-
-          {/* Payees link */}
-          <SidebarLink
-            to="/budgets/$budgetId/payees"
-            params={{ budgetId }}
-            icon={<Users size={16} />}
-            label="Payees"
-          />
-
-          {/* Categories link */}
-          <SidebarLink
-            to="/budgets/$budgetId/categories"
-            params={{ budgetId }}
-            icon={<Tags size={16} />}
-            label="Categories"
-          />
-
-          {/* Scheduled transactions link */}
-          <SidebarLink
-            to="/budgets/$budgetId/scheduled"
-            params={{ budgetId }}
-            icon={<CalendarClock size={16} />}
-            label="Scheduled"
-          />
-
-          {/* Manage accounts link */}
-          <SidebarLink
-            to="/budgets/$budgetId/accounts"
-            params={{ budgetId }}
-            icon={<Wallet size={16} />}
-            label="Accounts"
-          />
-
-          {/* On-budget accounts */}
           {onBudgetAccounts.length > 0 && (
             <AccountGroup
               label="Budget Accounts"
@@ -122,7 +129,6 @@ function BudgetLayout() {
             />
           )}
 
-          {/* Tracking accounts */}
           {trackingAccounts.length > 0 && (
             <AccountGroup
               label="Tracking Accounts"
@@ -142,35 +148,39 @@ function BudgetLayout() {
           )}
 
           {/* The form for a new account lives on the manage screen, so this is
-              the same destination as the link above, reached from where the
+              the same destination as the Accounts link, reached from where the
               accounts are. */}
-          <Link
-            to="/budgets/$budgetId/accounts"
-            params={{ budgetId }}
-            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-          >
-            <Plus size={14} />
-            Add account
-          </Link>
-        </nav>
+          <SidebarGroup>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  className="text-sidebar-foreground/70"
+                  render={<Link to="/budgets/$budgetId/accounts" params={{ budgetId }} />}
+                >
+                  <Plus />
+                  <span>Add account</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroup>
+        </SidebarContent>
 
-        {/* Sign-out footer */}
-        <div className="border-t border-sidebar-border p-2">
-          <button
-            onClick={handleSignOut}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-          >
-            <LogOut size={14} />
-            Switch user
-          </button>
-        </div>
-      </aside>
+        <SidebarFooter className="border-t border-sidebar-border">
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton className="text-sidebar-foreground/70" onClick={handleSignOut}>
+                <LogOut />
+                <span>Switch user</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarFooter>
+      </Sidebar>
 
-      {/* ── Main content area ─────────────────────────────────────── */}
-      <main className="flex-1 overflow-y-auto">
+      <SidebarInset className="overflow-y-auto">
         <Outlet />
-      </main>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
 
@@ -179,19 +189,15 @@ function BudgetLayout() {
 /**
  * A section link, highlighted while that section is the one being looked at.
  *
- * Two things here are deliberate. The destination is typed as the router types
- * it rather than as a plain string, which is what the router needs in order to
- * check a link and its parameters at all; spelling it `string` had quietly
- * turned that checking off, and is why nothing caught the fault below.
+ * The destination is typed as the router types it rather than as a plain
+ * string, so the router still checks the link and its parameters.
  *
- * And a link is matched on its path alone. A match includes the search
- * parameters by default, which reads well until a section carries any: the
- * Budget link is built with this month, so standing on any other month stopped
- * it matching the URL it had led to, and the register applies defaults for its
- * filter and sort, so those links never matched either. Whether a section is
- * the current one is a question about the path, so that is what decides it.
+ * A link is matched on its path alone. A match includes the search parameters
+ * by default, but the Budget link is built with this month and the register
+ * applies defaults for its filter and sort, so counting them would leave those
+ * sections unlit on the very pages they lead to.
  */
-function SidebarLink({
+function NavItem({
   icon,
   label,
   activeOptions,
@@ -201,19 +207,22 @@ function SidebarLink({
   label: string;
 }) {
   return (
-    <Link
-      {...link}
-      // A link matches on a prefix of the path unless it says otherwise, which
-      // is what a section wants: an account's own register is still Accounts.
-      // The section that is the parent of all the others has to say otherwise,
-      // or it is the current one everywhere.
-      activeOptions={{ includeSearch: false, ...activeOptions }}
-      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-      activeProps={{ className: "bg-sidebar-accent text-sidebar-accent-foreground font-medium" }}
-    >
-      {icon}
-      {label}
-    </Link>
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        render={
+          <Link
+            {...link}
+            // A prefix match is what a section wants: an account's own register
+            // is still Accounts. Budget, the parent of the rest, opts out.
+            activeOptions={{ includeSearch: false, ...activeOptions }}
+            activeProps={{ "data-active": true }}
+          />
+        }
+      >
+        {icon}
+        <span>{label}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }
 
@@ -235,43 +244,47 @@ function AccountGroup({
   const total = accounts.reduce((sum, a) => sum + a.balance, 0);
 
   return (
-    <div>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50 hover:text-sidebar-foreground/80"
+    <SidebarGroup className="py-0">
+      <SidebarGroupLabel
+        render={<button onClick={() => setOpen((o) => !o)} />}
+        className="w-full gap-1 font-semibold uppercase tracking-wider hover:text-sidebar-foreground"
       >
-        <ChevronDown
-          size={12}
-          className={cn("transition-transform", !open && "-rotate-90")}
-        />
+        <ChevronDown className={cn("transition-transform", !open && "-rotate-90")} />
         <span className="truncate">{label}</span>
         {/* Kept on the header while the section is shut, since a closed group
             that still says what it holds is the point of collapsing one. */}
         <span className="ml-auto shrink-0 tabular-nums normal-case tracking-normal">
           {formatCurrency(total)}
         </span>
-      </button>
+      </SidebarGroupLabel>
 
-      {open &&
-        accounts.map((account) => (
-          <Link
-            key={account.id}
-            to="/budgets/$budgetId/accounts/$accountId"
-            params={{ budgetId, accountId: String(account.id) }}
-            // The register applies defaults for its filter and its sort, so its
-            // URL always carries search parameters this link does not, and a
-            // match that counted them would never hold.
-            activeOptions={{ includeSearch: false }}
-            className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground pl-6"
-            activeProps={{ className: "bg-sidebar-accent text-sidebar-accent-foreground" }}
-          >
-            <CreditCard size={13} className="shrink-0 opacity-60" />
-            <span className="truncate">{account.name}</span>
-            <span className="ml-auto shrink-0 text-xs tabular-nums opacity-70">
-              {formatCurrency(account.balance)}
-            </span>
-          </Link>
-        ))}
-    </div>
+      {open && (
+        <SidebarMenuSub>
+          {accounts.map((account) => (
+            <SidebarMenuSubItem key={account.id}>
+              <SidebarMenuSubButton
+                render={
+                  <Link
+                    to="/budgets/$budgetId/accounts/$accountId"
+                    params={{ budgetId, accountId: String(account.id) }}
+                    // The register applies defaults for its filter and its sort, so its
+                    // URL always carries search parameters this link does not, and a
+                    // match that counted them would never hold.
+                    activeOptions={{ includeSearch: false }}
+                    activeProps={{ "data-active": true }}
+                  />
+                }
+              >
+                <CreditCard className="opacity-60" />
+                <span className="truncate">{account.name}</span>
+                <span className="ml-auto shrink-0 text-xs tabular-nums opacity-70">
+                  {formatCurrency(account.balance)}
+                </span>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          ))}
+        </SidebarMenuSub>
+      )}
+    </SidebarGroup>
   );
 }

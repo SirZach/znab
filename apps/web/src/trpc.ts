@@ -15,7 +15,7 @@ export const trpc = createTRPCReact<AppRouter>();
 // from and a relative path is both shorter and truer: it survives being served
 // on another port, or behind something in front of it, without being told.
 // The dev server is a second server on a second port, so there it has to be
-// named, on whatever host served the page (localhost, zachbox, a .ts.net
+// named, on whatever host served the page (localhost, znab, a .ts.net
 // Tailscale address) rather than a hardcoded localhost that would only work
 // from the machine itself.
 const apiUrl = import.meta.env.PROD

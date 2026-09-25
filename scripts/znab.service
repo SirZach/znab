@@ -26,7 +26,7 @@
 #   # Without this it stops when you log out and does not come back on reboot.
 #   sudo loginctl enable-linger zach
 #
-# Then: http://zachbox:3001
+# Then: http://znab:3001
 #
 #   systemctl --user status znab
 #   journalctl --user -u znab -f

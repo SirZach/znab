@@ -8,7 +8,7 @@ import { createContext } from "./context";
 
 const app = new Hono();
 
-// Dev-only: allow localhost plus access over Tailscale (zachbox hostname / *.ts.net).
+// Dev-only: allow localhost plus access over Tailscale (znab hostname / *.ts.net).
 app.use(
   "*",
   cors({
@@ -18,7 +18,7 @@ app.use(
         const { hostname } = new URL(origin);
         const allowed =
           hostname === "localhost" ||
-          hostname === "zachbox" ||
+          hostname === "znab" ||
           hostname.endsWith(".ts.net");
         return allowed ? origin : null;
       } catch {

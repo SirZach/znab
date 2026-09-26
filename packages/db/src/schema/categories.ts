@@ -18,6 +18,9 @@ export const categoryGroups = pgTable("category_groups", {
   // true for __Hidden__, __Income__, __Internal__, __PreYNABDebtMaster__
   isSystem: boolean("is_system").notNull().default(false),
   sortOrder: integer("sort_order").notNull().default(0),
+  // Counted towards "Master Budgets" in the household split. Set in znab only,
+  // so the YNAB import never writes it.
+  inMasterBudgets: boolean("in_master_budgets").notNull().default(false),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

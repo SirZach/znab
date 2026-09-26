@@ -7,3 +7,4 @@ export * from "./payee-rename-rules";
 export * from "./monthly-budgets";
 export * from "./transactions";
 export * from "./scheduled-transactions";
+export * from "./household-split";

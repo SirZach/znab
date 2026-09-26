@@ -5,6 +5,7 @@ import { useUserStore } from "./store/user";
 
 export { type AppRouter };
 export type { MonthSummary, CategoryMonth } from "../../api/src/routers/budget";
+export type { HouseholdSplitOutputs } from "../../api/src/routers/household-split";
 
 export const trpc = createTRPCReact<AppRouter>();
 

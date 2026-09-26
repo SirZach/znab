@@ -57,6 +57,13 @@
       "when": 1789692315921,
       "tag": "0007_closed_the_captain",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790384624377,
+      "tag": "0008_handy_sasquatch",
+      "breakpoints": true
     }
   ]
 }

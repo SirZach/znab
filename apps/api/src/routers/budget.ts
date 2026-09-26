@@ -47,7 +47,7 @@ async function assertCategoryInBudget(
  * Shared by every procedure that has to reason about a month, so they cannot
  * drift apart.
  */
-function loadBudgetInputs(db: AuthedContext["db"], budgetId: number) {
+export function loadBudgetInputs(db: AuthedContext["db"], budgetId: number) {
   // Outflows on a credit card or other on-budget liability become debt, so
   // they are classified separately from cash for overspending purposes.
   const klass = sql`CASE WHEN a.account_type IN ('CreditCard', 'OtherLiability') THEN 'credit' ELSE 'cash' END`;

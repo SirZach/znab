@@ -37,6 +37,7 @@ import {
   ChevronDown,
   Plus,
   Layers,
+  Scale,
   Tags,
   Users,
   Wallet,
@@ -94,6 +95,8 @@ function BudgetLayout() {
                 icon={<BarChart2 />}
                 label="Reports"
               />
+              {/* Shared across budgets, so it lives outside this layout */}
+              <NavItem to="/budgets/balancing" icon={<Scale />} label="Balancing" />
               <NavItem
                 to="/budgets/$budgetId/payees"
                 params={{ budgetId }}

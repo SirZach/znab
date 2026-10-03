@@ -29,8 +29,7 @@ async function personMonth(ctx: AuthedContext, budgetId: number, month: string) 
     loadBudgetInputs(ctx.db, budgetId),
     ctx.db.query.categoryGroups.findMany({
       where: and(userGroups(budgetId), eq(categoryGroups.inMasterBudgets, true)),
-      orderBy: (cg, { asc }) => [asc(cg.sortOrder)],
-      columns: { name: true },
+      columns: { id: true },
       with: { categories: { columns: { id: true } } },
     }),
   ]);
@@ -52,7 +51,6 @@ async function personMonth(ctx: AuthedContext, budgetId: number, month: string) 
   return {
     income: summary.income,
     master: masterCents / 100,
-    groups: groups.map((g) => g.name),
   };
 }
 

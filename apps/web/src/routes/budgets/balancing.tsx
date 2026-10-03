@@ -144,12 +144,7 @@ function SplitTable({ split }: { split: MonthSplit }) {
         <TableBody>
           {[split.primary, split.partner].map((p) => (
             <TableRow key={p.budgetId}>
-              <TableCell>
-                {p.name}
-                <span className="block text-xs text-muted-foreground">
-                  {p.groups.length ? p.groups.join(", ") : "No master budget groups"}
-                </span>
-              </TableCell>
+              <TableCell>{p.name}</TableCell>
               <TableCell className="text-right tabular-nums">{formatCurrency(p.income)}</TableCell>
               <TableCell className="text-right tabular-nums">{formatCurrency(p.master)}</TableCell>
             </TableRow>

@@ -1,0 +1,26 @@
+# Runs scripts/sync-ynab4.sh once; ynab4-sync.timer decides when.
+#
+# Install (needs an rclone remote named "dropbox", see SETUP.md):
+#
+#   cp scripts/ynab4-sync.service scripts/ynab4-sync.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now ynab4-sync.timer
+#
+#   systemctl --user start ynab4-sync     # sync now
+#   journalctl --user -u ynab4-sync -f
+
+[Unit]
+Description=Sync YNAB 4 budgets from Dropbox into znab
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/workspace/znab
+EnvironmentFile=%h/workspace/znab/apps/api/.env
+# Optional overrides for YNAB4_REMOTE, YNAB4_ZACH, YNAB4_FIONA, YNAB4_DIR.
+EnvironmentFile=-%h/.config/znab/ynab4-sync.env
+Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/workspace/znab/scripts/sync-ynab4.sh
+# Same tripwire as znab.service: this machine has 2GB.
+MemoryMax=768M

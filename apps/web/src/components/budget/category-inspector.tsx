@@ -41,8 +41,8 @@ const GOAL_LABELS: Record<GoalType, string> = {
 /**
  * YNAB 4's right-hand panel for the selected category: where it stands this
  * month, its goal, the Quick Budget shortcuts, moving money either direction,
- * recent history, and whether overspending is confined here. Or, while
- * `showSpent` is on, the transactions behind this month's Spent instead.
+ * recent history, and whether overspending is confined here. While
+ * `showSpent` is on, the transactions behind this month's Spent open under it.
  */
 export function CategoryInspector({
   budgetId,
@@ -135,189 +135,190 @@ export function CategoryInspector({
       </div>
 
       {/* Where the category stands */}
-      <dl className="px-4 py-3 space-y-1.5 border-b border-border">
-        <Row label="Budgeted" value={formatCurrency(category.budgeted)} />
-        <Row
-          label={
-            <button
-              onClick={() => onShowSpent(!showSpent)}
-              aria-expanded={showSpent}
-              title={showSpent ? "Back to the category" : "Show the transactions behind this"}
-              className="flex items-center gap-1 hover:text-foreground transition-colors"
-            >
-              Spent
-              <ChevronRight
-                size={13}
-                className={cn("transition-transform", showSpent && "rotate-90")}
-              />
-            </button>
-          }
-          value={formatCurrency(category.activity)}
-        />
-        <Row
-          label="Available"
-          value={formatCurrency(category.available)}
-          emphasis
-          tone={
-            category.available < 0
-              ? category.overspendKind === "credit"
-                ? "warn"
-                : "danger"
-              : category.available > 0
-              ? "good"
-              : undefined
-          }
-        />
-        {category.available < 0 && (
-          <p className="text-xs text-muted-foreground pt-1">
-            {category.overspendKind === "credit"
-              ? "Overspent on credit. This carries as debt and does not reduce next month's To be Budgeted."
-              : "Overspent in cash. This comes out of next month's To be Budgeted."}
-          </p>
-        )}
-      </dl>
-
-      {showSpent ? (
-        <SpentSection budgetId={budgetId} categoryId={category.id} month={month} />
-      ) : (
-        <>
-          <GoalSection goal={category.goal} onSetGoal={onSetGoal} month={month} />
-
-          {/* Quick Budget */}
-          <section className="px-4 py-3 border-b border-border">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-              Quick Budget
-            </h4>
-            <div className="space-y-1">
-              {quickActions.map((action) => (
-                <button
-                  key={action.label}
-                  disabled={action.amount === undefined}
-                  onClick={() => action.amount !== undefined && onSetBudgeted(action.amount)}
-                  className="flex w-full items-center justify-between gap-2 rounded border border-border px-2.5 py-1.5 text-sm hover:border-primary hover:bg-accent disabled:opacity-50 transition-colors"
-                >
-                  <span>{action.label}</span>
-                  <span className="tabular-nums text-muted-foreground">
-                    {action.amount === undefined ? "..." : formatCurrency(action.amount)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* Move money, either direction */}
-          <section className="px-4 py-3 border-b border-border">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-              Move money
-            </h4>
-
-            <div className="flex rounded border border-border overflow-hidden mb-2" role="group">
-              {(
-                [
-                  ["in", shortfall > 0 ? "Cover from" : "Move in from"],
-                  ["out", "Move out to"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  aria-pressed={direction === value}
-                  onClick={() => {
-                    setDirection(value);
-                    setAmount("");
-                  }}
-                  className={cn(
-                    "flex-1 px-2 py-1.5 text-xs transition-colors",
-                    direction === value
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent"
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <select
-                id={`move-other-${category.id}`}
-                aria-label={direction === "in" ? "Category to take from" : "Category to send to"}
-                value={otherId}
-                onChange={(e) => setOtherId(e.target.value === "" ? "" : Number(e.target.value))}
-                className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+      <div className="py-3 border-b border-border">
+        <dl className="px-4 space-y-1.5">
+          <Row label="Budgeted" value={formatCurrency(category.budgeted)} />
+          <Row
+            label={
+              <button
+                onClick={() => onShowSpent(!showSpent)}
+                aria-expanded={showSpent}
+                title={showSpent ? "Hide the transactions" : "Show the transactions behind this"}
+                className="flex items-center gap-1 hover:text-foreground transition-colors"
               >
-                <option value="">Choose a category...</option>
-                {sources.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.groupName}: {s.name} ({formatCurrency(s.available)})
-                  </option>
-                ))}
-              </select>
-
-              <div className="flex gap-2">
-                <input
-                  id={`move-amount-${category.id}`}
-                  type="text"
-                  inputMode="decimal"
-                  aria-label="Amount to move"
-                  placeholder="0.00"
-                  value={amountValue}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="flex-1 min-w-0 rounded border border-border bg-background px-2 py-1.5 text-sm text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                Spent
+                <ChevronRight
+                  size={13}
+                  className={cn("transition-transform", showSpent && "rotate-90")}
                 />
-                <button
-                  disabled={!canMove}
-                  onClick={() => {
-                    if (otherId === "" || parsedAmount === null) return;
-                    onMoveMoney(otherId, parsedAmount, direction);
-                    setAmount("");
-                    setOtherId("");
-                  }}
-                  className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                >
-                  {isMoving ? "Moving..." : "Move"}
-                </button>
-              </div>
-
-              {moveError && <p className="text-xs text-destructive">{moveError}</p>}
-            </div>
-          </section>
-
-          <HistorySection history={history} />
-
-          {/* Overspending handling */}
-          <section className="px-4 py-3 border-b border-border">
-            <label className="flex items-start gap-2 text-sm cursor-pointer">
-              <input
-                id={`confine-${category.id}`}
-                type="checkbox"
-                checked={category.confined}
-                onChange={(e) => onSetConfined(e.target.checked)}
-                className="mt-0.5"
-              />
-              <span>
-                Confine overspending to this category
-                <span className="block text-xs text-muted-foreground mt-0.5">
-                  Keeps a shortfall here instead of taking it out of next month's
-                  To be Budgeted.
-                </span>
-              </span>
-            </label>
-          </section>
-
-          <section className="px-4 py-3">
-            <button
-              onClick={onHide}
-              className="w-full rounded border border-border px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            >
-              Hide this category
-            </button>
-            <p className="text-xs text-muted-foreground mt-2">
-              It moves to Hidden Categories at the foot of the grid. Past months keep
-              whatever was budgeted and spent here.
+              </button>
+            }
+            value={formatCurrency(category.activity)}
+          />
+        </dl>
+        {showSpent && (
+          <SpentSection budgetId={budgetId} categoryId={category.id} month={month} />
+        )}
+        <dl className="px-4 space-y-1.5 mt-1.5">
+          <Row
+            label="Available"
+            value={formatCurrency(category.available)}
+            emphasis
+            tone={
+              category.available < 0
+                ? category.overspendKind === "credit"
+                  ? "warn"
+                  : "danger"
+                : category.available > 0
+                ? "good"
+                : undefined
+            }
+          />
+          {category.available < 0 && (
+            <p className="text-xs text-muted-foreground pt-1">
+              {category.overspendKind === "credit"
+                ? "Overspent on credit. This carries as debt and does not reduce next month's To be Budgeted."
+                : "Overspent in cash. This comes out of next month's To be Budgeted."}
             </p>
-          </section>
-        </>
-      )}
+          )}
+        </dl>
+      </div>
+
+      <GoalSection goal={category.goal} onSetGoal={onSetGoal} month={month} />
+
+      {/* Quick Budget */}
+      <section className="px-4 py-3 border-b border-border">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+          Quick Budget
+        </h4>
+        <div className="space-y-1">
+          {quickActions.map((action) => (
+            <button
+              key={action.label}
+              disabled={action.amount === undefined}
+              onClick={() => action.amount !== undefined && onSetBudgeted(action.amount)}
+              className="flex w-full items-center justify-between gap-2 rounded border border-border px-2.5 py-1.5 text-sm hover:border-primary hover:bg-accent disabled:opacity-50 transition-colors"
+            >
+              <span>{action.label}</span>
+              <span className="tabular-nums text-muted-foreground">
+                {action.amount === undefined ? "..." : formatCurrency(action.amount)}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Move money, either direction */}
+      <section className="px-4 py-3 border-b border-border">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+          Move money
+        </h4>
+
+        <div className="flex rounded border border-border overflow-hidden mb-2" role="group">
+          {(
+            [
+              ["in", shortfall > 0 ? "Cover from" : "Move in from"],
+              ["out", "Move out to"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              aria-pressed={direction === value}
+              onClick={() => {
+                setDirection(value);
+                setAmount("");
+              }}
+              className={cn(
+                "flex-1 px-2 py-1.5 text-xs transition-colors",
+                direction === value
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <select
+            id={`move-other-${category.id}`}
+            aria-label={direction === "in" ? "Category to take from" : "Category to send to"}
+            value={otherId}
+            onChange={(e) => setOtherId(e.target.value === "" ? "" : Number(e.target.value))}
+            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="">Choose a category...</option>
+            {sources.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.groupName}: {s.name} ({formatCurrency(s.available)})
+              </option>
+            ))}
+          </select>
+
+          <div className="flex gap-2">
+            <input
+              id={`move-amount-${category.id}`}
+              type="text"
+              inputMode="decimal"
+              aria-label="Amount to move"
+              placeholder="0.00"
+              value={amountValue}
+              onChange={(e) => setAmount(e.target.value)}
+              className="flex-1 min-w-0 rounded border border-border bg-background px-2 py-1.5 text-sm text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <button
+              disabled={!canMove}
+              onClick={() => {
+                if (otherId === "" || parsedAmount === null) return;
+                onMoveMoney(otherId, parsedAmount, direction);
+                setAmount("");
+                setOtherId("");
+              }}
+              className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {isMoving ? "Moving..." : "Move"}
+            </button>
+          </div>
+
+          {moveError && <p className="text-xs text-destructive">{moveError}</p>}
+        </div>
+      </section>
+
+      <HistorySection history={history} />
+
+      {/* Overspending handling */}
+      <section className="px-4 py-3 border-b border-border">
+        <label className="flex items-start gap-2 text-sm cursor-pointer">
+          <input
+            id={`confine-${category.id}`}
+            type="checkbox"
+            checked={category.confined}
+            onChange={(e) => onSetConfined(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Confine overspending to this category
+            <span className="block text-xs text-muted-foreground mt-0.5">
+              Keeps a shortfall here instead of taking it out of next month's
+              To be Budgeted.
+            </span>
+          </span>
+        </label>
+      </section>
+
+      <section className="px-4 py-3">
+        <button
+          onClick={onHide}
+          className="w-full rounded border border-border px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        >
+          Hide this category
+        </button>
+        <p className="text-xs text-muted-foreground mt-2">
+          It moves to Hidden Categories at the foot of the grid. Past months keep
+          whatever was budgeted and spent here.
+        </p>
+      </section>
     </aside>
   );
 }
@@ -562,7 +563,7 @@ function SpentSection({
   const { data } = trpc.budget.categoryTransactions.useQuery({ budgetId, categoryId, month });
 
   return (
-    <section className="py-3">
+    <section className="my-2 py-2 border-y border-border/50 bg-muted/30">
       <div className="flex items-baseline justify-between gap-2 px-4 mb-2">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Transactions

@@ -11,6 +11,7 @@ import {
   type LinkProps,
 } from "@tanstack/react-router";
 import { useBudgetLayout } from "@/hooks/useBudgetLayout";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useUserStore } from "@/store/user";
 import { cn, currentMonthParam, formatCurrency } from "@/lib/utils";
 import {
@@ -28,6 +29,8 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   LayoutDashboard,
@@ -67,11 +70,16 @@ function BudgetLayout() {
     budgetId: Number(budgetId),
     queryClient,
   });
+  const isMobile = useIsMobile();
 
   return (
     <SidebarProvider className="h-svh overflow-hidden">
-      {/* Always shown at every width: no collapsing and no mobile sheet */}
-      <Sidebar collapsible="none" className="border-r border-sidebar-border">
+      {/* Always shown on a desktop, with no collapsing. A phone has no room for
+          it beside the page, so there it is a sheet opened from the top bar. */}
+      <Sidebar
+        collapsible={isMobile ? "offcanvas" : "none"}
+        className="border-r border-sidebar-border"
+      >
         <SidebarHeader className="h-14 justify-center border-b border-sidebar-border px-4">
           <span className="font-semibold truncate">{budget?.name ?? "Budget"}</span>
         </SidebarHeader>
@@ -95,90 +103,100 @@ function BudgetLayout() {
                 icon={<BarChart2 />}
                 label="Reports"
               />
-              {/* Shared across budgets, so it lives outside this layout */}
-              <NavItem to="/budgets/balancing" icon={<Scale />} label="Balancing" />
-              <NavItem
-                to="/budgets/$budgetId/payees"
-                params={{ budgetId }}
-                icon={<Users />}
-                label="Payees"
-              />
-              <NavItem
-                to="/budgets/$budgetId/categories"
-                params={{ budgetId }}
-                icon={<Tags />}
-                label="Categories"
-              />
-              <NavItem
-                to="/budgets/$budgetId/scheduled"
-                params={{ budgetId }}
-                icon={<CalendarClock />}
-                label="Scheduled"
-              />
-              <NavItem
-                to="/budgets/$budgetId/accounts"
-                params={{ budgetId }}
-                // All Accounts and every individual register sit under this
-                // path, and each of them has its own row in the sidebar, so a
-                // prefix match here would light two things at once.
-                activeOptions={{ exact: true }}
-                icon={<Wallet />}
-                label="Accounts"
-              />
-              {/* Every account's transactions in one register, where YNAB 4
-                  puts it: across the accounts rather than inside any one. */}
-              <NavItem
-                to="/budgets/$budgetId/accounts/all"
-                params={{ budgetId }}
-                icon={<Layers />}
-                label="All Accounts"
-              />
+              {/* A phone gets the budget and the reports only. The rest is
+                  bookkeeping that wants a desktop. */}
+              {!isMobile && (
+                <>
+                  {/* Shared across budgets, so it lives outside this layout */}
+                  <NavItem to="/budgets/balancing" icon={<Scale />} label="Balancing" />
+                  <NavItem
+                    to="/budgets/$budgetId/payees"
+                    params={{ budgetId }}
+                    icon={<Users />}
+                    label="Payees"
+                  />
+                  <NavItem
+                    to="/budgets/$budgetId/categories"
+                    params={{ budgetId }}
+                    icon={<Tags />}
+                    label="Categories"
+                  />
+                  <NavItem
+                    to="/budgets/$budgetId/scheduled"
+                    params={{ budgetId }}
+                    icon={<CalendarClock />}
+                    label="Scheduled"
+                  />
+                  <NavItem
+                    to="/budgets/$budgetId/accounts"
+                    params={{ budgetId }}
+                    // All Accounts and every individual register sit under this
+                    // path, and each of them has its own row in the sidebar, so a
+                    // prefix match here would light two things at once.
+                    activeOptions={{ exact: true }}
+                    icon={<Wallet />}
+                    label="Accounts"
+                  />
+                  {/* Every account's transactions in one register, where YNAB 4
+                      puts it: across the accounts rather than inside any one. */}
+                  <NavItem
+                    to="/budgets/$budgetId/accounts/all"
+                    params={{ budgetId }}
+                    icon={<Layers />}
+                    label="All Accounts"
+                  />
+                </>
+              )}
             </SidebarMenu>
           </SidebarGroup>
 
-          {/* On-budget accounts */}
-          {onBudgetAccounts.length > 0 && (
-            <AccountGroup
-              label="Budget Accounts"
-              accounts={onBudgetAccounts}
-              budgetId={budgetId}
-            />
-          )}
+          {!isMobile && (
+            <>
+              {/* On-budget accounts */}
+              {onBudgetAccounts.length > 0 && (
+                <AccountGroup
+                  label="Budget Accounts"
+                  accounts={onBudgetAccounts}
+                  budgetId={budgetId}
+                />
+              )}
 
-          {trackingAccounts.length > 0 && (
-            <AccountGroup
-              label="Tracking Accounts"
-              accounts={trackingAccounts}
-              budgetId={budgetId}
-            />
-          )}
+              {trackingAccounts.length > 0 && (
+                <AccountGroup
+                  label="Tracking Accounts"
+                  accounts={trackingAccounts}
+                  budgetId={budgetId}
+                />
+              )}
 
-          {/* Closed accounts, collapsed: kept for their history, not in use */}
-          {closedAccounts.length > 0 && (
-            <AccountGroup
-              label={`Closed Accounts (${closedAccounts.length})`}
-              accounts={closedAccounts}
-              budgetId={budgetId}
-              defaultOpen={false}
-            />
-          )}
+              {/* Closed accounts, collapsed: kept for their history, not in use */}
+              {closedAccounts.length > 0 && (
+                <AccountGroup
+                  label={`Closed Accounts (${closedAccounts.length})`}
+                  accounts={closedAccounts}
+                  budgetId={budgetId}
+                  defaultOpen={false}
+                />
+              )}
 
-          {/* The form for a new account lives on the manage screen, so this is
-              the same destination as the Accounts link, reached from where the
-              accounts are. */}
-          <SidebarGroup>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  className="text-sidebar-foreground/70"
-                  render={<Link to="/budgets/$budgetId/accounts" params={{ budgetId }} />}
-                >
-                  <Plus />
-                  <span>Add account</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroup>
+              {/* The form for a new account lives on the manage screen, so this is
+                  the same destination as the Accounts link, reached from where the
+                  accounts are. */}
+              <SidebarGroup>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      className="text-sidebar-foreground/70"
+                      render={<Link to="/budgets/$budgetId/accounts" params={{ budgetId }} />}
+                    >
+                      <Plus />
+                      <span>Add account</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroup>
+            </>
+          )}
         </SidebarContent>
 
         <SidebarFooter className="border-t border-sidebar-border">
@@ -194,6 +212,11 @@ function BudgetLayout() {
       </Sidebar>
 
       <SidebarInset className="overflow-y-auto">
+        {/* The only way to the sidebar on a phone, where it is hidden */}
+        <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-2 md:hidden">
+          <SidebarTrigger />
+          <span className="font-semibold truncate">{budget?.name ?? "Budget"}</span>
+        </header>
         <Outlet />
       </SidebarInset>
     </SidebarProvider>
@@ -222,9 +245,13 @@ function NavItem({
   icon: React.ReactNode;
   label: string;
 }) {
+  const { setOpenMobile } = useSidebar();
+
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
+        // Leaving the sheet open on a phone would cover the page just opened
+        onClick={() => setOpenMobile(false)}
         render={
           <Link
             {...link}

@@ -58,12 +58,15 @@ export function useAccountRegister({
   const utils = trpc.useUtils();
 
   // Grows as the reader asks for older transactions. The window stays anchored
-  // to the newest transaction, so recent activity is always on screen.
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  // to the newest transaction, so recent activity is always on screen. Each
+  // page is its own request rather than one request growing to cover them all,
+  // since the API serves at most 1,000 rows at once and the largest account
+  // holds eight times that.
+  const [pageCount, setPageCount] = useState(1);
 
   // Reset back to one page whenever the register being viewed changes.
   React.useEffect(() => {
-    setLimit(PAGE_SIZE);
+    setPageCount(1);
   }, [accountId, cleared, q, sort, dir, focusId]);
 
   // A row linked to from elsewhere may be thousands of rows back, so the
@@ -76,12 +79,31 @@ export function useAccountRegister({
     );
   const offset = focus ? focusOffset(focus.position, PAGE_SIZE) : 0;
 
-  const { data, isLoading, isFetching } = trpc.account.transactions.useQuery(
-    { budgetId, accountId, cleared, q, sort, dir, limit, offset },
-    // Held until the linked row's position is known, rather than loading the
-    // newest page only to throw it away.
-    { enabled: !isLoadingFocus }
+  const pages = trpc.useQueries((t) =>
+    Array.from({ length: pageCount }, (_, i) =>
+      t.account.transactions(
+        {
+          budgetId,
+          accountId,
+          cleared,
+          q,
+          sort,
+          dir,
+          limit: PAGE_SIZE,
+          offset: offset + i * PAGE_SIZE,
+        },
+        // Held until the linked row's position is known, rather than loading
+        // the newest page only to throw it away.
+        { enabled: !isLoadingFocus }
+      )
+    )
   );
+  // The balances and counts are the same on every page, so the first carries
+  // them; whether anything is older is the last page's to say.
+  const data = pages[0]?.data;
+  const isLoading = pages[0]?.isLoading ?? true;
+  const isLoadingMore = pages.some((p) => p.isFetching) && !isLoading;
+  const hasMore = pages.at(-1)?.data?.hasMore ?? false;
 
   const { data: accounts } = trpc.account.list.useQuery({ budgetId });
   const account = accounts?.find((a) => a.id === accountId);
@@ -177,7 +199,12 @@ export function useAccountRegister({
     },
   });
 
-  const transactions = data?.transactions ?? [];
+  // The date order comes back as the newest rows of each page turned round, so
+  // each older page goes above the one before it; any other sort reads down.
+  const loaded = pages.map((p) => p.data?.transactions ?? []);
+  const transactions = (
+    sort === "date" && dir === "asc" ? loaded.reverse() : loaded
+  ).flat();
 
   const categoryOptions =
     categoryGroups
@@ -336,11 +363,11 @@ export function useAccountRegister({
     counts: data?.counts ?? { all: 0, Uncleared: 0, Cleared: 0, Reconciled: 0 },
     /** How many rows the cleared filter and the search leave between them. */
     matches: data?.matches ?? 0,
-    hasMore: data?.hasMore ?? false,
+    hasMore,
     /** Newer rows left off the bottom, when the register opened on an old one. */
     hasNewer: offset > 0,
-    loadOlder: () => setLimit((n) => n + PAGE_SIZE),
-    isLoadingMore: isFetching && !isLoading,
+    loadOlder: () => setPageCount((n) => n + 1),
+    isLoadingMore,
     payeeList,
     categoryOptions,
     autofillForPayee,

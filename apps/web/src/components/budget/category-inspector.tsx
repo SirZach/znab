@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { trpc } from "@/trpc";
 import { cn, formatCurrency, formatDateShort, parseAmountExpression } from "@/lib/utils";
 
@@ -43,6 +43,8 @@ const GOAL_LABELS: Record<GoalType, string> = {
  * month, its goal, the Quick Budget shortcuts, moving money either direction,
  * recent history, and whether overspending is confined here. While
  * `showSpent` is on, the transactions behind this month's Spent open under it.
+ * `readOnly` keeps only what can be read: the standing, the goal's progress and
+ * the history, with none of the controls that change the budget.
  */
 export function CategoryInspector({
   budgetId,
@@ -59,6 +61,7 @@ export function CategoryInspector({
   showSpent,
   onShowSpent,
   onClose,
+  readOnly = false,
 }: {
   budgetId: number;
   month: string;
@@ -78,12 +81,13 @@ export function CategoryInspector({
   showSpent: boolean;
   onShowSpent: (show: boolean) => void;
   onClose: () => void;
+  readOnly?: boolean;
 }) {
-  const { data: quick } = trpc.budget.quickBudget.useQuery({
-    budgetId,
-    categoryId: category.id,
-    month,
-  });
+  const { data: quick } = trpc.budget.quickBudget.useQuery(
+    { budgetId, categoryId: category.id, month },
+    // Only feeds the Quick Budget buttons, which a read-only panel leaves out
+    { enabled: !readOnly }
+  );
   const { data: history } = trpc.budget.categoryHistory.useQuery({
     budgetId,
     categoryId: category.id,
@@ -119,9 +123,18 @@ export function CategoryInspector({
   }
 
   return (
-    <aside className="w-80 shrink-0 border-l border-border bg-card overflow-y-auto">
+    // A panel beside the grid on a desktop. A phone has no room beside it, so
+    // there it covers the whole screen, and the grid underneath keeps its place.
+    <aside className="fixed inset-0 z-40 bg-card overflow-y-auto md:static md:z-auto md:w-80 md:shrink-0 md:border-l md:border-border">
       <div className="flex items-start justify-between gap-2 px-4 py-3 border-b border-border">
-        <div className="min-w-0">
+        <button
+          onClick={onClose}
+          aria-label="Back to the budget"
+          className="-ml-2 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors md:hidden"
+        >
+          <ChevronLeft size={20} />
+        </button>
+        <div className="min-w-0 max-md:flex-1">
           <h3 className="font-semibold truncate">{category.name}</h3>
           <p className="text-xs text-muted-foreground truncate">{category.groupName}</p>
         </div>
@@ -184,141 +197,157 @@ export function CategoryInspector({
         </dl>
       </div>
 
-      <GoalSection goal={category.goal} onSetGoal={onSetGoal} month={month} />
+      {/* Read-only, a goal is shown only when there is one to show progress on */}
+      {(!readOnly || category.goal) && (
+        <GoalSection
+          goal={category.goal}
+          onSetGoal={onSetGoal}
+          month={month}
+          readOnly={readOnly}
+        />
+      )}
 
-      {/* Quick Budget */}
-      <section className="px-4 py-3 border-b border-border">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Quick Budget
-        </h4>
-        <div className="space-y-1">
-          {quickActions.map((action) => (
-            <button
-              key={action.label}
-              disabled={action.amount === undefined}
-              onClick={() => action.amount !== undefined && onSetBudgeted(action.amount)}
-              className="flex w-full items-center justify-between gap-2 rounded border border-border px-2.5 py-1.5 text-sm hover:border-primary hover:bg-accent disabled:opacity-50 transition-colors"
-            >
-              <span>{action.label}</span>
-              <span className="tabular-nums text-muted-foreground">
-                {action.amount === undefined ? "..." : formatCurrency(action.amount)}
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
+      {!readOnly && (
+        <>
+          {/* Quick Budget */}
+          <section className="px-4 py-3 border-b border-border">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Quick Budget
+            </h4>
+            <div className="space-y-1">
+              {quickActions.map((action) => (
+                <button
+                  key={action.label}
+                  disabled={action.amount === undefined}
+                  onClick={() => action.amount !== undefined && onSetBudgeted(action.amount)}
+                  className="flex w-full items-center justify-between gap-2 rounded border border-border px-2.5 py-1.5 text-sm hover:border-primary hover:bg-accent disabled:opacity-50 transition-colors"
+                >
+                  <span>{action.label}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {action.amount === undefined ? "..." : formatCurrency(action.amount)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
 
-      {/* Move money, either direction */}
-      <section className="px-4 py-3 border-b border-border">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Move money
-        </h4>
+          {/* Move money, either direction */}
+          <section className="px-4 py-3 border-b border-border">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Move money
+            </h4>
 
-        <div className="flex rounded border border-border overflow-hidden mb-2" role="group">
-          {(
-            [
-              ["in", shortfall > 0 ? "Cover from" : "Move in from"],
-              ["out", "Move out to"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              aria-pressed={direction === value}
-              onClick={() => {
-                setDirection(value);
-                setAmount("");
-              }}
-              className={cn(
-                "flex-1 px-2 py-1.5 text-xs transition-colors",
-                direction === value
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent"
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+            <div className="flex rounded border border-border overflow-hidden mb-2" role="group">
+              {(
+                [
+                  ["in", shortfall > 0 ? "Cover from" : "Move in from"],
+                  ["out", "Move out to"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  aria-pressed={direction === value}
+                  onClick={() => {
+                    setDirection(value);
+                    setAmount("");
+                  }}
+                  className={cn(
+                    "flex-1 px-2 py-1.5 text-xs transition-colors",
+                    direction === value
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
-        <div className="space-y-2">
-          <select
-            id={`move-other-${category.id}`}
-            aria-label={direction === "in" ? "Category to take from" : "Category to send to"}
-            value={otherId}
-            onChange={(e) => setOtherId(e.target.value === "" ? "" : Number(e.target.value))}
-            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            <option value="">Choose a category...</option>
-            {sources.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.groupName}: {s.name} ({formatCurrency(s.available)})
-              </option>
-            ))}
-          </select>
+            <div className="space-y-2">
+              <select
+                id={`move-other-${category.id}`}
+                aria-label={direction === "in" ? "Category to take from" : "Category to send to"}
+                value={otherId}
+                onChange={(e) => setOtherId(e.target.value === "" ? "" : Number(e.target.value))}
+                className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">Choose a category...</option>
+                {sources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.groupName}: {s.name} ({formatCurrency(s.available)})
+                  </option>
+                ))}
+              </select>
 
-          <div className="flex gap-2">
-            <input
-              id={`move-amount-${category.id}`}
-              type="text"
-              inputMode="decimal"
-              aria-label="Amount to move"
-              placeholder="0.00"
-              value={amountValue}
-              onChange={(e) => setAmount(e.target.value)}
-              className="flex-1 min-w-0 rounded border border-border bg-background px-2 py-1.5 text-sm text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            <button
-              disabled={!canMove}
-              onClick={() => {
-                if (otherId === "" || parsedAmount === null) return;
-                onMoveMoney(otherId, parsedAmount, direction);
-                setAmount("");
-                setOtherId("");
-              }}
-              className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-            >
-              {isMoving ? "Moving..." : "Move"}
-            </button>
-          </div>
+              <div className="flex gap-2">
+                <input
+                  id={`move-amount-${category.id}`}
+                  type="text"
+                  inputMode="decimal"
+                  aria-label="Amount to move"
+                  placeholder="0.00"
+                  value={amountValue}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="flex-1 min-w-0 rounded border border-border bg-background px-2 py-1.5 text-sm text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <button
+                  disabled={!canMove}
+                  onClick={() => {
+                    if (otherId === "" || parsedAmount === null) return;
+                    onMoveMoney(otherId, parsedAmount, direction);
+                    setAmount("");
+                    setOtherId("");
+                  }}
+                  className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  {isMoving ? "Moving..." : "Move"}
+                </button>
+              </div>
 
-          {moveError && <p className="text-xs text-destructive">{moveError}</p>}
-        </div>
-      </section>
+              {moveError && <p className="text-xs text-destructive">{moveError}</p>}
+            </div>
+          </section>
+        </>
+      )}
 
       <HistorySection history={history} />
 
-      {/* Overspending handling */}
-      <section className="px-4 py-3 border-b border-border">
-        <label className="flex items-start gap-2 text-sm cursor-pointer">
-          <input
-            id={`confine-${category.id}`}
-            type="checkbox"
-            checked={category.confined}
-            onChange={(e) => onSetConfined(e.target.checked)}
-            className="mt-0.5"
-          />
-          <span>
-            Confine overspending to this category
-            <span className="block text-xs text-muted-foreground mt-0.5">
-              Keeps a shortfall here instead of taking it out of next month's
-              To be Budgeted.
-            </span>
-          </span>
-        </label>
-      </section>
+      {!readOnly && (
+        <>
+          {/* Overspending handling */}
+          <section className="px-4 py-3 border-b border-border">
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                id={`confine-${category.id}`}
+                type="checkbox"
+                checked={category.confined}
+                onChange={(e) => onSetConfined(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                Confine overspending to this category
+                <span className="block text-xs text-muted-foreground mt-0.5">
+                  Keeps a shortfall here instead of taking it out of next month's
+                  To be Budgeted.
+                </span>
+              </span>
+            </label>
+          </section>
 
-      <section className="px-4 py-3">
-        <button
-          onClick={onHide}
-          className="w-full rounded border border-border px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          Hide this category
-        </button>
-        <p className="text-xs text-muted-foreground mt-2">
-          It moves to Hidden Categories at the foot of the grid. Past months keep
-          whatever was budgeted and spent here.
-        </p>
-      </section>
+          <section className="px-4 py-3">
+            <button
+              onClick={onHide}
+              className="w-full rounded border border-border px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              Hide this category
+            </button>
+            <p className="text-xs text-muted-foreground mt-2">
+              It moves to Hidden Categories at the foot of the grid. Past months keep
+              whatever was budgeted and spent here.
+            </p>
+          </section>
+        </>
+      )}
     </aside>
   );
 }
@@ -329,6 +358,7 @@ function GoalSection({
   goal,
   month,
   onSetGoal,
+  readOnly,
 }: {
   goal: CategoryGoal | null;
   month: string;
@@ -337,6 +367,7 @@ function GoalSection({
     target?: number;
     targetMonth?: string;
   }) => void;
+  readOnly: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [type, setType] = useState<GoalType>(goal?.type ?? "MF");
@@ -363,7 +394,7 @@ function GoalSection({
         <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Goal
         </h4>
-        {!editing && (
+        {!editing && !readOnly && (
           <button
             onClick={() => setEditing(true)}
             className="text-xs text-primary hover:underline"
@@ -420,12 +451,14 @@ function GoalSection({
             </span>
           </div>
 
-          <button
-            onClick={() => onSetGoal({ goalType: null })}
-            className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-          >
-            Remove goal
-          </button>
+          {!readOnly && (
+            <button
+              onClick={() => onSetGoal({ goalType: null })}
+              className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+            >
+              Remove goal
+            </button>
+          )}
         </div>
       )}
 

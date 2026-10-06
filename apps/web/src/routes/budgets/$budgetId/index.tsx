@@ -3,6 +3,7 @@ import { budgetSearchSchema } from "@znab/shared";
 import { type MonthSummary } from "@/trpc";
 import { useBudgetMonths } from "@/hooks/useBudgetMonths";
 import { useBudgetPage } from "@/hooks/useBudgetPage";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   monthParamToDate,
   dateToMonthParam,
@@ -110,6 +111,9 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
   // category's own controls. Clicking a Spent figure turns it on; selecting a
   // row any other way goes back to the controls.
   const [showSpent, setShowSpent] = useState(false);
+  // A phone has no hover, no modifier keys and no room beside the grid, so
+  // there the grid is for reading, and a tapped category opens full screen.
+  const isMobile = useIsMobile();
 
   // Every category row currently on screen, in the order it appears. Arrow keys
   // and shift-click ranges both read this, so they agree on what "next" means
@@ -137,6 +141,10 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
 
   function selectRow(event: React.MouseEvent, id: number) {
     setShowSpent(false);
+    if (isMobile) {
+      setSelectedIds(new Set([id]));
+      return;
+    }
     if (event.shiftKey && anchorId !== null) {
       const from = visibleRowIds.indexOf(anchorId);
       const to = visibleRowIds.indexOf(id);
@@ -204,9 +212,10 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    // Fills what the shell leaves, which on a phone is less the top bar above
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Month nav + summary header */}
-      <div className="px-6 py-4 border-b border-border space-y-4">
+      <div className="px-3 py-3 md:px-6 md:py-4 border-b border-border space-y-3 md:space-y-4">
         <div className="flex items-center justify-between">
           <button
             onClick={() => navigate({ search: { month: prevMonth } })}
@@ -233,10 +242,10 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-background border-b border-border z-10">
             <tr className="text-muted-foreground">
-              <th className="text-left px-6 py-2 font-medium">Category</th>
-              <th className="text-right px-4 py-2 font-medium w-32">Budgeted</th>
-              <th className="text-right px-4 py-2 font-medium w-32">Spent</th>
-              <th className="text-right px-6 py-2 font-medium w-32">Available</th>
+              <th className="text-left px-3 md:px-6 py-2 font-medium">Category</th>
+              <th className="text-right px-2 md:px-4 py-2 font-medium w-16 md:w-32">Budgeted</th>
+              <th className="text-right px-2 md:px-4 py-2 font-medium w-16 md:w-32">Spent</th>
+              <th className="text-right px-3 md:px-6 py-2 font-medium w-20 md:w-32">Available</th>
             </tr>
           </thead>
           <tbody>
@@ -259,26 +268,26 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                     className="bg-muted/30 border-b border-border/50 cursor-pointer hover:bg-muted/50 transition-colors"
                     onClick={() => toggleGroup(group.id)}
                   >
-                    <td className="px-6 py-2">
+                    <td className="px-3 md:px-6 py-2 max-md:max-w-0">
                       <button
                         aria-expanded={!isCollapsed}
                         aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.name}`}
-                        className="flex items-center gap-1.5 font-semibold text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+                        className="flex max-w-full items-center gap-1.5 font-semibold text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
                       >
                         <ChevronDown
                           size={13}
-                          className={cn("transition-transform", isCollapsed && "-rotate-90")}
+                          className={cn("shrink-0 transition-transform", isCollapsed && "-rotate-90")}
                         />
-                        {group.name}
+                        <span className="max-md:truncate">{group.name}</span>
                       </button>
                     </td>
-                    <td className="text-right px-4 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
+                    <td className="text-right px-2 md:px-4 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
                       {formatCurrency(totals.budgeted)}
                     </td>
-                    <td className="text-right px-4 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
+                    <td className="text-right px-2 md:px-4 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
                       {formatCurrency(totals.activity)}
                     </td>
-                    <td className="text-right px-6 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
+                    <td className="text-right px-3 md:px-6 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
                       {formatCurrency(totals.available)}
                     </td>
                   </tr>
@@ -297,22 +306,30 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                             : "hover:bg-accent/30"
                         )}
                       >
-                        <td className="px-6 py-2 pl-10">
+                        {/* Narrowed to what is left on a phone, where a long
+                            name is cut short rather than widening the page */}
+                        <td className="px-3 pl-5 md:px-6 md:pl-10 py-2 max-md:max-w-0">
                           <span className="flex items-center gap-2">
-                            {cat.name}
+                            <span className="max-md:truncate">{cat.name}</span>
                             {cat.goal && <GoalDot goal={cat.goal} />}
                           </span>
                         </td>
-                        <td className="text-right px-4 py-2">
-                          <BudgetedCell
-                            categoryId={cat.id}
-                            value={cat.budgeted}
-                            registerRef={registerCell}
-                            onMove={(delta) => moveFocus(cat.id, delta)}
-                            onSave={(val) => budgetCategory(cat.id, val)}
-                          />
+                        <td className="text-right px-2 md:px-4 py-2">
+                          {/* Plain text on a phone, so tapping the row opens
+                              the inspector instead of the keyboard */}
+                          {isMobile ? (
+                            <span className="tabular-nums">{formatCurrency(cat.budgeted)}</span>
+                          ) : (
+                            <BudgetedCell
+                              categoryId={cat.id}
+                              value={cat.budgeted}
+                              registerRef={registerCell}
+                              onMove={(delta) => moveFocus(cat.id, delta)}
+                              onSave={(val) => budgetCategory(cat.id, val)}
+                            />
+                          )}
                         </td>
-                        <td className="text-right px-4 py-2 text-muted-foreground tabular-nums">
+                        <td className="text-right px-2 md:px-4 py-2 text-muted-foreground tabular-nums">
                           <button
                             onClick={(e) => {
                               // Opens this category alone, on its transactions,
@@ -328,7 +345,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                             {formatCurrency(cat.activity)}
                           </button>
                         </td>
-                        <td className="text-right px-6 py-2">
+                        <td className="text-right px-3 md:px-6 py-2">
                           <AvailablePill
                             amount={cat.available}
                             overspendKind={cat.overspendKind}
@@ -348,7 +365,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                   className="bg-muted/30 border-b border-border/50 cursor-pointer hover:bg-muted/50 transition-colors"
                   onClick={() => setShowHidden((v) => !v)}
                 >
-                  <td colSpan={4} className="px-6 py-2">
+                  <td colSpan={4} className="px-3 md:px-6 py-2">
                     <button
                       aria-expanded={showHidden}
                       className="flex items-center gap-1.5 font-semibold text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
@@ -365,19 +382,19 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                 {showHidden &&
                   hidden.map((cat) => (
                     <tr key={cat.id} className="border-b border-border/50 text-muted-foreground">
-                      <td className="px-6 py-2 pl-10">
+                      <td className="px-3 pl-5 md:px-6 md:pl-10 py-2 max-md:max-w-0">
                         <span className="flex items-baseline gap-2">
                           <span className="truncate">{cat.name}</span>
                           <span className="text-xs opacity-70">{cat.groupName}</span>
                         </span>
                       </td>
-                      <td className="text-right px-4 py-2 tabular-nums">
+                      <td className="text-right px-2 md:px-4 py-2 tabular-nums">
                         {formatCurrency(cat.budgeted)}
                       </td>
-                      <td className="text-right px-4 py-2 tabular-nums">
+                      <td className="text-right px-2 md:px-4 py-2 tabular-nums">
                         {formatCurrency(cat.activity)}
                       </td>
-                      <td className="text-right px-6 py-2">
+                      <td className="text-right px-3 md:px-6 py-2">
                         <span className="flex items-center justify-end gap-2">
                           <span className="tabular-nums">{formatCurrency(cat.available)}</span>
                           <button
@@ -435,10 +452,12 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
             showSpent={showSpent}
             onShowSpent={setShowSpent}
             onClose={() => setSelectedIds(new Set())}
+            readOnly={isMobile}
           />
         )}
 
-        {selectedIds.size > 1 && (
+        {/* Desktop only: a phone cannot multi-select, and has no room for it */}
+        {!isMobile && selectedIds.size > 1 && (
           <BulkBudgetPanel
             categories={visibleGroups.flatMap((g) =>
               g.categories
@@ -486,7 +505,7 @@ function BudgetSummary({
   const minus = (n: number) => (n === 0 ? formatCurrency(0) : formatCurrency(-n));
 
   return (
-    <div className="flex flex-wrap items-stretch gap-x-6 gap-y-3 rounded-lg border border-border bg-card px-4 py-3">
+    <div className="flex flex-wrap items-stretch gap-x-4 md:gap-x-6 gap-y-3 rounded-lg border border-border bg-card px-3 md:px-4 py-3">
       <Stat label={`Not Budgeted in ${prevShort}`} text={formatCurrency(notBudgeted)} danger={notBudgeted < 0} />
       <Stat label={`Overspent in ${prevShort}`} text={minus(overspentPrev)} warn={overspentPrev > 0} />
       <Stat label={`Income for ${monthShort}`} text={income < 0 ? formatCurrency(income) : `+${formatCurrency(income)}`} />

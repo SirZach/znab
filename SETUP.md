@@ -71,6 +71,26 @@ Step 4: Importing Demo budget...
   ✓ Demo budget imported
 ```
 
+### Keeping it current from Dropbox
+
+While YNAB 4 is still in daily use, `scripts/sync-ynab4.sh` pulls both
+`.ynab4` packages from Dropbox every 15 minutes and re-imports on change.
+YNAB 4 wins: the import overwrites znab's copy of those budgets.
+
+```bash
+sudo apt install rclone
+rclone authorize dropbox            # on a machine with a browser; copy the token
+rclone config                       # on this host: new remote "dropbox", paste the token
+cp scripts/ynab4-sync.service scripts/ynab4-sync.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now ynab4-sync.timer
+sudo loginctl enable-linger zach    # keep running while logged out
+```
+
+The packages are expected at `dropbox:YNAB/`; override with `YNAB4_REMOTE` in
+`~/.config/znab/ynab4-sync.env`. To stop syncing once znab takes over:
+`systemctl --user disable --now ynab4-sync.timer`.
+
 ## 6. Run the dev servers
 
 In one terminal:

@@ -43,42 +43,55 @@ async function assertCategoryInBudget(
 }
 
 /**
+ * Every row that counts towards a category's activity, one per transaction or
+ * split part. The month engine totals these and the Spent drill-down lists
+ * them, so the two read the same rows and cannot disagree. Only on-budget
+ * accounts affect the budget. Splits contribute via their sub-transactions,
+ * not the parent, and a part is dated, placed and paid like its parent row.
+ */
+function categoryActivitySource(budgetId: number) {
+  // Outflows on a credit card or other on-budget liability become debt, so
+  // they are classified separately from cash for overspending purposes.
+  const klass = sql`CASE WHEN a.account_type IN ('CreditCard', 'OtherLiability') THEN 'credit' ELSE 'cash' END`;
+
+  return sql`
+    SELECT
+      t.id AS transaction_id, NULL::int AS sub_transaction_id, t.category_id,
+      t.date AS d, t.amount, ${klass} AS klass, t.account_id, t.payee_id, t.memo
+    FROM transactions t
+    JOIN accounts a ON a.id = t.account_id
+    WHERE t.budget_id = ${budgetId}
+      AND t.deleted_at IS NULL AND a.deleted_at IS NULL
+      AND a.on_budget = true AND t.is_split = false
+      AND t.category_id IS NOT NULL
+    UNION ALL
+    SELECT
+      t.id, s.id, s.category_id,
+      t.date, s.amount, ${klass}, t.account_id, t.payee_id, s.memo
+    FROM sub_transactions s
+    JOIN transactions t ON t.id = s.transaction_id
+    JOIN accounts a ON a.id = t.account_id
+    WHERE t.budget_id = ${budgetId}
+      AND t.deleted_at IS NULL AND s.deleted_at IS NULL AND a.deleted_at IS NULL
+      AND a.on_budget = true AND s.category_id IS NOT NULL
+  `;
+}
+
+/**
  * The three raw series the month engine runs on, for a whole budget's history.
  * Shared by every procedure that has to reason about a month, so they cannot
  * drift apart.
  */
 export function loadBudgetInputs(db: AuthedContext["db"], budgetId: number) {
-  // Outflows on a credit card or other on-budget liability become debt, so
-  // they are classified separately from cash for overspending purposes.
-  const klass = sql`CASE WHEN a.account_type IN ('CreditCard', 'OtherLiability') THEN 'credit' ELSE 'cash' END`;
-
   return Promise.all([
-    // Category spending/refunds per month, split by funding source. Only
-    // on-budget accounts affect the budget. Splits contribute via their
-    // sub-transactions, not the parent.
+    // Category spending/refunds per month, split by funding source.
     db.execute(sql`
       SELECT
         category_id AS "categoryId",
         to_char(date_trunc('month', d), 'YYYY-MM') AS month,
         COALESCE(sum(amount) FILTER (WHERE klass = 'credit'), 0) AS credit,
         COALESCE(sum(amount) FILTER (WHERE klass = 'cash'), 0)   AS cash
-      FROM (
-        SELECT t.category_id, t.date AS d, t.amount, ${klass} AS klass
-        FROM transactions t
-        JOIN accounts a ON a.id = t.account_id
-        WHERE t.budget_id = ${budgetId}
-          AND t.deleted_at IS NULL AND a.deleted_at IS NULL
-          AND a.on_budget = true AND t.is_split = false
-          AND t.category_id IS NOT NULL
-        UNION ALL
-        SELECT s.category_id, t.date AS d, s.amount, ${klass} AS klass
-        FROM sub_transactions s
-        JOIN transactions t ON t.id = s.transaction_id
-        JOIN accounts a ON a.id = t.account_id
-        WHERE t.budget_id = ${budgetId}
-          AND t.deleted_at IS NULL AND s.deleted_at IS NULL AND a.deleted_at IS NULL
-          AND a.on_budget = true AND s.category_id IS NOT NULL
-      ) x
+      FROM (${categoryActivitySource(budgetId)}) x
       GROUP BY category_id, date_trunc('month', d)
     `) as unknown as Promise<ActivityRow[]>,
     // Money entering "To be Budgeted". Immediate income lands in its own
@@ -565,5 +578,58 @@ export const budgetRouter = router({
         });
       }
       return history;
+    }),
+
+  // Every transaction behind a category's Spent figure for one month, newest
+  // first. A split part stands in its parent's place, so `transactionId` is
+  // always a row the register shows. Read off the same source the engine
+  // totals, so `total` is the Spent cell to the cent.
+  categoryTransactions: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        categoryId: z.number().int().positive(),
+        month: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // first-of-month
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+      await assertCategoryInBudget(ctx, input.categoryId, input.budgetId);
+
+      const rows = (await ctx.db.execute(sql`
+        SELECT
+          x.transaction_id AS "transactionId",
+          x.sub_transaction_id AS "subTransactionId",
+          x.account_id AS "accountId",
+          a.name AS "accountName",
+          to_char(x.d, 'YYYY-MM-DD') AS date,
+          p.name AS "payeeName",
+          x.memo,
+          x.amount
+        FROM (${categoryActivitySource(input.budgetId)}) x
+        JOIN accounts a ON a.id = x.account_id
+        LEFT JOIN payees p ON p.id = x.payee_id
+        WHERE x.category_id = ${input.categoryId}
+          AND x.d >= ${input.month}::date
+          AND x.d < ${input.month}::date + interval '1 month'
+        ORDER BY x.d DESC, x.transaction_id DESC, x.sub_transaction_id
+      `)) as unknown as {
+        transactionId: number;
+        subTransactionId: number | null;
+        accountId: number;
+        accountName: string;
+        date: string;
+        payeeName: string | null;
+        memo: string | null;
+        amount: string;
+      }[];
+
+      // Summed in cents, the way the engine sums, so the total cannot pick up
+      // a stray fraction the Spent cell does not have.
+      const totalCents = rows.reduce((sum, r) => sum + Math.round(parseFloat(r.amount) * 100), 0);
+      return {
+        transactions: rows.map((r) => ({ ...r, amount: parseFloat(r.amount) })),
+        total: totalCents / 100,
+      };
     }),
 });

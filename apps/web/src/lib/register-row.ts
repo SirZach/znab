@@ -106,3 +106,15 @@ export function unsaveableReason(
   if (amount === 0 && !allowZero) return "Enter an amount greater than zero.";
   return null;
 }
+
+/**
+ * Where a register page opened on a linked row starts, counted back from the
+ * newest row, so the row at `position` (1 for the newest) sits in the middle
+ * of the page with its neighbours either side. Loading every page down to it
+ * instead is not an option: the largest account holds 8,081 rows and the API
+ * serves at most 1,000 at once. A row near enough the top for the page to
+ * reach it starts from the newest, which is just the register as it opens.
+ */
+export function focusOffset(position: number, pageSize: number): number {
+  return Math.max(0, position - 1 - Math.floor(pageSize / 2));
+}

@@ -44,6 +44,7 @@ export function useAccounts({ budgetId }: { budgetId: number }) {
         // A starting balance is a transaction: on a budget account it is income
         // waiting to be budgeted, and either way it moves net worth.
         utils.budget.monthBudget.invalidate(),
+        utils.budget.categoryTransactions.invalidate(),
         utils.report.netWorth.invalidate(),
         // Opening a credit account in the red also mints the pre-YNAB debt
         // category that balance is filed under. Every list that reads

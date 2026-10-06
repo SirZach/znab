@@ -4,7 +4,7 @@ import { formatDateISO } from "@/lib/utils";
 import { trpc } from "@/trpc";
 import { payeeAutofillPatch } from "@/lib/payee-autofill";
 import type { PayeeAutofillSource, RegisterDraft } from "@/lib/payee-autofill";
-import { fieldsToAmount, transferCategoryEditable } from "@/lib/register-row";
+import { fieldsToAmount, focusOffset, transferCategoryEditable } from "@/lib/register-row";
 import type { RegisterFields } from "@/lib/register-row";
 
 /** How many transactions the register loads at a time, newest first. */
@@ -41,6 +41,7 @@ export function useAccountRegister({
   sort,
   dir,
   scrollRef,
+  focusId,
   onSaveSuccess,
 }: {
   budgetId: number;
@@ -50,6 +51,8 @@ export function useAccountRegister({
   sort: RegisterSort;
   dir: SortDirection;
   scrollRef: React.RefObject<HTMLDivElement | null>;
+  /** A transaction linked to from elsewhere, for the register to open on. */
+  focusId?: number;
   onSaveSuccess?: () => void;
 }) {
   const utils = trpc.useUtils();
@@ -61,17 +64,24 @@ export function useAccountRegister({
   // Reset back to one page whenever the register being viewed changes.
   React.useEffect(() => {
     setLimit(PAGE_SIZE);
-  }, [accountId, cleared, q, sort, dir]);
+  }, [accountId, cleared, q, sort, dir, focusId]);
 
-  const { data, isLoading, isFetching } = trpc.account.transactions.useQuery({
-    budgetId,
-    accountId,
-    cleared,
-    q,
-    sort,
-    dir,
-    limit,
-  });
+  // A row linked to from elsewhere may be thousands of rows back, so the
+  // register opens on a page around it rather than on the newest one, and
+  // "Show older" carries on back from there.
+  const { data: focus, isLoading: isLoadingFocus } =
+    trpc.account.transactionPosition.useQuery(
+      { budgetId, accountId, transactionId: focusId ?? 0 },
+      { enabled: focusId !== undefined }
+    );
+  const offset = focus ? focusOffset(focus.position, PAGE_SIZE) : 0;
+
+  const { data, isLoading, isFetching } = trpc.account.transactions.useQuery(
+    { budgetId, accountId, cleared, q, sort, dir, limit, offset },
+    // Held until the linked row's position is known, rather than loading the
+    // newest page only to throw it away.
+    { enabled: !isLoadingFocus }
+  );
 
   const { data: accounts } = trpc.account.list.useQuery({ budgetId });
   const account = accounts?.find((a) => a.id === accountId);
@@ -95,6 +105,8 @@ export function useAccountRegister({
     return Promise.all([
       utils.account.transactions.invalidate(),
       utils.budget.monthBudget.invalidate(),
+      // The rows behind a category's Spent, which has to keep adding up to it.
+      utils.budget.categoryTransactions.invalidate(),
       // Net Worth reads month-end balances straight from the transactions, and
       // an edit can now move money in a month that has long since closed.
       utils.report.netWorth.invalidate(),
@@ -325,13 +337,15 @@ export function useAccountRegister({
     /** How many rows the cleared filter and the search leave between them. */
     matches: data?.matches ?? 0,
     hasMore: data?.hasMore ?? false,
+    /** Newer rows left off the bottom, when the register opened on an old one. */
+    hasNewer: offset > 0,
     loadOlder: () => setLimit((n) => n + PAGE_SIZE),
     isLoadingMore: isFetching && !isLoading,
     payeeList,
     categoryOptions,
     autofillForPayee,
     transferKeepsCategory,
-    isLoading,
+    isLoading: isLoading || isLoadingFocus,
     cycleCleared,
     createTransaction,
     updateTransaction,

@@ -1,163 +1,40 @@
 /**
- * Import YNAB 4 .yfull files into PostgreSQL.
+ * Import YNAB 4 budgets into PostgreSQL.
  *
- * Usage:
- *   bun src/scripts/import-yfull.ts
+ * Usage (from the repo root):
+ *   bun import
  *
- * Reads from ../../seed-data/Budget.yfull and Budget-Fiona.yfull
- * Seeds two users: "zach" (owns both budgets) and "demo" (owns a copy of Zach's budget).
- * Fully idempotent — safe to run multiple times.
+ * Zach's and Fiona's budgets are read from live `.ynab4` packages, as synced
+ * from Dropbox, set by YNAB_ZACH_PACKAGE and YNAB_FIONA_PACKAGE (relative paths
+ * resolve from the repo root). Each defaults to its package under seed-data/,
+ * and a path ending in .yfull is read as a flat snapshot instead.
+ *
+ * YNAB 4 is the source of truth for those two budgets: every run upserts each
+ * entity by its YNAB id, overwriting rows that changed and applying tombstones.
+ * The Demo budget is only ever inserted into, so edits made to it survive, and
+ * is skipped altogether when YNAB_SKIP_DEMO=1 (as the Dropbox sync sets it).
+ * Each budget is imported in its own transaction. Safe to run repeatedly.
  */
 
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import {
-  eq, and
-} from "drizzle-orm";
+import { eq, getTableColumns, inArray, sql, type SQL } from "drizzle-orm";
+import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@znab/db";
+import { db } from "@znab/db";
 import { isSpecialCategoryId, PAYEE_RENAME_OPERATORS } from "@znab/shared";
-import { isSystemGroupYnabId } from "../lib/category";
 import path from "path";
+import { isSystemGroupYnabId } from "../lib/category";
+import { loadBudget, staleSubTransactionIds, type YfullFile } from "../lib/ynab4-package";
 
-// ─── DB setup ────────────────────────────────────────────────────────────────
+type Database = typeof db;
+type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+export type DbOrTx = Database | Tx;
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) throw new Error("DATABASE_URL is not set. Copy .env.example to .env.");
-
-const client = postgres(DATABASE_URL);
-const db = drizzle(client, { schema });
-
-// ─── YNAB 4 types ─────────────────────────────────────────────────────────────
-
-interface YfullFile {
-  fileMetaData: { budgetDataVersion: string; currentKnowledge: string };
-  budgetMetaData: { currencyLocale: string; budgetType: string };
-  accounts: YnabAccount[];
-  payees: YnabPayee[];
-  masterCategories: YnabMasterCategory[];
-  monthlyBudgets: YnabMonthlyBudget[];
-  transactions: YnabTransaction[];
-  scheduledTransactions: YnabScheduledTransaction[];
-}
-
-interface YnabAccount {
-  entityId: string;
-  entityVersion: string;
-  accountName: string;
-  accountType: string;
-  onBudget: boolean;
-  hidden: boolean;
-  sortableIndex: number;
-  lastReconciledBalance: number | null;
-  lastReconciledDate: string | null;
-  lastEnteredCheckNumber: number;
-  isTombstone?: boolean;
-}
-
-interface YnabPayee {
-  entityId: string;
-  entityVersion: string;
-  name: string;
-  targetAccountId?: string | null;
-  autoFillCategoryId?: string | null;
-  autoFillAmount?: number | null;
-  autoFillMemo?: string | null;
-  enabled: boolean;
-  // Absent in Demo.yfull, null on most payees elsewhere
-  renameConditions?: YnabRenameCondition[] | null;
-  isTombstone?: boolean;
-}
-
-interface YnabRenameCondition {
-  entityId: string;
-  entityVersion: string;
-  parentPayeeId: string;
-  // Is | Contains | StartsWith | EndsWith, though only Is occurs in this data
-  operator: string;
-  operand: string;
-  isTombstone?: boolean;
-}
-
-interface YnabMasterCategory {
-  entityId: string;
-  name: string;
-  type: string;
-  // Carried by every master category in the export, and left undeclared here,
-  // which is how the group insert came to drop the ordering altogether.
-  sortableIndex: number;
-  deleteable?: boolean;
-  isTombstone?: boolean;
-  subCategories?: YnabSubCategory[];
-}
-
-interface YnabSubCategory {
-  entityId: string;
-  entityVersion: string;
-  name: string;
-  type: string;
-  masterCategoryId: string;
-  cachedBalance: number;
-  sortableIndex: number;
-  isTombstone?: boolean;
-}
-
-interface YnabMonthlyBudget {
-  entityId: string;
-  month: string; // "YYYY-MM-01"
-  monthlySubCategoryBudgets: YnabMonthlyCategoryBudget[];
-}
-
-interface YnabMonthlyCategoryBudget {
-  entityId: string;
-  categoryId: string;
-  budgeted: number;
-  overspendingHandling: string | null;
-  parentMonthlyBudgetId: string;
-  isTombstone?: boolean;
-}
-
-interface YnabTransaction {
-  entityId: string;
-  entityVersion: string;
-  accountId: string;
-  payeeId?: string | null;
-  categoryId?: string | null;
-  amount: number;
-  date: string;
-  cleared: string;
-  accepted: boolean;
-  memo?: string | null;
-  targetAccountId?: string | null;
-  transferTransactionId?: string | null;
-  dateEnteredFromSchedule?: string | null;
-  subTransactions?: YnabSubTransaction[] | null;
-  isTombstone?: boolean;
-}
-
-interface YnabSubTransaction {
-  entityId: string;
-  parentTransactionId: string;
-  categoryId?: string | null;
-  payeeId?: string | null;
-  amount: number;
-  memo?: string | null;
-  isTombstone?: boolean;
-}
-
-interface YnabScheduledTransaction {
-  entityId: string;
-  accountId: string;
-  payeeId?: string | null;
-  categoryId?: string | null;
-  amount: number;
-  date: string;
-  frequency: string;
-  twiceAMonthStartDay?: number | null;
-  memo?: string | null;
-  cleared: string;
-  accepted: boolean;
-  targetAccountId?: string | null;
-  isTombstone?: boolean;
+export interface ImportOptions {
+  /**
+   * Overwrite rows whose YNAB data changed, and delete sub-transactions YNAB
+   * tombstoned. Off, rows already present are left as they are.
+   */
+  overwrite: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -167,21 +44,87 @@ function toMoney(val: number | null | undefined): string {
   return parseFloat(val.toFixed(2)).toFixed(2);
 }
 
-const SEED_DATA_DIR = path.resolve(import.meta.dir, "../../../../seed-data");
+const BATCH = 500;
 
-function loadYfull(filename: string): YfullFile {
-  const filePath = path.join(SEED_DATA_DIR, filename);
-  console.log(`  Loading ${filePath}`);
-  return JSON.parse(require("fs").readFileSync(filePath, "utf8"));
+/**
+ * Inserts rows in batches, keyed on `target`. With overwrite, a row that
+ * already exists is updated only when one of its imported columns differs, so
+ * an unchanged budget writes nothing. A deletion keeps its original timestamp.
+ * Sort order is only set on insert: reordering happens in znab, and a sync
+ * every few minutes would otherwise keep undoing it.
+ * Returns the number of rows inserted or updated.
+ */
+async function upsertRows(
+  tx: DbOrTx,
+  table: PgTable,
+  rows: Record<string, unknown>[],
+  target: PgColumn[],
+  { overwrite }: ImportOptions
+): Promise<number> {
+  if (!rows.length) return 0;
+  const columns = getTableColumns(table) as Record<string, PgColumn>;
+  const targetNames = new Set(target.map((c) => c.name));
+  const keys = Object.keys(rows[0]!).filter((k) => k !== "sortOrder" && !targetNames.has(columns[k]!.name));
+  const excluded = (col: PgColumn) => sql.raw(`excluded."${col.name}"`);
+
+  const set: Record<string, SQL> = { updatedAt: sql`now()` };
+  const changed: SQL[] = [];
+  for (const key of keys) {
+    const col = columns[key]!;
+    if (key === "deletedAt") {
+      set[key] = sql`CASE WHEN ${excluded(col)} IS NULL THEN NULL ELSE COALESCE(${col}, ${excluded(col)}) END`;
+      changed.push(sql`(${col} IS NULL) IS DISTINCT FROM (${excluded(col)} IS NULL)`);
+    } else {
+      set[key] = excluded(col);
+      changed.push(sql`${col} IS DISTINCT FROM ${excluded(col)}`);
+    }
+  }
+
+  let written = 0;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const insert = tx.insert(table).values(rows.slice(i, i + BATCH) as never);
+    const query = overwrite
+      ? insert.onConflictDoUpdate({ target, set, setWhere: sql.join(changed, sql` OR `) })
+      : insert.onConflictDoNothing();
+    const result = await query.returning({ one: sql<number>`1` });
+    written += result.length;
+  }
+  return written;
 }
 
-// ─── Import a single .yfull file into a budget ────────────────────────────────
+/** Every row of a budget-scoped table, by YNAB id. */
+async function idsByYnabId(
+  tx: DbOrTx,
+  table: PgTable & { id: PgColumn; ynabId: PgColumn; budgetId: PgColumn },
+  budgetId: number
+): Promise<Map<string, number>> {
+  const rows = await tx
+    .select({ id: table.id, ynabId: table.ynabId })
+    .from(table)
+    .where(eq(table.budgetId, budgetId));
+  return new Map(rows.map((r) => [r.ynabId as string, r.id as number]));
+}
 
-async function importYfull(data: YfullFile, budgetId: number) {
+/** Runs one import step with start and completion logging. */
+async function step<T>(label: string, run: () => Promise<T>, describe: (result: T) => string): Promise<T> {
+  console.log(`  [${label}] start`);
+  const startedAt = performance.now();
+  const result = await run();
+  console.log(`  [${label}] complete: ${describe(result)} (${Math.round(performance.now() - startedAt)}ms)`);
+  return result;
+}
+
+const summarize = (total: number, written: number) => `${total} in YNAB, ${written} inserted or updated`;
+
+// ─── Import one budget's data ─────────────────────────────────────────────────
+
+export async function importBudgetData(
+  tx: DbOrTx,
+  budgetId: number,
+  data: YfullFile,
+  options: ImportOptions = { overwrite: true }
+): Promise<void> {
   // 1. Accounts
-  console.log(`  Importing ${data.accounts.length} accounts...`);
-  const accountYnabToId = new Map<string, number>();
-
   // YNAB 4's sortableIndex is a binary-subdivision key spread across the whole
   // int32 range, so nothing about the numbers themselves means anything beyond
   // the order they put the accounts in. Ranked densely from 0 here, which is
@@ -191,45 +134,38 @@ async function importYfull(data: YfullFile, budgetId: number) {
       .sort((x, y) => x.sortableIndex - y.sortableIndex)
       .map((a, index) => [a.entityId, index] as const)
   );
-
-  for (const a of data.accounts) {
-    const [row] = await db
-      .insert(schema.accounts)
-      .values({
-        ynabId: a.entityId,
-        budgetId,
-        name: a.accountName,
-        accountType: a.accountType,
-        onBudget: a.onBudget,
-        hidden: a.hidden,
-        sortOrder: accountRank.get(a.entityId)!,
-        lastReconciledBalance: a.lastReconciledBalance != null ? toMoney(a.lastReconciledBalance) : null,
-        lastReconciledDate: a.lastReconciledDate ?? null,
-        lastEnteredCheckNum: a.lastEnteredCheckNumber >= 0 ? a.lastEnteredCheckNumber : null,
-        deletedAt: a.isTombstone ? new Date() : null,
-      })
-      .onConflictDoNothing()
-      .returning({ id: schema.accounts.id });
-
-    // fetch existing if skipped by conflict
-    const id = row?.id ?? (await db.query.accounts.findFirst({
-      where: and(eq(schema.accounts.ynabId, a.entityId), eq(schema.accounts.budgetId, budgetId)),
-      columns: { id: true },
-    }))!.id;
-    accountYnabToId.set(a.entityId, id);
-  }
+  await step(
+    "accounts",
+    () =>
+      upsertRows(
+        tx,
+        schema.accounts,
+        data.accounts.map((a) => ({
+          ynabId: a.entityId,
+          budgetId,
+          name: a.accountName,
+          accountType: a.accountType,
+          onBudget: a.onBudget,
+          hidden: a.hidden,
+          sortOrder: accountRank.get(a.entityId)!,
+          lastReconciledBalance: a.lastReconciledBalance != null ? toMoney(a.lastReconciledBalance) : null,
+          lastReconciledDate: a.lastReconciledDate ?? null,
+          lastEnteredCheckNum: a.lastEnteredCheckNumber >= 0 ? a.lastEnteredCheckNumber : null,
+          deletedAt: a.isTombstone ? new Date() : null,
+        })),
+        [schema.accounts.ynabId, schema.accounts.budgetId],
+        options
+      ),
+    (n) => summarize(data.accounts.length, n)
+  );
+  const accountYnabToId = await idsByYnabId(tx, schema.accounts, budgetId);
 
   // 2. Category groups
-  console.log(`  Importing ${data.masterCategories.length} category groups...`);
-  const groupYnabToId = new Map<string, number>();
-
   // A master category's sortableIndex is the same binary-subdivision key the
-  // accounts carry, so only the order it puts them in means anything. This was
-  // being dropped entirely and every group landed on the column default, which
-  // left the grid ordering by a column that held nothing. The system groups are
-  // parked after the user's own so a reorder of those can never interleave with
-  // them: nothing shows them in the grid, and the register's picker reads
-  // better with them last.
+  // accounts carry, so only the order it puts them in means anything. The
+  // system groups are parked after the user's own so a reorder of those can
+  // never interleave with them: nothing shows them in the grid, and the
+  // register's picker reads better with them last.
   const groupRank = new Map(
     [...data.masterCategories]
       .sort((x, y) => x.sortableIndex - y.sortableIndex)
@@ -240,112 +176,98 @@ async function importYfull(data: YfullFile, budgetId: number) {
         return acc;
       }, [])
   );
-
-  for (const mc of data.masterCategories) {
-    const [row] = await db
-      .insert(schema.categoryGroups)
-      .values({
-        ynabId: mc.entityId,
-        budgetId,
-        name: mc.name,
-        type: mc.type ?? "OUTFLOW",
-        isSystem: isSystemGroupYnabId(mc.entityId),
-        sortOrder: groupRank.get(mc.entityId)!,
-        deletedAt: mc.isTombstone ? new Date() : null,
-      })
-      .onConflictDoNothing()
-      .returning({ id: schema.categoryGroups.id });
-
-    const id = row?.id ?? (await db.query.categoryGroups.findFirst({
-      where: and(eq(schema.categoryGroups.ynabId, mc.entityId), eq(schema.categoryGroups.budgetId, budgetId)),
-      columns: { id: true },
-    }))!.id;
-    groupYnabToId.set(mc.entityId, id);
-  }
+  await step(
+    "category groups",
+    () =>
+      upsertRows(
+        tx,
+        schema.categoryGroups,
+        data.masterCategories.map((mc) => ({
+          ynabId: mc.entityId,
+          budgetId,
+          name: mc.name,
+          type: mc.type ?? "OUTFLOW",
+          isSystem: isSystemGroupYnabId(mc.entityId),
+          sortOrder: groupRank.get(mc.entityId)!,
+          deletedAt: mc.isTombstone ? new Date() : null,
+        })),
+        [schema.categoryGroups.ynabId, schema.categoryGroups.budgetId],
+        options
+      ),
+    (n) => summarize(data.masterCategories.length, n)
+  );
+  const groupYnabToId = await idsByYnabId(tx, schema.categoryGroups, budgetId);
 
   // 3. Categories (sub-categories nested in masterCategories)
-  const allSubCats = data.masterCategories.flatMap((mc) =>
-    (mc.subCategories ?? []).map((sc) => ({ ...sc, masterCategoryId: mc.entityId }))
-  );
-  console.log(`  Importing ${allSubCats.length} categories...`);
-  const catYnabToId = new Map<string, number>();
-
   // Ranked densely within each group, which is the only place a category's
-  // order means anything. The raw key was being stored as it came, which sorts
-  // correctly but runs to within a few thousand of the int4 ceiling, so a
-  // category added later at one past the maximum would overflow the column.
+  // order means anything. The raw key runs to within a few thousand of the
+  // int4 ceiling, so a category added later at one past the maximum would
+  // overflow the column.
   const catRank = new Map<string, number>();
   for (const mc of data.masterCategories) {
     [...(mc.subCategories ?? [])]
       .sort((x, y) => x.sortableIndex - y.sortableIndex)
       .forEach((sc, index) => catRank.set(sc.entityId, index));
   }
-
-  for (const sc of allSubCats) {
-    const groupId = groupYnabToId.get(sc.masterCategoryId);
-    if (!groupId) continue;
-
-    const [row] = await db
-      .insert(schema.categories)
-      .values({
-        ynabId: sc.entityId,
-        budgetId,
-        groupId,
-        name: sc.name,
-        type: sc.type ?? "OUTFLOW",
-        cachedBalance: toMoney(sc.cachedBalance),
-        sortOrder: catRank.get(sc.entityId) ?? 0,
-        deletedAt: sc.isTombstone ? new Date() : null,
-      })
-      .onConflictDoNothing()
-      .returning({ id: schema.categories.id });
-
-    const id = row?.id ?? (await db.query.categories.findFirst({
-      where: and(eq(schema.categories.ynabId, sc.entityId), eq(schema.categories.budgetId, budgetId)),
-      columns: { id: true },
-    }))!.id;
-    catYnabToId.set(sc.entityId, id);
-  }
+  const allSubCats = data.masterCategories.flatMap((mc) =>
+    (mc.subCategories ?? []).map((sc) => ({ ...sc, masterCategoryId: mc.entityId }))
+  );
+  await step(
+    "categories",
+    () =>
+      upsertRows(
+        tx,
+        schema.categories,
+        allSubCats
+          .filter((sc) => groupYnabToId.has(sc.masterCategoryId))
+          .map((sc) => ({
+            ynabId: sc.entityId,
+            budgetId,
+            groupId: groupYnabToId.get(sc.masterCategoryId)!,
+            name: sc.name,
+            type: sc.type ?? "OUTFLOW",
+            cachedBalance: toMoney(sc.cachedBalance),
+            sortOrder: catRank.get(sc.entityId) ?? 0,
+            deletedAt: sc.isTombstone ? new Date() : null,
+          })),
+        [schema.categories.ynabId, schema.categories.budgetId],
+        options
+      ),
+    (n) => summarize(allSubCats.length, n)
+  );
+  const catYnabToId = await idsByYnabId(tx, schema.categories, budgetId);
+  const resolveCategory = (ynabId: string | null | undefined) =>
+    ynabId && !isSpecialCategoryId(ynabId) ? catYnabToId.get(ynabId) ?? null : null;
 
   // 4. Payees
-  console.log(`  Importing ${data.payees.length} payees...`);
-  const payeeYnabToId = new Map<string, number>();
-
-  for (const p of data.payees) {
-    const targetAccountId = p.targetAccountId
-      ? accountYnabToId.get(p.targetAccountId) ?? null
-      : null;
-    const autofillCategoryId = p.autoFillCategoryId && !isSpecialCategoryId(p.autoFillCategoryId)
-      ? catYnabToId.get(p.autoFillCategoryId) ?? null
-      : null;
-
-    const [row] = await db
-      .insert(schema.payees)
-      .values({
-        ynabId: p.entityId,
-        budgetId,
-        name: p.name,
-        targetAccountId,
-        autofillCategoryId,
-        autofillAmount: p.autoFillAmount != null ? toMoney(p.autoFillAmount) : null,
-        autofillMemo: p.autoFillMemo ?? null,
-        enabled: p.enabled,
-        deletedAt: p.isTombstone ? new Date() : null,
-      })
-      .onConflictDoNothing()
-      .returning({ id: schema.payees.id });
-
-    const id = row?.id ?? (await db.query.payees.findFirst({
-      where: and(eq(schema.payees.ynabId, p.entityId), eq(schema.payees.budgetId, budgetId)),
-      columns: { id: true },
-    }))!.id;
-    payeeYnabToId.set(p.entityId, id);
-  }
+  await step(
+    "payees",
+    () =>
+      upsertRows(
+        tx,
+        schema.payees,
+        data.payees.map((p) => ({
+          ynabId: p.entityId,
+          budgetId,
+          name: p.name,
+          targetAccountId: p.targetAccountId ? accountYnabToId.get(p.targetAccountId) ?? null : null,
+          autofillCategoryId: resolveCategory(p.autoFillCategoryId),
+          autofillAmount: p.autoFillAmount != null ? toMoney(p.autoFillAmount) : null,
+          autofillMemo: p.autoFillMemo ?? null,
+          enabled: p.enabled,
+          deletedAt: p.isTombstone ? new Date() : null,
+        })),
+        [schema.payees.ynabId, schema.payees.budgetId],
+        options
+      ),
+    (n) => summarize(data.payees.length, n)
+  );
+  const payeeYnabToId = await idsByYnabId(tx, schema.payees, budgetId);
 
   // 5. Payee rename rules, which YNAB 4 nests inside the payee they rename to
-  let renameCount = 0;
-  let renameSkipped = 0;
   const knownOperators = new Set<string>(PAYEE_RENAME_OPERATORS);
+  const renameRows: Record<string, unknown>[] = [];
+  let renameSkipped = 0;
   for (const p of data.payees) {
     for (const c of p.renameConditions ?? []) {
       const payeeId = payeeYnabToId.get(c.parentPayeeId);
@@ -358,233 +280,287 @@ async function importYfull(data: YfullFile, budgetId: number) {
         renameSkipped++;
         continue;
       }
-
-      await db
-        .insert(schema.payeeRenameRules)
-        .values({
-          ynabId: c.entityId,
-          budgetId,
-          payeeId,
-          operator: c.operator,
-          operand: c.operand,
-          deletedAt: c.isTombstone ? new Date() : null,
-        })
-        .onConflictDoNothing();
-      renameCount++;
+      renameRows.push({
+        ynabId: c.entityId,
+        budgetId,
+        payeeId,
+        operator: c.operator,
+        operand: c.operand,
+        deletedAt: c.isTombstone ? new Date() : null,
+      });
     }
   }
-  console.log(
-    `  Imported ${renameCount} payee rename rules` +
-    (renameSkipped ? ` (skipped ${renameSkipped} with an unknown operator)` : "")
+  await step(
+    "payee rename rules",
+    () =>
+      upsertRows(tx, schema.payeeRenameRules, renameRows, [schema.payeeRenameRules.ynabId, schema.payeeRenameRules.budgetId], options),
+    (n) => summarize(renameRows.length, n) + (renameSkipped ? `, ${renameSkipped} skipped for an unknown operator` : "")
   );
 
   // 6. Monthly budgets
-  let mbCount = 0;
+  // A category holds one row a month. Should YNAB carry two for the same one
+  // the live entry wins, else the latest.
+  const mcbByCategoryMonth = new Map<string, Record<string, unknown>>();
+  const mcbRows: Record<string, unknown>[] = [];
   for (const mb of data.monthlyBudgets) {
     for (const sub of mb.monthlySubCategoryBudgets ?? []) {
-      const categoryId = isSpecialCategoryId(sub.categoryId)
-        ? null
-        : catYnabToId.get(sub.categoryId) ?? null;
-
-      await db
-        .insert(schema.monthlyBudgets)
-        .values({
-          ynabId: sub.entityId,
-          budgetId,
-          categoryId,
-          month: mb.month,
-          budgeted: toMoney(sub.budgeted),
-          overspendingHandling: sub.overspendingHandling ?? null,
-          deletedAt: sub.isTombstone ? new Date() : null,
-        })
-        .onConflictDoNothing();
-      mbCount++;
+      const categoryId = resolveCategory(sub.categoryId);
+      const row = {
+        ynabId: sub.entityId,
+        budgetId,
+        categoryId,
+        month: mb.month,
+        budgeted: toMoney(sub.budgeted),
+        overspendingHandling: sub.overspendingHandling ?? null,
+        deletedAt: sub.isTombstone ? new Date() : null,
+      };
+      if (categoryId == null) {
+        mcbRows.push(row);
+        continue;
+      }
+      const key = `${categoryId}:${mb.month}`;
+      const held = mcbByCategoryMonth.get(key);
+      if (!held || held.deletedAt || !row.deletedAt) mcbByCategoryMonth.set(key, row);
     }
   }
-  console.log(`  Imported ${mbCount} monthly budget entries...`);
+  mcbRows.push(...mcbByCategoryMonth.values());
+  await step(
+    "monthly budgets",
+    async () => {
+      if (options.overwrite) await adoptMonthlyBudgetRows(tx, budgetId, mcbRows);
+      return upsertRows(tx, schema.monthlyBudgets, mcbRows, [schema.monthlyBudgets.ynabId, schema.monthlyBudgets.budgetId], options);
+    },
+    (n) => summarize(mcbRows.length, n)
+  );
 
   // 7. Transactions
-  console.log(`  Importing ${data.transactions.length} transactions...`);
-  const txnYnabToId = new Map<string, number>();
-
-  // Insert in batches of 200 for performance
-  const BATCH = 200;
-  for (let i = 0; i < data.transactions.length; i += BATCH) {
-    const batch = data.transactions.slice(i, i + BATCH);
-    for (const t of batch) {
-      const accountId = accountYnabToId.get(t.accountId);
-      if (!accountId) continue;
-
-      const catResolved = t.categoryId && !isSpecialCategoryId(t.categoryId)
-        ? catYnabToId.get(t.categoryId) ?? null
-        : null;
-      const transferAccountId = t.targetAccountId
-        ? accountYnabToId.get(t.targetAccountId) ?? null
-        : null;
-
-      const [row] = await db
-        .insert(schema.transactions)
-        .values({
-          ynabId: t.entityId,
-          budgetId,
-          accountId,
-          payeeId: t.payeeId ? payeeYnabToId.get(t.payeeId) ?? null : null,
-          categoryId: catResolved,
-          categoryYnabId: t.categoryId ?? null,
-          amount: toMoney(t.amount),
-          date: t.date,
-          cleared: t.cleared ?? "Uncleared",
-          accepted: t.accepted ?? true,
-          memo: t.memo ?? null,
-          isTransfer: !!t.transferTransactionId,
-          transferAccountId,
-          transferTransactionId: t.transferTransactionId ?? null,
-          isSplit: t.categoryId === "Category/__Split__",
-          dateFromSchedule: t.dateEnteredFromSchedule ?? null,
-          deletedAt: t.isTombstone ? new Date() : null,
-        })
-        .onConflictDoNothing()
-        .returning({ id: schema.transactions.id });
-
-      const id = row?.id ?? (await db.query.transactions.findFirst({
-        where: and(eq(schema.transactions.ynabId, t.entityId), eq(schema.transactions.budgetId, budgetId)),
-        columns: { id: true },
-      }))!.id;
-      txnYnabToId.set(t.entityId, id);
-    }
-    process.stdout.write(`\r    ${Math.min(i + BATCH, data.transactions.length)}/${data.transactions.length}`);
-  }
-  console.log();
+  const txnRows = data.transactions
+    .filter((t) => accountYnabToId.has(t.accountId))
+    .map((t) => ({
+      ynabId: t.entityId,
+      budgetId,
+      accountId: accountYnabToId.get(t.accountId)!,
+      payeeId: t.payeeId ? payeeYnabToId.get(t.payeeId) ?? null : null,
+      categoryId: resolveCategory(t.categoryId),
+      categoryYnabId: t.categoryId ?? null,
+      amount: toMoney(t.amount),
+      date: t.date,
+      cleared: t.cleared ?? "Uncleared",
+      accepted: t.accepted ?? true,
+      memo: t.memo ?? null,
+      isTransfer: !!t.transferTransactionId,
+      transferAccountId: t.targetAccountId ? accountYnabToId.get(t.targetAccountId) ?? null : null,
+      transferTransactionId: t.transferTransactionId ?? null,
+      isSplit: t.categoryId === "Category/__Split__",
+      dateFromSchedule: t.dateEnteredFromSchedule ?? null,
+      deletedAt: t.isTombstone ? new Date() : null,
+    }));
+  await step(
+    "transactions",
+    () => upsertRows(tx, schema.transactions, txnRows, [schema.transactions.ynabId, schema.transactions.budgetId], options),
+    (n) => summarize(data.transactions.length, n)
+  );
+  const txnYnabToId = await idsByYnabId(tx, schema.transactions, budgetId);
 
   // 8. Sub-transactions
-  let subCount = 0;
+  // YNAB 4 drops a removed sub-transaction from its parent rather than
+  // tombstoning it, so each split is reconciled against YNAB's current list:
+  // rows YNAB no longer holds, or holds as tombstones, are deleted outright.
+  // Nothing references a sub-transaction row, and nothing in the app soft
+  // deletes one, so there is no history to keep.
+  const subRows: Record<string, unknown>[] = [];
+  const liveSubs = new Map<number, Set<string>>();
   for (const t of data.transactions) {
-    if (!t.subTransactions?.length) continue;
     const parentId = txnYnabToId.get(t.entityId);
     if (!parentId) continue;
-
-    for (const sub of t.subTransactions) {
+    const live = new Set<string>();
+    liveSubs.set(parentId, live);
+    // A transaction that is no longer a split keeps no sub-transactions
+    if (t.categoryId !== "Category/__Split__") continue;
+    for (const sub of t.subTransactions ?? []) {
       if (sub.isTombstone) continue;
-      const catId = sub.categoryId && !isSpecialCategoryId(sub.categoryId)
-        ? catYnabToId.get(sub.categoryId) ?? null
-        : null;
-
-      await db
-        .insert(schema.subTransactions)
-        .values({
-          ynabId: sub.entityId,
-          transactionId: parentId,
-          categoryId: catId,
-          categoryYnabId: sub.categoryId ?? null,
-          payeeId: sub.payeeId ? payeeYnabToId.get(sub.payeeId) ?? null : null,
-          amount: toMoney(sub.amount),
-          memo: sub.memo ?? null,
-        })
-        .onConflictDoNothing();
-      subCount++;
+      live.add(sub.entityId);
+      subRows.push({
+        ynabId: sub.entityId,
+        transactionId: parentId,
+        categoryId: resolveCategory(sub.categoryId),
+        categoryYnabId: sub.categoryId ?? null,
+        payeeId: sub.payeeId ? payeeYnabToId.get(sub.payeeId) ?? null : null,
+        amount: toMoney(sub.amount),
+        memo: sub.memo ?? null,
+      });
     }
   }
-  console.log(`  Imported ${subCount} sub-transactions`);
+  await step(
+    "sub-transactions",
+    async () => {
+      const written = await upsertRows(tx, schema.subTransactions, subRows, [schema.subTransactions.ynabId, schema.subTransactions.transactionId], options);
+      let deleted = 0;
+      if (options.overwrite) {
+        const existing = await tx
+          .select({
+            id: schema.subTransactions.id,
+            transactionId: schema.subTransactions.transactionId,
+            ynabId: schema.subTransactions.ynabId,
+          })
+          .from(schema.subTransactions)
+          .innerJoin(schema.transactions, eq(schema.transactions.id, schema.subTransactions.transactionId))
+          .where(eq(schema.transactions.budgetId, budgetId));
+        const stale = staleSubTransactionIds(existing, liveSubs);
+        for (let i = 0; i < stale.length; i += BATCH) {
+          const gone = await tx
+            .delete(schema.subTransactions)
+            .where(inArray(schema.subTransactions.id, stale.slice(i, i + BATCH)))
+            .returning({ id: schema.subTransactions.id });
+          deleted += gone.length;
+        }
+      }
+      return { written, deleted };
+    },
+    ({ written, deleted }) => `${summarize(subRows.length, written)}, ${deleted} no longer in YNAB deleted`
+  );
 
   // 9. Scheduled transactions
-  console.log(`  Importing ${data.scheduledTransactions.length} scheduled transactions...`);
-  for (const st of data.scheduledTransactions) {
-    const accountId = accountYnabToId.get(st.accountId);
-    if (!accountId) continue;
+  const schedRows = data.scheduledTransactions
+    .filter((st) => accountYnabToId.has(st.accountId))
+    .map((st) => ({
+      ynabId: st.entityId,
+      budgetId,
+      accountId: accountYnabToId.get(st.accountId)!,
+      payeeId: st.payeeId ? payeeYnabToId.get(st.payeeId) ?? null : null,
+      categoryId: resolveCategory(st.categoryId),
+      categoryYnabId: st.categoryId ?? null,
+      amount: toMoney(st.amount),
+      date: st.date,
+      frequency: st.frequency,
+      // Only TwiceAMonth means anything by this. YNAB 4 writes a 0 on every
+      // other frequency, and `?? null` keeps a 0.
+      twiceMonthDay: st.frequency === "TwiceAMonth" ? st.twiceAMonthStartDay || null : null,
+      memo: st.memo ?? null,
+      cleared: st.cleared ?? "Uncleared",
+      accepted: st.accepted ?? true,
+      deletedAt: st.isTombstone ? new Date() : null,
+    }));
+  await step(
+    "scheduled transactions",
+    () =>
+      upsertRows(tx, schema.scheduledTransactions, schedRows, [schema.scheduledTransactions.ynabId, schema.scheduledTransactions.budgetId], options),
+    (n) => summarize(data.scheduledTransactions.length, n)
+  );
+}
 
-    const catId = st.categoryId && !isSpecialCategoryId(st.categoryId)
-      ? catYnabToId.get(st.categoryId) ?? null
-      : null;
+/**
+ * znab keys a monthly budget it creates itself as MCB/<month>/<znab category
+ * id>, while YNAB keys the same category and month by its own id. Both rows
+ * cannot exist under the one-per-category-month constraint, so a znab row that
+ * YNAB now has an entry for takes on YNAB's id, and the upsert then overwrites it.
+ */
+async function adoptMonthlyBudgetRows(tx: DbOrTx, budgetId: number, rows: Record<string, unknown>[]) {
+  const existing = await tx
+    .select({
+      id: schema.monthlyBudgets.id,
+      ynabId: schema.monthlyBudgets.ynabId,
+      categoryId: schema.monthlyBudgets.categoryId,
+      month: schema.monthlyBudgets.month,
+    })
+    .from(schema.monthlyBudgets)
+    .where(eq(schema.monthlyBudgets.budgetId, budgetId));
+  const taken = new Set(existing.map((r) => r.ynabId));
+  const byCategoryMonth = new Map(existing.filter((r) => r.categoryId != null).map((r) => [`${r.categoryId}:${r.month}`, r]));
 
-    await db
-      .insert(schema.scheduledTransactions)
-      .values({
-        ynabId: st.entityId,
-        budgetId,
-        accountId,
-        payeeId: st.payeeId ? payeeYnabToId.get(st.payeeId) ?? null : null,
-        categoryId: catId,
-        categoryYnabId: st.categoryId ?? null,
-        amount: toMoney(st.amount),
-        date: st.date,
-        frequency: st.frequency,
-        // Only TwiceAMonth means anything by this. YNAB 4 writes a 0 on every
-        // other frequency, and `?? null` keeps a 0, so 35 of the 40 imported
-        // rows claimed a start day of nothing.
-        twiceMonthDay:
-          st.frequency === "TwiceAMonth" ? st.twiceAMonthStartDay || null : null,
-        memo: st.memo ?? null,
-        cleared: st.cleared ?? "Uncleared",
-        accepted: st.accepted ?? true,
-        deletedAt: st.isTombstone ? new Date() : null,
-      })
-      .onConflictDoNothing();
+  let adopted = 0;
+  for (const row of rows) {
+    if (row.categoryId == null) continue;
+    const held = byCategoryMonth.get(`${row.categoryId}:${row.month}`);
+    const ynabId = row.ynabId as string;
+    if (!held || held.ynabId === ynabId || taken.has(ynabId)) continue;
+    await tx.update(schema.monthlyBudgets).set({ ynabId }).where(eq(schema.monthlyBudgets.id, held.id));
+    taken.add(ynabId);
+    adopted++;
   }
+  if (adopted) console.log(`    re-keyed ${adopted} znab monthly budget rows to their YNAB ids`);
 }
 
 // ─── Upsert a budget row, return its id ───────────────────────────────────────
 
-async function upsertBudget(ynabId: string | null, userId: number, name: string): Promise<number> {
-  if (ynabId) {
-    const existing = await db.query.budgets.findFirst({
-      where: eq(schema.budgets.ynabId, ynabId),
-      columns: { id: true },
-    });
-    if (existing) return existing.id;
-  }
+export async function upsertBudget(tx: DbOrTx, ynabId: string, userId: number, name: string): Promise<number> {
+  const existing = await tx
+    .select({ id: schema.budgets.id })
+    .from(schema.budgets)
+    .where(eq(schema.budgets.ynabId, ynabId));
+  if (existing[0]) return existing[0].id;
 
-  const [row] = await db
+  const [row] = await tx
     .insert(schema.budgets)
     .values({ ynabId, userId, name })
-    .onConflictDoNothing()
     .returning({ id: schema.budgets.id });
-
   return row!.id;
 }
 
-// ─── Main ────────────────────────────────────────────────────────────────────
+// ─── CLI ──────────────────────────────────────────────────────────────────────
 
-console.log("╔══════════════════════════════════════╗");
-console.log("║   ZNAB — YNAB 4 Import Script        ║");
-console.log("╚══════════════════════════════════════╝\n");
+const REPO_ROOT = path.resolve(import.meta.dir, "../../../..");
+const SEED_DATA_DIR = path.join(REPO_ROOT, "seed-data");
 
-// 1. Seed users
-console.log("Step 1: Seeding users...");
-await db.insert(schema.users).values([
-  { slug: "zach", displayName: "Zach" },
-  { slug: "demo", displayName: "Demo" },
-]).onConflictDoNothing();
+async function main(): Promise<number> {
+  console.log("ZNAB: YNAB 4 import\n");
 
-const zachUser = await db.query.users.findFirst({ where: eq(schema.users.slug, "zach") });
-const demoUser = await db.query.users.findFirst({ where: eq(schema.users.slug, "demo") });
+  console.log("Seeding users...");
+  await db.insert(schema.users).values([
+    { slug: "zach", displayName: "Zach" },
+    { slug: "demo", displayName: "Demo" },
+  ]).onConflictDoNothing();
+  const [zachUser] = await db.select().from(schema.users).where(eq(schema.users.slug, "zach"));
+  const [demoUser] = await db.select().from(schema.users).where(eq(schema.users.slug, "demo"));
+  if (!zachUser || !demoUser) throw new Error("Failed to seed users");
+  console.log(`  Users ready (zach: id=${zachUser.id}, demo: id=${demoUser.id})\n`);
 
-if (!zachUser || !demoUser) throw new Error("Failed to seed users");
-console.log(`  ✓ Users ready (zach: id=${zachUser.id}, demo: id=${demoUser.id})\n`);
+  const source = (envVar: string, fallback: string) => path.resolve(REPO_ROOT, process.env[envVar] || path.join(SEED_DATA_DIR, fallback));
+  const budgets = [
+    { label: "Zach", ynabId: "zach-main", userId: zachUser.id, name: "Zach's Budget", source: source("YNAB_ZACH_PACKAGE", "Zach_s Budget~85D0690E.ynab4"), overwrite: true },
+    { label: "Fiona", ynabId: "fiona-main", userId: zachUser.id, name: "Fiona's Budget", source: source("YNAB_FIONA_PACKAGE", "Fiona Budget~F53B2AA3.ynab4"), overwrite: true },
+    { label: "Demo", ynabId: "demo-main", userId: demoUser.id, name: "Demo Budget", source: path.join(SEED_DATA_DIR, "Demo.yfull"), overwrite: false },
+  ].filter((b) => b.label !== "Demo" || process.env.YNAB_SKIP_DEMO !== "1");
 
-// 2. Import Zach's budget
-console.log("Step 2: Importing Budget.yfull (Zach)...");
-const zachData = loadYfull("Budget.yfull");
-const zachBudgetId = await upsertBudget("zach-main", zachUser.id, "Zach's Budget");
-await importYfull(zachData, zachBudgetId);
-console.log("  ✓ Zach's budget imported\n");
+  let failures = 0;
+  for (const b of budgets) {
+    console.log(`Importing ${b.label} from ${b.source}`);
+    try {
+      // Read and merge before touching the database, so a half-synced package
+      // fails here and leaves the last good import in place
+      const { data, summary } = await loadBudget(b.source);
+      console.log(
+        `  Read snapshot ${summary.baseDevice ? `from device ${summary.baseDevice} ` : ""}at ${summary.baseKnowledge}; ` +
+          `applied ${summary.diffsApplied} of ${summary.diffsTotal} diffs (${summary.itemsApplied} items, ${summary.tombstonesApplied} tombstones)`
+      );
+      for (const w of summary.warnings) console.warn(`  Warning: ${w}`);
+      if (summary.unknownTypes.length) console.warn(`  Ignored entity types: ${summary.unknownTypes.join(", ")}`);
+      if (summary.orphansDropped) console.warn(`  Dropped ${summary.orphansDropped} entities whose parent is missing`);
 
-// 3. Import Fiona's budget
-console.log("Step 3: Importing Budget-Fiona.yfull (Fiona)...");
-const fionaData = loadYfull("Budget-Fiona.yfull");
-const fionaBudgetId = await upsertBudget("fiona-main", zachUser.id, "Fiona's Budget");
-await importYfull(fionaData, fionaBudgetId);
-console.log("  ✓ Fiona's budget imported\n");
+      await db.transaction(async (tx) => {
+        const budgetId = await upsertBudget(tx, b.ynabId, b.userId, b.name);
+        await importBudgetData(tx, budgetId, data, { overwrite: b.overwrite });
+      });
+      console.log(`  ${b.label} imported\n`);
+    } catch (err) {
+      failures++;
+      console.error(`  ${b.label} import failed, nothing was written:`, err);
+      console.log();
+    }
+  }
 
-// 4. Import Demo budget
-console.log("Step 4: Importing Demo.yfull (Demo)...");
-const demoData = loadYfull("Demo.yfull");
-const demoBudgetId = await upsertBudget("demo-main", demoUser.id, "Demo Budget");
-await importYfull(demoData, demoBudgetId);
-console.log("  ✓ Demo budget imported\n");
+  console.log(failures ? `Import finished with ${failures} failed budget(s)` : "Import complete");
+  return failures ? 1 : 0;
+}
 
-console.log("╔══════════════════════════════════════╗");
-console.log("║   Import complete!                   ║");
-console.log("╚══════════════════════════════════════╝");
-
-await client.end();
-process.exit(0);
+if (import.meta.main) {
+  let code = 1;
+  try {
+    code = await main();
+  } catch (err) {
+    console.error("Import failed:", err);
+  } finally {
+    await db.$client.end();
+  }
+  process.exit(code);
+}

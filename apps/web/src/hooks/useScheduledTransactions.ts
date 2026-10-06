@@ -39,6 +39,7 @@ export function useScheduledTransactions({ budgetId }: { budgetId: number }) {
       utils.scheduledTransaction.upcoming.invalidate(),
       utils.account.transactions.invalidate(),
       utils.budget.monthBudget.invalidate(),
+      utils.budget.categoryTransactions.invalidate(),
       utils.report.netWorth.invalidate(),
       utils.account.list.invalidate(),
       utils.payee.list.invalidate(),

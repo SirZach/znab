@@ -106,6 +106,10 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
   const { collapsed, toggleGroup } = useCollapsedGroups(budgetId);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [anchorId, setAnchorId] = useState<number | null>(null);
+  // Whether the inspector lists the transactions behind Spent rather than the
+  // category's own controls. Clicking a Spent figure turns it on; selecting a
+  // row any other way goes back to the controls.
+  const [showSpent, setShowSpent] = useState(false);
 
   // Every category row currently on screen, in the order it appears. Arrow keys
   // and shift-click ranges both read this, so they agree on what "next" means
@@ -132,6 +136,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
   );
 
   function selectRow(event: React.MouseEvent, id: number) {
+    setShowSpent(false);
     if (event.shiftKey && anchorId !== null) {
       const from = visibleRowIds.indexOf(anchorId);
       const to = visibleRowIds.indexOf(id);
@@ -308,7 +313,20 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                           />
                         </td>
                         <td className="text-right px-4 py-2 text-muted-foreground tabular-nums">
-                          {formatCurrency(cat.activity)}
+                          <button
+                            onClick={(e) => {
+                              // Opens this category alone, on its transactions,
+                              // rather than joining a selection.
+                              e.stopPropagation();
+                              setSelectedIds(new Set([cat.id]));
+                              setAnchorId(cat.id);
+                              setShowSpent(true);
+                            }}
+                            title="Show the transactions behind this"
+                            className="tabular-nums hover:text-foreground hover:underline"
+                          >
+                            {formatCurrency(cat.activity)}
+                          </button>
                         </td>
                         <td className="text-right px-6 py-2">
                           <AvailablePill
@@ -414,6 +432,8 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
             }}
             isMoving={isMoving}
             moveError={moveError}
+            showSpent={showSpent}
+            onShowSpent={setShowSpent}
             onClose={() => setSelectedIds(new Set())}
           />
         )}

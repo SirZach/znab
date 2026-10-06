@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { X } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
+import { ChevronRight, X } from "lucide-react";
 import { trpc } from "@/trpc";
-import { cn, formatCurrency, parseAmountExpression } from "@/lib/utils";
+import { cn, formatCurrency, formatDateShort, parseAmountExpression } from "@/lib/utils";
 
 export type GoalType = "TB" | "TBD" | "MF";
 
@@ -40,7 +41,8 @@ const GOAL_LABELS: Record<GoalType, string> = {
 /**
  * YNAB 4's right-hand panel for the selected category: where it stands this
  * month, its goal, the Quick Budget shortcuts, moving money either direction,
- * recent history, and whether overspending is confined here.
+ * recent history, and whether overspending is confined here. Or, while
+ * `showSpent` is on, the transactions behind this month's Spent instead.
  */
 export function CategoryInspector({
   budgetId,
@@ -54,6 +56,8 @@ export function CategoryInspector({
   onHide,
   isMoving,
   moveError,
+  showSpent,
+  onShowSpent,
   onClose,
 }: {
   budgetId: number;
@@ -71,6 +75,8 @@ export function CategoryInspector({
   onHide: () => void;
   isMoving: boolean;
   moveError: string | null;
+  showSpent: boolean;
+  onShowSpent: (show: boolean) => void;
   onClose: () => void;
 }) {
   const { data: quick } = trpc.budget.quickBudget.useQuery({
@@ -132,7 +138,20 @@ export function CategoryInspector({
       <dl className="px-4 py-3 space-y-1.5 border-b border-border">
         <Row label="Budgeted" value={formatCurrency(category.budgeted)} />
         <Row
-          label="Spent"
+          label={
+            <button
+              onClick={() => onShowSpent(!showSpent)}
+              aria-expanded={showSpent}
+              title={showSpent ? "Back to the category" : "Show the transactions behind this"}
+              className="flex items-center gap-1 hover:text-foreground transition-colors"
+            >
+              Spent
+              <ChevronRight
+                size={13}
+                className={cn("transition-transform", showSpent && "rotate-90")}
+              />
+            </button>
+          }
           value={formatCurrency(category.activity)}
         />
         <Row
@@ -158,141 +177,147 @@ export function CategoryInspector({
         )}
       </dl>
 
-      <GoalSection goal={category.goal} onSetGoal={onSetGoal} month={month} />
+      {showSpent ? (
+        <SpentSection budgetId={budgetId} categoryId={category.id} month={month} />
+      ) : (
+        <>
+          <GoalSection goal={category.goal} onSetGoal={onSetGoal} month={month} />
 
-      {/* Quick Budget */}
-      <section className="px-4 py-3 border-b border-border">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Quick Budget
-        </h4>
-        <div className="space-y-1">
-          {quickActions.map((action) => (
-            <button
-              key={action.label}
-              disabled={action.amount === undefined}
-              onClick={() => action.amount !== undefined && onSetBudgeted(action.amount)}
-              className="flex w-full items-center justify-between gap-2 rounded border border-border px-2.5 py-1.5 text-sm hover:border-primary hover:bg-accent disabled:opacity-50 transition-colors"
-            >
-              <span>{action.label}</span>
-              <span className="tabular-nums text-muted-foreground">
-                {action.amount === undefined ? "..." : formatCurrency(action.amount)}
+          {/* Quick Budget */}
+          <section className="px-4 py-3 border-b border-border">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Quick Budget
+            </h4>
+            <div className="space-y-1">
+              {quickActions.map((action) => (
+                <button
+                  key={action.label}
+                  disabled={action.amount === undefined}
+                  onClick={() => action.amount !== undefined && onSetBudgeted(action.amount)}
+                  className="flex w-full items-center justify-between gap-2 rounded border border-border px-2.5 py-1.5 text-sm hover:border-primary hover:bg-accent disabled:opacity-50 transition-colors"
+                >
+                  <span>{action.label}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {action.amount === undefined ? "..." : formatCurrency(action.amount)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Move money, either direction */}
+          <section className="px-4 py-3 border-b border-border">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Move money
+            </h4>
+
+            <div className="flex rounded border border-border overflow-hidden mb-2" role="group">
+              {(
+                [
+                  ["in", shortfall > 0 ? "Cover from" : "Move in from"],
+                  ["out", "Move out to"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  aria-pressed={direction === value}
+                  onClick={() => {
+                    setDirection(value);
+                    setAmount("");
+                  }}
+                  className={cn(
+                    "flex-1 px-2 py-1.5 text-xs transition-colors",
+                    direction === value
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <select
+                id={`move-other-${category.id}`}
+                aria-label={direction === "in" ? "Category to take from" : "Category to send to"}
+                value={otherId}
+                onChange={(e) => setOtherId(e.target.value === "" ? "" : Number(e.target.value))}
+                className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">Choose a category...</option>
+                {sources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.groupName}: {s.name} ({formatCurrency(s.available)})
+                  </option>
+                ))}
+              </select>
+
+              <div className="flex gap-2">
+                <input
+                  id={`move-amount-${category.id}`}
+                  type="text"
+                  inputMode="decimal"
+                  aria-label="Amount to move"
+                  placeholder="0.00"
+                  value={amountValue}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="flex-1 min-w-0 rounded border border-border bg-background px-2 py-1.5 text-sm text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <button
+                  disabled={!canMove}
+                  onClick={() => {
+                    if (otherId === "" || parsedAmount === null) return;
+                    onMoveMoney(otherId, parsedAmount, direction);
+                    setAmount("");
+                    setOtherId("");
+                  }}
+                  className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  {isMoving ? "Moving..." : "Move"}
+                </button>
+              </div>
+
+              {moveError && <p className="text-xs text-destructive">{moveError}</p>}
+            </div>
+          </section>
+
+          <HistorySection history={history} />
+
+          {/* Overspending handling */}
+          <section className="px-4 py-3 border-b border-border">
+            <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <input
+                id={`confine-${category.id}`}
+                type="checkbox"
+                checked={category.confined}
+                onChange={(e) => onSetConfined(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                Confine overspending to this category
+                <span className="block text-xs text-muted-foreground mt-0.5">
+                  Keeps a shortfall here instead of taking it out of next month's
+                  To be Budgeted.
+                </span>
               </span>
-            </button>
-          ))}
-        </div>
-      </section>
+            </label>
+          </section>
 
-      {/* Move money, either direction */}
-      <section className="px-4 py-3 border-b border-border">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Move money
-        </h4>
-
-        <div className="flex rounded border border-border overflow-hidden mb-2" role="group">
-          {(
-            [
-              ["in", shortfall > 0 ? "Cover from" : "Move in from"],
-              ["out", "Move out to"],
-            ] as const
-          ).map(([value, label]) => (
+          <section className="px-4 py-3">
             <button
-              key={value}
-              aria-pressed={direction === value}
-              onClick={() => {
-                setDirection(value);
-                setAmount("");
-              }}
-              className={cn(
-                "flex-1 px-2 py-1.5 text-xs transition-colors",
-                direction === value
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent"
-              )}
+              onClick={onHide}
+              className="w-full rounded border border-border px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             >
-              {label}
+              Hide this category
             </button>
-          ))}
-        </div>
-
-        <div className="space-y-2">
-          <select
-            id={`move-other-${category.id}`}
-            aria-label={direction === "in" ? "Category to take from" : "Category to send to"}
-            value={otherId}
-            onChange={(e) => setOtherId(e.target.value === "" ? "" : Number(e.target.value))}
-            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            <option value="">Choose a category...</option>
-            {sources.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.groupName}: {s.name} ({formatCurrency(s.available)})
-              </option>
-            ))}
-          </select>
-
-          <div className="flex gap-2">
-            <input
-              id={`move-amount-${category.id}`}
-              type="text"
-              inputMode="decimal"
-              aria-label="Amount to move"
-              placeholder="0.00"
-              value={amountValue}
-              onChange={(e) => setAmount(e.target.value)}
-              className="flex-1 min-w-0 rounded border border-border bg-background px-2 py-1.5 text-sm text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            <button
-              disabled={!canMove}
-              onClick={() => {
-                if (otherId === "" || parsedAmount === null) return;
-                onMoveMoney(otherId, parsedAmount, direction);
-                setAmount("");
-                setOtherId("");
-              }}
-              className="rounded bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-            >
-              {isMoving ? "Moving..." : "Move"}
-            </button>
-          </div>
-
-          {moveError && <p className="text-xs text-destructive">{moveError}</p>}
-        </div>
-      </section>
-
-      <HistorySection history={history} />
-
-      {/* Overspending handling */}
-      <section className="px-4 py-3 border-b border-border">
-        <label className="flex items-start gap-2 text-sm cursor-pointer">
-          <input
-            id={`confine-${category.id}`}
-            type="checkbox"
-            checked={category.confined}
-            onChange={(e) => onSetConfined(e.target.checked)}
-            className="mt-0.5"
-          />
-          <span>
-            Confine overspending to this category
-            <span className="block text-xs text-muted-foreground mt-0.5">
-              Keeps a shortfall here instead of taking it out of next month's
-              To be Budgeted.
-            </span>
-          </span>
-        </label>
-      </section>
-
-      <section className="px-4 py-3">
-        <button
-          onClick={onHide}
-          className="w-full rounded border border-border px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          Hide this category
-        </button>
-        <p className="text-xs text-muted-foreground mt-2">
-          It moves to Hidden Categories at the foot of the grid. Past months keep
-          whatever was budgeted and spent here.
-        </p>
-      </section>
+            <p className="text-xs text-muted-foreground mt-2">
+              It moves to Hidden Categories at the foot of the grid. Past months keep
+              whatever was budgeted and spent here.
+            </p>
+          </section>
+        </>
+      )}
     </aside>
   );
 }
@@ -516,13 +541,85 @@ function HistorySection({
   );
 }
 
+// ─── Spent ────────────────────────────────────────────────────────────────────
+
+/**
+ * Every transaction behind this month's Spent, split parts included, read off
+ * the same rows the budget engine totals, so the total here is the Spent figure
+ * above to the cent. Each one opens its account's register on that transaction
+ * (on the whole split, for a part of one), with the register's filters cleared
+ * so the row is there to be found.
+ */
+function SpentSection({
+  budgetId,
+  categoryId,
+  month,
+}: {
+  budgetId: number;
+  categoryId: number;
+  month: string;
+}) {
+  const { data } = trpc.budget.categoryTransactions.useQuery({ budgetId, categoryId, month });
+
+  return (
+    <section className="py-3">
+      <div className="flex items-baseline justify-between gap-2 px-4 mb-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Transactions
+        </h4>
+        {data && (
+          <span className="text-sm font-semibold tabular-nums">{formatCurrency(data.total)}</span>
+        )}
+      </div>
+
+      {!data && <p className="px-4 text-xs text-muted-foreground">Loading...</p>}
+      {data?.transactions.length === 0 && (
+        <p className="px-4 text-xs text-muted-foreground">Nothing spent here this month.</p>
+      )}
+
+      <ul>
+        {data?.transactions.map((t) => (
+          <li key={t.subTransactionId === null ? t.transactionId : `s${t.subTransactionId}`}>
+            <Link
+              to="/budgets/$budgetId/accounts/$accountId"
+              params={{ budgetId: String(budgetId), accountId: String(t.accountId) }}
+              search={{ cleared: "all", sort: "date", dir: "asc", txn: t.transactionId }}
+              title="Open in its account's register"
+              className="block px-4 py-1.5 hover:bg-accent transition-colors"
+            >
+              <span className="flex items-baseline justify-between gap-2 text-sm">
+                <span className="truncate">{t.payeeName ?? "No payee"}</span>
+                <span
+                  className={cn(
+                    "shrink-0 tabular-nums",
+                    t.amount > 0 && "text-green-600 dark:text-green-500"
+                  )}
+                >
+                  {formatCurrency(t.amount)}
+                </span>
+              </span>
+              <span className="flex gap-1.5 text-xs text-muted-foreground">
+                <span className="shrink-0 tabular-nums">{formatDateShort(t.date)}</span>
+                <span className="truncate">
+                  {t.accountName}
+                  {t.memo ? `, ${t.memo}` : ""}
+                </span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function Row({
   label,
   value,
   emphasis,
   tone,
 }: {
-  label: string;
+  label: ReactNode;
   value: string;
   emphasis?: boolean;
   tone?: "good" | "warn" | "danger";

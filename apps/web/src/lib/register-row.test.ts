@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   amountToFields,
   fieldsToAmount,
+  focusOffset,
   transferCategoryEditable,
   unsaveableReason,
 } from "./register-row";
@@ -182,5 +183,30 @@ describe("unsaveableReason", () => {
     expect(unsaveableReason(row({ outflow: "abc" }), { allowZero: true })).toBe(
       "That is not an amount."
     );
+  });
+});
+
+describe("focusOffset: a linked row opens in the middle of its page", () => {
+  // The page covers positions offset + 1 to offset + pageSize.
+  const covers = (position: number, pageSize: number) => {
+    const offset = focusOffset(position, pageSize);
+    return position > offset && position <= offset + pageSize;
+  };
+
+  test("a row the first page reaches opens the register as it always opens", () => {
+    expect(focusOffset(1, 200)).toBe(0);
+    expect(focusOffset(101, 200)).toBe(0);
+  });
+
+  test("an older row has as many newer rows above it as the page allows", () => {
+    expect(focusOffset(102, 200)).toBe(1);
+    expect(focusOffset(8_081, 200)).toBe(7_980);
+  });
+
+  test("whatever the position, the page holds the row", () => {
+    for (const position of [1, 2, 100, 101, 102, 199, 200, 201, 5_000, 8_081]) {
+      expect(covers(position, 200)).toBe(true);
+    }
+    expect(covers(7, 1)).toBe(true);
   });
 });

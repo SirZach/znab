@@ -116,6 +116,9 @@ export const accountRegisterSearchSchema = z.object({
   // falls back to and what it returns to.
   sort: z.enum(REGISTER_SORTS).default("date"),
   dir: z.enum(SORT_DIRECTIONS).default("asc"),
+  // A transaction to bring into view and highlight, for links into the
+  // register from elsewhere (a category's Spent list).
+  txn: z.number().int().positive().optional(),
 });
 
 export type CreateTransaction = z.infer<typeof createTransactionSchema>;

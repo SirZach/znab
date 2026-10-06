@@ -122,7 +122,7 @@ const fieldsFrom = (txn: RegisterTransaction): RegisterFields => ({
 
 function AccountRegisterPage() {
   const { budgetId, accountId } = Route.useParams();
-  const { cleared, q, sort, dir } = Route.useSearch();
+  const { cleared, q, sort, dir, txn: focusId } = Route.useSearch();
   const navigate = Route.useNavigate();
 
   const [addFields, setAddFields] = useState<RegisterFields>(emptyFields);
@@ -138,6 +138,8 @@ function AccountRegisterPage() {
   const [bulkNote, setBulkNote] = useState<string | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  /** The row a link opened the register on, to bring into view once it loads. */
+  const focusRowRef = useRef<HTMLTableRowElement>(null);
   /** The add row's payee control, so a saved row hands the keyboard straight back. */
   const addPayeeRef = useRef<HTMLButtonElement>(null);
 
@@ -157,6 +159,7 @@ function AccountRegisterPage() {
     total,
     counts,
     matches,
+    hasNewer,
     isLoading,
     cycleCleared,
     createTransaction,
@@ -189,6 +192,7 @@ function AccountRegisterPage() {
     sort,
     dir,
     scrollRef: scrollContainerRef,
+    focusId,
     onSaveSuccess: () => {
       setAddFields(emptyFields());
       setAddBlocked(null);
@@ -198,6 +202,11 @@ function AccountRegisterPage() {
       // The date is already back to today, so the payee is the next thing
       // anybody types.
       setTimeout(() => addPayeeRef.current?.focus(), 0);
+      // A page opened on an old row leaves the newest off, and the row just
+      // entered is usually one of them.
+      if (focusId !== undefined) {
+        navigate({ search: (prev) => ({ ...prev, txn: undefined }) });
+      }
     },
   });
 
@@ -232,6 +241,14 @@ function AccountRegisterPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // A linked row is scrolled to once it is on the page, which is only after the
+  // page around it has loaded. Keyed on its arrival rather than on every
+  // refetch, so editing nearby does not keep dragging the view back to it.
+  const focusLoaded = transactions.some((t) => t.id === focusId);
+  useEffect(() => {
+    if (focusLoaded) focusRowRef.current?.scrollIntoView({ block: "center" });
+  }, [focusId, focusLoaded]);
 
   if (isLoading) {
     return (
@@ -301,12 +318,14 @@ function AccountRegisterPage() {
   }
 
   // Sorting lives in the URL beside the filter, so a sorted register is a link
-  // too, and going back to the date order is going back a page.
+  // too, and going back to the date order is going back a page. A linked row's
+  // page is worked out in the unfiltered date order, so sorting, filtering or
+  // searching lets go of the link and starts again from the newest rows.
   const sortProps = {
     sort,
     dir,
     onSort: (column: RegisterSort, nextDir: SortDirection) =>
-      navigate({ search: (prev) => ({ ...prev, sort: column, dir: nextDir }) }),
+      navigate({ search: (prev) => ({ ...prev, sort: column, dir: nextDir, txn: undefined }) }),
   };
 
   const editError = updateError ?? deleteError ?? editBlocked;
@@ -489,7 +508,7 @@ function AccountRegisterPage() {
           value={cleared}
           counts={counts}
           onChange={(next) =>
-            navigate({ search: (prev) => ({ ...prev, cleared: next }) })
+            navigate({ search: (prev) => ({ ...prev, cleared: next, txn: undefined }) })
           }
         />
         <RegisterSearch
@@ -501,7 +520,7 @@ function AccountRegisterPage() {
               // Replace rather than push: typing a word should not put five
               // entries in the history between here and the way back.
               replace: true,
-              search: (prev) => ({ ...prev, q: next || undefined }),
+              search: (prev) => ({ ...prev, q: next || undefined, txn: undefined }),
             })
           }
         />
@@ -627,12 +646,16 @@ function AccountRegisterPage() {
               return (
                 <Fragment key={txn.id}>
                   <tr
+                    ref={txn.id === focusId ? focusRowRef : undefined}
                     onClick={editing ? undefined : (e) => clickRow(e, txn)}
                     aria-selected={editing || selected}
                     className={cn(
                       "border-b border-border/50 transition-colors",
                       !editing && "cursor-pointer",
-                      editing || selected ? "bg-accent/60" : "hover:bg-accent/30"
+                      editing || selected ? "bg-accent/60" : "hover:bg-accent/30",
+                      // The linked row, outlined so it still stands out once
+                      // it is selected or opened.
+                      txn.id === focusId && "outline-2 -outline-offset-2 outline-primary bg-primary/10"
                     )}
                   >
                     {editing ? (
@@ -705,6 +728,20 @@ function AccountRegisterPage() {
             })}
           </tbody>
         </table>
+
+        {hasNewer && (
+          <div className="flex flex-col items-center gap-1 py-3 border-t border-border/50">
+            <button
+              onClick={() => navigate({ search: (prev) => ({ ...prev, txn: undefined }) })}
+              className="text-xs px-3 py-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              Show the most recent transactions
+            </button>
+            <span className="text-xs text-muted-foreground">
+              Opened on an older transaction, so newer ones are left off below.
+            </span>
+          </div>
+        )}
 
         {transactions.length === 0 && (
           <div className="flex items-center justify-center h-32">

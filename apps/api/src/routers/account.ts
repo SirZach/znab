@@ -343,6 +343,43 @@ export const accountRouter = router({
       };
     }),
 
+  // How far back from the newest row one transaction sits in its account's
+  // register, in the register's own date order, counting from 1. The register
+  // pages back from its newest row, so this is how many rows it has to load
+  // before a link to an old transaction lands on something. Unfiltered on
+  // purpose: a link to a row opens the register with its filters cleared.
+  transactionPosition: protectedProcedure
+    .input(
+      z.object({
+        budgetId: z.number().int().positive(),
+        accountId: z.number().int().positive(),
+        transactionId: z.number().int().positive(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertBudgetAccess(ctx, input.budgetId);
+
+      // Ranked by the same tie-break the register pages with, rather than
+      // compared against the row's own date, so rows sharing a date or missing
+      // a created_at fall exactly where the register puts them.
+      const [row] = (await ctx.db.execute(sql`
+        SELECT position FROM (
+          SELECT
+            t.id,
+            (ROW_NUMBER() OVER (ORDER BY t.date DESC, t.created_at DESC, t.id DESC))::int AS position
+          FROM transactions t
+          WHERE t.budget_id = ${input.budgetId}
+            AND t.account_id = ${input.accountId}
+            AND t.deleted_at IS NULL
+        ) x
+        WHERE x.id = ${input.transactionId}
+      `)) as unknown as { position: number }[];
+      if (!row) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Transaction not found" });
+      }
+      return { position: row.position };
+    }),
+
   // A new account, together with what it already holds. YNAB 4 records an
   // opening balance as an ordinary transaction rather than as a column on the
   // account, so the register shows where the money came from and the budget

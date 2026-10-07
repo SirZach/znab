@@ -75,7 +75,9 @@ Step 4: Importing Demo budget...
 
 While YNAB 4 is still in daily use, `scripts/sync-ynab4.sh` pulls both
 `.ynab4` packages from Dropbox every 15 minutes and re-imports on change.
-YNAB 4 wins: the import overwrites znab's copy of those budgets.
+YNAB 4 wins: each import mirrors those budgets, wiping every edit made to
+them in znab (rows created there included). Only znab-only settings (goals,
+Master Budgets, the household split) are kept.
 
 ```bash
 sudo apt install rclone

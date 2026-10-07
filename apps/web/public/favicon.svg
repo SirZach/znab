@@ -1,4 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#3b82f6"/>
-  <path d="M18 17h28v6L27 41h19v6H18v-6l19-18H18z" fill="#fff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="b" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1aa9e0"/><stop offset="1" stop-color="#0f6fbd"/>
+    </linearGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a6e02a"/><stop offset="1" stop-color="#6fbf12"/>
+    </linearGradient>
+    <linearGradient id="z" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e2e6ea"/>
+    </linearGradient>
+    <path id="l" d="M0-8.5Q11 0 0 8.5Q-11 0 0-8.5Z" fill="url(#g)" stroke="#2f5c0c" stroke-width="1.3"/>
+  </defs>
+  <circle cx="64" cy="64" r="61" fill="#0b5a9c"/>
+  <circle cx="64" cy="64" r="58" fill="url(#b)"/>
+  <use href="#l" transform="translate(64 24) rotate(0) scale(1)"/>
+  <use href="#l" transform="translate(49 29) rotate(-18.4) scale(1)"/>
+  <use href="#l" transform="translate(79 29) rotate(18.4) scale(1)"/>
+  <use href="#l" transform="translate(35 35) rotate(-36.6) scale(0.882)"/>
+  <use href="#l" transform="translate(93 35) rotate(36.6) scale(0.882)"/>
+  <use href="#l" transform="translate(25 48) rotate(-56.3) scale(0.941)"/>
+  <use href="#l" transform="translate(103 48) rotate(56.3) scale(0.941)"/>
+  <use href="#l" transform="translate(49 46) rotate(-28.2) scale(1)"/>
+  <use href="#l" transform="translate(79 46) rotate(28.2) scale(1)"/>
+  <use href="#l" transform="translate(64 45) rotate(0) scale(0.882)"/>
+  <use href="#l" transform="translate(22 62) rotate(-74.1) scale(0.765)"/>
+  <use href="#l" transform="translate(106 62) rotate(74.1) scale(0.765)"/>
+  <use href="#l" transform="translate(28 75) rotate(-91.6) scale(0.882)"/>
+  <use href="#l" transform="translate(100 75) rotate(91.6) scale(0.882)"/>
+  <use href="#l" transform="translate(38 86) rotate(-114.8) scale(0.647)"/>
+  <use href="#l" transform="translate(90 86) rotate(114.8) scale(0.647)"/>
+  <path d="M38 60H90V71L56 97H90V108H38V97L72 71H38Z" fill="url(#z)" stroke="#0b5a9c" stroke-opacity=".35" stroke-width="1.5"/>
 </svg>

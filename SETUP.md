@@ -90,8 +90,9 @@ sudo loginctl enable-linger zach    # keep running while logged out
 ```
 
 The packages are expected at `dropbox:YNAB/`; override with `YNAB4_REMOTE` in
-`~/.config/znab/ynab4-sync.env`. To stop syncing once znab takes over:
-`systemctl --user disable --now ynab4-sync.timer`.
+`~/.config/znab/ynab4-sync.env`. `bun run ynab:reset` syncs and re-imports now,
+even when nothing changed, which wipes znab edits immediately. To stop syncing
+once znab takes over: `systemctl --user disable --now ynab4-sync.timer`.
 
 ## 6. Run the dev servers
 

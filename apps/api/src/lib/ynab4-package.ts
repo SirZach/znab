@@ -35,6 +35,8 @@ export interface YnabAccount {
   lastReconciledBalance: number | null;
   lastReconciledDate: string | null;
   lastEnteredCheckNumber: number;
+  // Left out of the JSON while unset, as YNAB 4 does with every optional field
+  note?: string | null;
   isTombstone?: boolean;
 }
 
@@ -113,6 +115,8 @@ export interface YnabTransaction {
   targetAccountId?: string | null;
   transferTransactionId?: string | null;
   dateEnteredFromSchedule?: string | null;
+  // Red | Orange | Yellow | Green | Blue | Purple, absent while unflagged
+  flag?: string | null;
   subTransactions?: YnabSubTransaction[] | null;
   isTombstone?: boolean;
 }

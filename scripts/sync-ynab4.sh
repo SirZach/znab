@@ -5,6 +5,9 @@
 #
 # Temporary by design: YNAB 4 is still where transactions get entered, so it is
 # the source of truth and the import overwrites znab's copy of both budgets.
+# It runs as a mirror (YNAB_MIRROR=1): while the timer runs, every edit made in
+# znab to these budgets, rows created there included, is wiped on each import.
+# Goals, Master Budgets and the household split are kept.
 # Once znab takes over, stop it for good:
 #
 #   systemctl --user disable --now ynab4-sync.timer
@@ -44,8 +47,8 @@ if [ -z "${FORCE:-}" ] && [ "$current" = "$(cat "$STATE" 2>/dev/null || true)" ]
 fi
 
 # YNAB 4 starts a new data folder (data1 -> data2) when a budget is restored
-# from a backup or rebuilt. The import never removes what YNAB stops sending,
-# so a switch needs a person to look before it is trusted. FORCE=1 accepts it.
+# from a backup or rebuilt. The mirror deletes whatever YNAB stops sending, so
+# a switch needs a person to look before it is trusted. FORCE=1 accepts it.
 folders="$(for pkg in "$ZACH" "$FIONA"; do
   printf '%s %s\n' "$pkg" "$(grep -o '"relativeDataFolderName"[^,}]*' "$DEST/$pkg/Budget.ymeta")"
 done)"
@@ -60,7 +63,7 @@ fi
 
 echo "==> Importing"
 cd "$ROOT/apps/api"
-YNAB_SKIP_DEMO=1 YNAB_ZACH_PACKAGE="$DEST/$ZACH" YNAB_FIONA_PACKAGE="$DEST/$FIONA" bun src/scripts/import-yfull.ts
+YNAB_SKIP_DEMO=1 YNAB_MIRROR=1 YNAB_ZACH_PACKAGE="$DEST/$ZACH" YNAB_FIONA_PACKAGE="$DEST/$FIONA" bun src/scripts/import-yfull.ts
 echo "$current" > "$STATE"
 echo "$folders" > "$FOLDERS"
 echo "==> Imported"

@@ -16,6 +16,7 @@
     "db:generate": "bun run --filter @znab/db generate",
     "db:migrate": "bun run --filter @znab/db migrate",
     "db:studio": "bun run --filter @znab/db studio",
-    "import": "cd apps/api && bun src/scripts/import-yfull.ts"
+    "import": "cd apps/api && bun src/scripts/import-yfull.ts",
+    "ynab:reset": "FORCE=1 bash scripts/sync-ynab4.sh"
   }
 }

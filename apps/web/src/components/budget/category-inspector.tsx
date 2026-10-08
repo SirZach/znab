@@ -519,25 +519,23 @@ function GoalSection({
 // ─── History ──────────────────────────────────────────────────────────────────
 
 /**
- * The last twelve months of budgeting and spending for this category, as paired
- * bars on a shared scale so over and under funding is visible at a glance.
+ * The last twelve months of spending in this category, one bar a month on a
+ * shared scale.
  */
 function HistorySection({
   history,
 }: {
-  history: Array<{ month: string; budgeted: number; spent: number }> | undefined;
+  history: Array<{ month: string; spent: number }> | undefined;
 }) {
   if (!history || history.length === 0) return null;
 
-  const peak = Math.max(
-    ...history.map((h) => Math.max(h.budgeted, h.spent)),
-    1 // never divide by zero on a category that has never moved
-  );
+  // never divide by zero on a category that has never moved
+  const peak = Math.max(...history.map((h) => h.spent), 1);
 
   return (
     <section className="px-4 py-3 border-b border-border">
       <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-        Last 12 months
+        Spent in the last 12 months
       </h4>
       <div className="space-y-1">
         {history.map((h) => (
@@ -545,32 +543,18 @@ function HistorySection({
             <span className="w-14 shrink-0 text-xs text-muted-foreground tabular-nums">
               {h.month}
             </span>
-            <div className="flex-1 min-w-0 space-y-0.5">
-              <div className="h-1.5 rounded bg-muted overflow-hidden">
-                <div
-                  className="h-full bg-primary/70"
-                  style={{ width: `${(h.budgeted / peak) * 100}%` }}
-                />
-              </div>
-              <div className="h-1.5 rounded bg-muted overflow-hidden">
-                <div
-                  className="h-full bg-muted-foreground/60"
-                  style={{ width: `${(h.spent / peak) * 100}%` }}
-                />
-              </div>
+            <div className="flex-1 min-w-0 h-1.5 rounded bg-muted overflow-hidden">
+              <div
+                className="h-full bg-primary/70"
+                style={{ width: `${(h.spent / peak) * 100}%` }}
+              />
             </div>
-            <span
-              className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground"
-              title={`Budgeted ${formatCurrency(h.budgeted)}, spent ${formatCurrency(h.spent)}`}
-            >
+            <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
               {formatCurrency(h.spent)}
             </span>
           </div>
         ))}
       </div>
-      <p className="text-xs text-muted-foreground mt-2">
-        Upper bar budgeted, lower bar spent. Figures are the amount spent.
-      </p>
     </section>
   );
 }

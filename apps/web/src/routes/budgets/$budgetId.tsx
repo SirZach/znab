@@ -38,6 +38,7 @@ import {
   CalendarClock,
   LogOut,
   ChevronDown,
+  ChevronLeft,
   Plus,
   Layers,
   Scale,
@@ -80,7 +81,8 @@ function BudgetLayout() {
         collapsible={isMobile ? "offcanvas" : "none"}
         className="border-r border-sidebar-border"
       >
-        <SidebarHeader className="h-14 justify-center border-b border-sidebar-border px-4">
+        <SidebarHeader className="h-14 flex-row items-center gap-1 border-b border-sidebar-border px-2">
+          <BackToBudgets />
           <span className="font-semibold truncate">{budget?.name ?? "Budget"}</span>
         </SidebarHeader>
 
@@ -224,6 +226,23 @@ function BudgetLayout() {
 }
 
 // ─── Sidebar helpers ──────────────────────────────────────────────────────────
+
+/** Back to the budget picker, one step short of Switch user. */
+function BackToBudgets() {
+  const { setOpenMobile } = useSidebar();
+
+  return (
+    <Link
+      to="/budgets"
+      aria-label="All budgets"
+      title="All budgets"
+      onClick={() => setOpenMobile(false)}
+      className="flex size-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+    >
+      <ChevronLeft className="size-4" />
+    </Link>
+  );
+}
 
 /**
  * A section link, highlighted while that section is the one being looked at.

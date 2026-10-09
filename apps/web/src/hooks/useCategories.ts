@@ -7,7 +7,6 @@ import { trpc } from "@/trpc";
  * client only.
  */
 export type ManagedGroup = ReturnType<typeof useCategories>["groups"][number];
-export type ManagedCategory = ManagedGroup["categories"][number];
 
 export function useCategories({ budgetId }: { budgetId: number }) {
   const utils = trpc.useUtils();

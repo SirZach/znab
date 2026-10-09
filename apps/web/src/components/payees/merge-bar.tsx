@@ -28,7 +28,6 @@ export function MergeBar({
     <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b border-border bg-accent/30 text-sm">
       <span className="font-medium">{checked.length} selected</span>
 
-      {/* biome-ignore lint/a11y/noLabelWithoutControl: FieldSelect renders a native select */}
       <label className="flex items-center gap-2">
         Keep
         <FieldSelect

@@ -1,5 +1,4 @@
 import { ACCOUNT_TYPES, type AccountType, isCreditAccountType } from "@znab/shared";
-import { groupAccounts } from "@/hooks/useBudgetLayout";
 
 /**
  * The stored type as YNAB 4 writes it. Only the run-together ones need saying
@@ -11,10 +10,29 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
   InvestmentAccount: "Investment",
 };
 
+/**
+ * The three sections a budget's accounts are read in. A hidden account is one
+ * YNAB 4 calls closed: paid off or emptied, kept for its history. It belongs in
+ * its own section rather than mixed in with the accounts still in use.
+ *
+ * Shared by the sidebar and the manage screen so they cannot disagree about
+ * where an account belongs.
+ */
+export function groupAccounts<T extends { onBudget: boolean; hidden: boolean }>(
+  accounts: T[]
+) {
+  const live = accounts.filter((a) => !a.hidden);
+  return {
+    onBudgetAccounts: live.filter((a) => a.onBudget),
+    trackingAccounts: live.filter((a) => !a.onBudget),
+    closedAccounts: accounts.filter((a) => a.hidden),
+  };
+}
+
 export const TRACKING_NOTE =
   "A tracking account is for money you do not budget, like a loan or an investment. Its balance counts towards net worth, but nothing in it is budgeted.";
 
-export const accountTypeLabel =(accountType: string) =>
+export const accountTypeLabel = (accountType: string) =>
   ACCOUNT_TYPE_LABELS[accountType] ?? accountType;
 
 /** The manage list's sections, in the sidebar's order, empty ones left out. */

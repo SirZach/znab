@@ -1,5 +1,5 @@
 import { Lock, Tag, Wand2 } from "lucide-react";
-import { NameInput } from "@/components/common/name-input";
+import { InlineName } from "@/components/common/inline-name";
 import type { ManagedPayee } from "@/hooks/usePayees";
 import { TRANSFER_NOTE, autofillAmount, hasAutofill, renameRulesTitle } from "@/lib/payees";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
@@ -49,27 +49,20 @@ export function PayeeRow({
       </td>
 
       <td className="px-2 py-2">
-        {editing ? (
-          <NameInput
-            initial={payee.name}
-            aria-label="Payee name"
-            onCommit={onCommitRename}
-            onCancel={onCancelRename}
-          />
-        ) : isTransfer ? (
+        {isTransfer && !editing ? (
           <span title={TRANSFER_NOTE} className="flex items-center gap-1.5 text-muted-foreground">
             <Lock size={12} className="shrink-0" />
             {payee.name}
           </span>
         ) : (
-          <button
-            type="button"
-            onClick={onStartRename}
-            title="Click to rename"
-            className="text-left rounded px-1 py-0.5 -mx-1 hover:bg-accent"
-          >
-            {payee.name}
-          </button>
+          <InlineName
+            name={payee.name}
+            editing={editing}
+            aria-label="Payee name"
+            onEdit={onStartRename}
+            onCommit={onCommitRename}
+            onCancel={onCancelRename}
+          />
         )}
         {!payee.enabled && <span className="ml-2 text-xs text-muted-foreground">disabled</span>}
       </td>

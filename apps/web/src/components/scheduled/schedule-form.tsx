@@ -5,7 +5,7 @@ import { ActionButton } from "@/components/common/action-button";
 import { FieldInput } from "@/components/common/field-input";
 import { FieldSelect } from "@/components/common/field-select";
 import { MoneyInput } from "@/components/common/money-input";
-import { LabeledField } from "@/components/scheduled/labeled-field";
+import { LabeledField } from "@/components/common/labeled-field";
 import { ScheduleCategoryPicker } from "@/components/scheduled/schedule-category-picker";
 import { ScheduleDatePicker } from "@/components/scheduled/schedule-date-picker";
 import {

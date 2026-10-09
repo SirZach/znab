@@ -1,4 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { LinkCard } from "@/components/common/link-card";
 import { CenteredMessage } from "@/components/common/centered-message";
 import { useBudgetList } from "@/hooks/useBudgetList";
 import { requireUser } from "@/lib/require-user";
@@ -25,25 +26,25 @@ function BudgetListPage() {
 
         <div className="grid gap-3">
           {budgets?.map((budget) => (
-            <Link
+            <LinkCard
               key={budget.id}
               to="/budgets/$budgetId"
               params={{ budgetId: String(budget.id) }}
-              className="flex items-center justify-between rounded-xl border border-border bg-card p-5 transition-all hover:border-primary hover:bg-accent"
+              className="flex items-center justify-between"
             >
               <span className="font-medium text-card-foreground">{budget.name}</span>
               <span className="text-muted-foreground text-sm">→</span>
-            </Link>
+            </LinkCard>
           ))}
         </div>
 
-        <Link
+        <LinkCard
           to="/budgets/balancing"
-          className="flex items-center justify-between rounded-xl border border-border bg-card p-5 transition-all hover:border-primary hover:bg-accent"
+          className="flex items-center justify-between"
         >
           <span className="font-medium text-card-foreground">Household Balancing</span>
           <span className="text-muted-foreground text-sm">→</span>
-        </Link>
+        </LinkCard>
       </div>
     </div>
   );

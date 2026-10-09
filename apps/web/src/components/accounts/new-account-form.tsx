@@ -4,7 +4,7 @@ import { ACCOUNT_TYPES, type AccountType } from "@znab/shared";
 import { ActionButton } from "@/components/common/action-button";
 import { FieldInput } from "@/components/common/field-input";
 import { FieldSelect } from "@/components/common/field-select";
-import { LabeledField } from "@/components/accounts/labeled-field";
+import { LabeledField } from "@/components/common/labeled-field";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";

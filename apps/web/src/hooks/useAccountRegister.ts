@@ -5,7 +5,8 @@ import { trpc } from "@/trpc";
 import { invalidateMoney } from "@/lib/invalidate";
 import { payeeAutofillPatch } from "@/lib/payee-autofill";
 import type { PayeeAutofillSource, RegisterDraft } from "@/lib/payee-autofill";
-import { fieldsToAmount, focusOffset, transferCategoryEditable } from "@/lib/register-row";
+import { transferCarriesCategory } from "@znab/shared";
+import { fieldsToAmount, focusOffset } from "@/lib/register-row";
 import type { RegisterFields } from "@/lib/register-row";
 
 /** How many transactions the register loads at a time, newest first. */
@@ -202,7 +203,7 @@ export function useAccountRegister({
   function transferKeepsCategory(transferAccountId: number | null) {
     return (
       transferAccountId === null ||
-      transferCategoryEditable(
+      transferCarriesCategory(
         account,
         accounts?.find((a) => a.id === transferAccountId)
       )

@@ -4,6 +4,7 @@ import { TRPCError, type inferRouterOutputs } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { budgets, categoryGroups, householdSplitSettings } from "@znab/db";
 import { assertBudgetAccess, type AuthedContext } from "../lib/authz";
+import { fromCents, toCents } from "@znab/shared";
 import { computeBudgetMonth } from "../lib/budget-math";
 import { computeHouseholdSplit } from "../lib/household-split";
 import { loadBudgetInputs } from "./budget";
@@ -44,13 +45,13 @@ async function personMonth(ctx: AuthedContext, budgetId: number, month: string) 
   let masterCents = 0;
   for (const group of groups) {
     for (const cat of group.categories) {
-      masterCents += Math.round((categories.get(cat.id)?.budgeted ?? 0) * 100);
+      masterCents += toCents(categories.get(cat.id)?.budgeted);
     }
   }
 
   return {
     income: summary.income,
-    master: masterCents / 100,
+    master: fromCents(masterCents),
   };
 }
 

@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { fromCents, toCents } from "@znab/shared";
 import { formatCurrency, formatDateShort } from "@/lib/utils";
 
 /** A selected row, as much of it as the panel has to list or reason about. */
@@ -69,7 +70,7 @@ export function RegisterBulkPanel({
   const [confirming, setConfirming] = useState(false);
 
   const count = `${rows.length} transaction${rows.length === 1 ? "" : "s"}`;
-  const total = rows.reduce((sum, r) => sum + Number(r.amount), 0);
+  const total = fromCents(rows.reduce((sum, r) => sum + toCents(r.amount), 0));
   const categorisable = rows.filter((r) => r.canCategorise).length;
   const reconciled = rows.filter((r) => r.cleared === "Reconciled").length;
   const transfers = rows.filter((r) => r.isTransfer).length;

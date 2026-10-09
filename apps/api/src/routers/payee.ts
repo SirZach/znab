@@ -10,7 +10,7 @@ import {
   scheduledTransactions,
   categories,
 } from "@znab/db";
-import { PAYEE_RENAME_OPERATORS, type PayeeRenameOperator } from "@znab/shared";
+import { moneySchema, PAYEE_RENAME_OPERATORS, type PayeeRenameOperator } from "@znab/shared";
 import { assertBudgetAccess, type AuthedContext } from "../lib/authz";
 
 /**
@@ -406,9 +406,7 @@ export const payeeRouter = router({
         budgetId: z.number().int().positive(),
         id: z.number().int().positive(),
         categoryId: z.number().int().positive().nullable(),
-        // The column is numeric(12,2), and a value past its ceiling is refused
-        // by Postgres itself, which surfaces as a raw driver error.
-        amount: z.number().min(-9_999_999_999.99).max(9_999_999_999.99).nullable(),
+        amount: moneySchema.nullable(),
         memo: z.string().max(500).nullable(),
       })
     )

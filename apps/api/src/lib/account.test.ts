@@ -7,7 +7,7 @@ import {
   startingBalanceCategory,
   STARTING_BALANCE_PAYEE_NAME,
 } from "./account";
-import { IMMEDIATE_INCOME } from "./budget-math";
+import { IMMEDIATE_INCOME } from "@znab/shared";
 
 /** The kinds of account the rules distinguish, named the way they read. */
 const onCash = { onBudget: true, accountType: "Checking" };

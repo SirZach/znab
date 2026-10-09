@@ -23,7 +23,12 @@ import { eq, getTableColumns, inArray, sql, type SQL } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@znab/db";
 import { db } from "@znab/db";
-import { FLAG_COLORS, isSpecialCategoryId, PAYEE_RENAME_OPERATORS } from "@znab/shared";
+import {
+  FLAG_COLORS,
+  isSpecialCategoryId,
+  PAYEE_RENAME_OPERATORS,
+  SPLIT_CATEGORY_ID,
+} from "@znab/shared";
 import path from "node:path";
 import { isSystemGroupYnabId } from "../lib/category";
 import { assertMirrorable, knownYnabIds, planMirrorDeletes, type MirrorRows } from "../lib/ynab4-mirror";
@@ -401,7 +406,7 @@ export async function importBudgetData(
       isTransfer: !!t.transferTransactionId,
       transferAccountId: t.targetAccountId ? accountYnabToId.get(t.targetAccountId) ?? null : null,
       transferTransactionId: t.transferTransactionId ?? null,
-      isSplit: t.categoryId === "Category/__Split__",
+      isSplit: t.categoryId === SPLIT_CATEGORY_ID,
       dateFromSchedule: t.dateEnteredFromSchedule ?? null,
       // YNAB leaves the flag out while there is none, which is every
       // transaction these budgets hold, so only a mirror takes it over a flag
@@ -430,7 +435,7 @@ export async function importBudgetData(
     const live = new Set<string>();
     liveSubs.set(parentId, live);
     // A transaction that is no longer a split keeps no sub-transactions
-    if (t.categoryId !== "Category/__Split__") continue;
+    if (t.categoryId !== SPLIT_CATEGORY_ID) continue;
     for (const sub of t.subTransactions ?? []) {
       if (sub.isTombstone) continue;
       live.add(sub.entityId);

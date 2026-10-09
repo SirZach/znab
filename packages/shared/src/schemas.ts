@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneySchema } from "./money";
 import {
   ACCOUNT_TYPES,
   ASSIGNABLE_CLEARED_VALUES,
@@ -16,7 +17,7 @@ export const createTransactionSchema = z.object({
   payeeId: z.number().int().positive().nullable(),
   payeeName: z.string().min(1).optional(), // create payee on the fly
   categoryId: z.number().int().positive().nullable(),
-  amount: z.number(), // positive = inflow, negative = outflow
+  amount: moneySchema, // positive = inflow, negative = outflow
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   // Not Reconciled: see ASSIGNABLE_CLEARED_VALUES. Reconciling an account is
   // what sets that, so entering a row cannot claim it.
@@ -47,7 +48,7 @@ export const createScheduledTransactionSchema = z.object({
   payeeId: z.number().int().positive().nullable(),
   payeeName: z.string().min(1).optional(), // create payee on the fly
   categoryId: z.number().int().positive().nullable(),
-  amount: z.number(), // positive = inflow, negative = outflow
+  amount: moneySchema, // positive = inflow, negative = outflow
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   frequency: z.enum(FREQUENCY_VALUES),
   // Only TwiceAMonth reads this, and only the first day of the pair: the second
@@ -69,7 +70,7 @@ export const updateScheduledTransactionSchema = createScheduledTransactionSchema
 export const setBudgetedSchema = z.object({
   categoryId: z.number().int().positive(),
   month: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // always first of month
-  budgeted: z.number(),
+  budgeted: moneySchema,
 });
 
 // ─── Account ─────────────────────────────────────────────────────────────────
@@ -90,7 +91,7 @@ export const createAccountSchema = z.object({
 // rather than quietly entering money nobody asked for.
 export const reconcileAccountSchema = z.object({
   accountId: z.number().int().positive(),
-  statementBalance: z.number(),
+  statementBalance: moneySchema,
   statementDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   adjustment: z.boolean().default(false),
 });
@@ -120,11 +121,3 @@ export const accountRegisterSearchSchema = z.object({
   // register from elsewhere (a category's Spent list).
   txn: z.number().int().positive().optional(),
 });
-
-export type CreateTransaction = z.infer<typeof createTransactionSchema>;
-export type UpdateTransaction = z.infer<typeof updateTransactionSchema>;
-export type CreateScheduledTransaction = z.infer<typeof createScheduledTransactionSchema>;
-export type UpdateScheduledTransaction = z.infer<typeof updateScheduledTransactionSchema>;
-export type SetBudgeted = z.infer<typeof setBudgetedSchema>;
-export type CreateAccount = z.infer<typeof createAccountSchema>;
-export type ReconcileAccount = z.infer<typeof reconcileAccountSchema>;

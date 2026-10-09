@@ -5,7 +5,7 @@
  * tested, on their own.
  */
 
-import { IMMEDIATE_INCOME } from "./budget-math";
+import { IMMEDIATE_INCOME, isCreditAccountType } from "@znab/shared";
 
 /** The payee YNAB 4 files an account's opening balance under. */
 export const STARTING_BALANCE_PAYEE_NAME = "Starting Balance";
@@ -22,16 +22,9 @@ export const PRE_YNAB_DEBT_GROUP_NAME = "Pre-YNAB Debt";
 export const preYnabDebtCategoryYnabId = (accountYnabId: string): string =>
   `Category/PreYNABDebt/${accountYnabId}`;
 
-/**
- * The account types the budget treats as debt rather than money in hand, which
- * is what separates credit overspending from cash overspending. Kept in step
- * with the CASE in the budget router's activity query.
- */
-export const CREDIT_ACCOUNT_TYPES = ["CreditCard", "OtherLiability"] as const;
-
-/** Which side of that split an account type falls, in the words the user sees. */
+/** Whether an account type holds debt or cash, in the words the user sees. */
 export const accountClass = (accountType: string): "credit" | "cash" =>
-  (CREDIT_ACCOUNT_TYPES as readonly string[]).includes(accountType) ? "credit" : "cash";
+  isCreditAccountType(accountType) ? "credit" : "cash";
 
 /**
  * Where an account's opening balance is filed. Money already sitting in an

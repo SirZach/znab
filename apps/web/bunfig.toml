@@ -1,0 +1,4 @@
+[test]
+# happy-dom has to be on the globals before React or Testing Library load, so it
+# is its own preload, ahead of the one that imports them.
+preload = ["./test/happydom.ts", "./test/setup.ts"]

@@ -10,6 +10,7 @@
 
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { SPLIT_CATEGORY_ID } from "@znab/shared";
 
 // ─── YNAB 4 entity shapes (the fields the importer reads) ─────────────────────
 
@@ -515,7 +516,7 @@ export function staleSubTransactionIds(
 export function splitScheduleDescriptions(data: Pick<YfullFile, "payees" | "scheduledTransactions">): string[] {
   const payeeNames = new Map(data.payees.map((p) => [p.entityId, p.name]));
   return data.scheduledTransactions
-    .filter((st) => !st.isTombstone && st.categoryId === "Category/__Split__")
+    .filter((st) => !st.isTombstone && st.categoryId === SPLIT_CATEGORY_ID)
     .map((st) => {
       const payee = (st.payeeId && payeeNames.get(st.payeeId)) || "(no payee)";
       return `${payee} ${st.amount.toFixed(2)} ${st.frequency} from ${st.date}`;

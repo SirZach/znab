@@ -473,7 +473,9 @@ export const budgetRouter = router({
       await assertBudgetAccess(ctx, input.budgetId);
       await assertCategoryInBudget(ctx, input.categoryId, input.budgetId);
 
-      const handling = input.confined ? "Confined" : null;
+      // The setting carries forward to later months, so turning it off has to
+      // be recorded explicitly rather than cleared back to null.
+      const handling = input.confined ? "Confined" : "AffectsBuffer";
 
       await ctx.db
         .insert(monthlyBudgets)

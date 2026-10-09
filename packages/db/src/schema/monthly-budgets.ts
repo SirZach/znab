@@ -18,7 +18,7 @@ export const monthlyBudgets = pgTable(
     // Always first-of-month: 2023-09-01
     month: date("month").notNull(),
     budgeted: numeric("budgeted", { precision: 12, scale: 2 }).notNull().default("0"),
-    // null | "Confined"
+    // null (same as last month) | "Confined" | "AffectsBuffer"
     overspendingHandling: text("overspending_handling"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

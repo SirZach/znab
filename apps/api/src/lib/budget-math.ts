@@ -72,7 +72,10 @@ const zeroSummary = (month: string): MonthSummary => ({
 });
 
 type Activity = { credit: number; cash: number };
-type Budgeted = { budgeted: number; confined: boolean };
+// `handling` is YNAB 4's raw per-month flag: "Confined", "AffectsBuffer" or
+// null. YNAB 4 only writes it in the month it was toggled, so null means "same
+// as last month" and the setting carries forward until changed.
+type Budgeted = { budgeted: number; handling: string | null };
 
 /**
  * One category's month-end roll-up (cents). `balance` is the raw end-of-month
@@ -85,7 +88,12 @@ type Budgeted = { budgeted: number; confined: boolean };
  * self-funding debt. Cash overspend is cash outflows beyond those funds, capped
  * at the month-end deficit. "Confined" overspending never hits TBB.
  */
-function rollCategory(prior: number, b: Budgeted | undefined, act: Activity | undefined) {
+function rollCategory(
+  prior: number,
+  b: Budgeted | undefined,
+  act: Activity | undefined,
+  confined: boolean
+) {
   const budgeted = b?.budgeted ?? 0;
   const credit = act?.credit ?? 0;
   const cash = act?.cash ?? 0;
@@ -95,7 +103,7 @@ function rollCategory(prior: number, b: Budgeted | undefined, act: Activity | un
   const funds = Math.max(prior, 0) + budgeted + (cash > 0 ? cash : 0) + (credit > 0 ? credit : 0);
   const deficit = balance < 0 ? -balance : 0;
   const rawCashOverspend = Math.min(Math.max(cashOut - funds, 0), deficit);
-  const cashOverspend = b?.confined ? 0 : rawCashOverspend;
+  const cashOverspend = confined ? 0 : rawCashOverspend;
 
   // Classify by funding source, before "Confined" is applied: confining changes
   // who absorbs the overspending, not what paid for it.
@@ -135,7 +143,7 @@ export function computeBudgetMonth(args: {
     let m = budgetedByMonth.get(r.month);
     if (!m) budgetedByMonth.set(r.month, (m = new Map()));
     const amt = cents(r.budgeted);
-    m.set(r.categoryId, { budgeted: amt, confined: r.overspendingHandling === "Confined" });
+    m.set(r.categoryId, { budgeted: amt, handling: r.overspendingHandling });
     budgetedTotal.set(r.month, (budgetedTotal.get(r.month) ?? 0) + amt);
   }
 
@@ -169,6 +177,7 @@ export function computeBudgetMonth(args: {
   }
 
   const balances = new Map<number, number>(); // categoryId -> carried cents
+  const confinedById = new Map<number, boolean>(); // sticky overspending handling
   let available = 0; // To-be-Budgeted carried into the current month
   let prevCashOverspent = 0;
 
@@ -179,6 +188,9 @@ export function computeBudgetMonth(args: {
     const actM = activityByMonth.get(m);
     const budM = budgetedByMonth.get(m);
     const touched = new Set<number>([...(actM?.keys() ?? []), ...(budM?.keys() ?? [])]);
+    for (const [catId, b] of budM ?? []) {
+      if (b.handling) confinedById.set(catId, b.handling === "Confined");
+    }
 
     // Available(m) = Available(m-1) + Income(m) - Budgeted(m) - CashOverspent(m-1)
     const prevAvailable = available;
@@ -198,17 +210,18 @@ export function computeBudgetMonth(args: {
           activity: 0,
           available: bal / 100,
           overspendKind: bal < 0 ? "credit" : null,
-          confined: false,
+          confined: confinedById.get(catId) ?? false,
         });
       }
       for (const catId of touched) {
-        const r = rollCategory(balances.get(catId) ?? 0, budM?.get(catId), actM?.get(catId));
+        const confined = confinedById.get(catId) ?? false;
+        const r = rollCategory(balances.get(catId) ?? 0, budM?.get(catId), actM?.get(catId), confined);
         categories.set(catId, {
           budgeted: r.budgeted / 100,
           activity: r.activity / 100,
           available: r.balance / 100,
           overspendKind: r.overspendKind,
-          confined: budM?.get(catId)?.confined ?? false,
+          confined,
         });
       }
       return {
@@ -229,7 +242,8 @@ export function computeBudgetMonth(args: {
     // deducted on the next iteration.
     let cashOverspent = 0;
     for (const catId of touched) {
-      const r = rollCategory(balances.get(catId) ?? 0, budM?.get(catId), actM?.get(catId));
+      const confined = confinedById.get(catId) ?? false;
+      const r = rollCategory(balances.get(catId) ?? 0, budM?.get(catId), actM?.get(catId), confined);
       cashOverspent += r.cashOverspend;
       balances.set(catId, r.balance + r.cashOverspend); // cash part hits TBB; debt carries
     }

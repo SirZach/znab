@@ -92,6 +92,30 @@ describe("computeBudgetMonth: overspending is classified by how it was funded", 
     expect(confined.summary.overspentPrev).toBe(0);
     expect(confined.categories.get(1)?.available).toBe(-50);
   });
+
+  test("confining carries into later months until it is turned off", () => {
+    const run = (targetMonth: string, extra: ReturnType<typeof budgeted>[] = []) =>
+      computeBudgetMonth({
+        income: [income("2026-01", 1000)],
+        budgeted: [budgeted("2026-01", 1, 0, true), ...extra],
+        activity: [
+          activity("2026-02", 1, { cash: -30 }),
+          activity("2026-03", 1, { cash: -20 }),
+        ],
+        targetMonth,
+      });
+
+    // Set in January only, so February's overspending is still confined.
+    const mar = run("2026-03");
+    expect(mar.summary.overspentPrev).toBe(0);
+    expect(mar.categories.get(1)).toMatchObject({ available: -50, confined: true });
+
+    // Turned off in March: March's overspending hits April's To-be-Budgeted.
+    const off = { ...budgeted("2026-03", 1, 0), overspendingHandling: "AffectsBuffer" };
+    const apr = run("2026-04", [off]);
+    expect(apr.summary.overspentPrev).toBe(20);
+    expect(apr.categories.get(1)).toMatchObject({ available: -30, confined: false });
+  });
 });
 
 describe("computeBudgetMonth: money committed to later months", () => {

@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { sql, eq, and, isNull } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { budgets, accounts, transactions } from "@znab/db";
 import { assertBudgetAccess } from "../lib/authz";
+import { IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
 
 const TIMEFRAMES = ["all", "thisYear", "last12", "last4Years"] as const;
 
@@ -33,15 +35,6 @@ type IncomeVsExpensePoint = {
   net: number;
 };
 
-/**
- * The two categories YNAB 4 files income under. They are not rows in the
- * category table, so a transaction points at them by ynab id alone, which is
- * why income has to be named here rather than joined to. Fixed ids out of the
- * export rather than anything a caller supplies, so they are written straight
- * into the statement.
- */
-const IS_INCOME = sql`category_ynab_id IN ('Category/__ImmediateIncome__', 'Category/__DeferredIncome__')`;
-
 export const reportRouter = router({
   // Who a budget paid, over a timeframe.
   //
@@ -64,31 +57,9 @@ export const reportRouter = router({
 
       const rows = (await ctx.db.execute(sql`
         WITH spend AS (
-          SELECT t.payee_id, t.category_id, t.amount
-          FROM transactions t
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND t.category_id IS NOT NULL
-            AND t.payee_id IS NOT NULL
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
-          UNION ALL
-          SELECT t.payee_id, s.category_id, s.amount
-          FROM sub_transactions s
-          JOIN transactions t ON t.id = s.transaction_id
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND s.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND s.category_id IS NOT NULL
-            AND t.payee_id IS NOT NULL
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+          SELECT payee_id, category_id, amount
+          FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
+          WHERE category_id IS NOT NULL AND payee_id IS NOT NULL
         )
         SELECT p.id AS "payeeId",
                p.name AS "payee",
@@ -135,33 +106,8 @@ export const reportRouter = router({
 
       const rows = (await ctx.db.execute(sql`
         WITH moved AS (
-          SELECT t.date,
-                 t.amount,
-                 t.category_ynab_id,
-                 t.category_id
-          FROM transactions t
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
-          UNION ALL
-          SELECT t.date,
-                 s.amount,
-                 s.category_ynab_id,
-                 s.category_id
-          FROM sub_transactions s
-          JOIN transactions t ON t.id = s.transaction_id
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND s.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+          SELECT d AS date, amount, category_ynab_id, category_id
+          FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
         )
         SELECT to_char(date_trunc('month', moved.date), 'YYYY-MM') AS "month",
                COALESCE(SUM(moved.amount) FILTER (WHERE ${IS_INCOME}), 0) AS "income",
@@ -235,29 +181,9 @@ export const reportRouter = router({
       // that category look 5,668.73 cheaper than it was.
       const rows = (await ctx.db.execute(sql`
         WITH spend AS (
-          SELECT t.category_id, t.amount
-          FROM transactions t
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND t.category_id IS NOT NULL
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
-          UNION ALL
-          SELECT s.category_id, s.amount
-          FROM sub_transactions s
-          JOIN transactions t ON t.id = s.transaction_id
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND s.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND s.category_id IS NOT NULL
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+          SELECT category_id, amount
+          FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
+          WHERE category_id IS NOT NULL
         )
         SELECT c.id AS "categoryId",
                c.name AS "category",
@@ -305,7 +231,7 @@ export const reportRouter = router({
       const budget = await ctx.db.query.budgets.findFirst({
         where: and(eq(budgets.id, input.budgetId), eq(budgets.userId, ctx.user.id)),
       });
-      if (!budget) throw new Error("Budget not found");
+      if (!budget) throw new TRPCError({ code: "NOT_FOUND", message: "Budget not found" });
 
       // Sum of transaction amounts per account per month. Only at most
       // (#accounts * #months) rows come back, so no need to pull raw rows.

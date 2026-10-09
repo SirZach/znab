@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import type { RegisterSort, SortDirection } from "@znab/shared";
 import { formatDateISO } from "@/lib/utils";
 import { trpc } from "@/trpc";
+import { invalidateMoney } from "@/lib/invalidate";
 import { payeeAutofillPatch } from "@/lib/payee-autofill";
 import type { PayeeAutofillSource, RegisterDraft } from "@/lib/payee-autofill";
 import { fieldsToAmount, focusOffset, transferCategoryEditable } from "@/lib/register-row";
@@ -122,45 +123,14 @@ export function useAccountRegister({
   // stand-in payee is not worth offering in its own register.
   const payeeList = allPayees?.filter((p) => p.targetAccountId !== accountId);
 
-  // Entering or clearing a transaction changes the category's activity, so the
-  // budget grid is stale too — not just this register.
-  function invalidateRegister() {
-    return Promise.all([
-      utils.account.transactions.invalidate(),
-      utils.budget.monthBudget.invalidate(),
-      // The rows behind a category's Spent, which has to keep adding up to it.
-      utils.budget.categoryTransactions.invalidate(),
-      // Net Worth reads month-end balances straight from the transactions, and
-      // an edit can now move money in a month that has long since closed.
-      utils.report.netWorth.invalidate(),
-      // Entering a payee by name makes one, and reconciling makes the payee it
-      // files a balance adjustment under, so the payee lists go stale too.
-      utils.payee.list.invalidate(),
-      utils.payee.listForManage.invalidate(),
-      // The account row carries the sidebar's balance and what this register's
-      // header says was last reconciled, so leaving it alone left a finished
-      // reconciliation looking like it had not happened.
-      utils.account.list.invalidate(),
-    ]);
-  }
-
-  // Entering or skipping an occurrence does everything a register write does
-  // and moves the schedule on as well, so what lists the schedules goes stale
-  // alongside the register itself.
-  function invalidateSchedules() {
-    return Promise.all([
-      invalidateRegister(),
-      utils.scheduledTransaction.upcoming.invalidate(),
-      utils.scheduledTransaction.list.invalidate(),
-    ]);
-  }
+  const invalidateRegister = () => invalidateMoney(utils);
 
   const enterScheduledMutation = trpc.scheduledTransaction.enter.useMutation({
-    onSuccess: invalidateSchedules,
+    onSuccess: invalidateRegister,
   });
 
   const skipScheduledMutation = trpc.scheduledTransaction.skip.useMutation({
-    onSuccess: invalidateSchedules,
+    onSuccess: invalidateRegister,
   });
 
   const setClearedMutation = trpc.transaction.setClearedStatus.useMutation({

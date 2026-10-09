@@ -513,6 +513,9 @@ function AccountRegisterPage() {
           }
         />
         <RegisterSearch
+          // The route stays mounted across accounts, so a fresh box per account
+          // drops the last account's text and its pending search.
+          key={accountId}
           value={q ?? ""}
           matches={q ? matches : null}
           total={counts.all}

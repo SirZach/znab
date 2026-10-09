@@ -1,3 +1,4 @@
+import { invalidateMoney } from "@/lib/invalidate";
 import { trpc } from "@/trpc";
 import type { AccountType } from "@znab/shared";
 
@@ -22,60 +23,21 @@ export function useAccounts({ budgetId }: { budgetId: number }) {
 
   const { data, isLoading } = trpc.account.list.useQuery({ budgetId });
 
-  // An account carries a transfer payee that mirrors its name, so opening,
-  // renaming or removing one leaves every list a payee is picked from stale as
-  // well as the account lists themselves.
-  const invalidateLists = () =>
-    Promise.all([
-      utils.account.list.invalidate(),
-      utils.payee.list.invalidate(),
-      utils.payee.listForManage.invalidate(),
-    ]);
+  // An account carries a transfer payee named after it, a starting balance is a
+  // transaction, and on budget or account type changes feed the budget engine,
+  // so every account write can move money or names shown beside it.
+  const invalidate = () => invalidateMoney(utils);
 
-  // A register prints that transfer payee's name on every transfer row, so a
-  // rename leaves the registers stale too.
-  const invalidateEverywhere = () =>
-    Promise.all([invalidateLists(), utils.account.transactions.invalidate()]);
-
-  const createMutation = trpc.account.create.useMutation({
-    onSuccess: () =>
-      Promise.all([
-        invalidateLists(),
-        // A starting balance is a transaction: on a budget account it is income
-        // waiting to be budgeted, and either way it moves net worth.
-        utils.budget.monthBudget.invalidate(),
-        utils.budget.categoryTransactions.invalidate(),
-        utils.report.netWorth.invalidate(),
-        // Opening a credit account in the red also mints the pre-YNAB debt
-        // category that balance is filed under. Every list that reads
-        // categories today drops system ones, so nothing would show it stale,
-        // but that is the readers being incurious rather than a guarantee.
-        utils.category.list.invalidate(),
-      ]),
-  });
+  const createMutation = trpc.account.create.useMutation({ onSuccess: invalidate });
 
   // Renaming happens in the list and the rest is edited in the panel, so they
   // get a mutation each: one write's error has no business turning up beside
   // the other's controls.
-  const renameMutation = trpc.account.update.useMutation({
-    onSuccess: invalidateEverywhere,
-  });
-  const updateMutation = trpc.account.update.useMutation({
-    onSuccess: invalidateLists,
-  });
-
-  // Closing, reopening and reordering only move an account around the lists
-  // this query feeds, the sidebar included.
-  const hiddenMutation = trpc.account.setHidden.useMutation({
-    onSuccess: () => utils.account.list.invalidate(),
-  });
-  const reorderMutation = trpc.account.reorder.useMutation({
-    onSuccess: () => utils.account.list.invalidate(),
-  });
-
-  const deleteMutation = trpc.account.delete.useMutation({
-    onSuccess: invalidateLists,
-  });
+  const renameMutation = trpc.account.update.useMutation({ onSuccess: invalidate });
+  const updateMutation = trpc.account.update.useMutation({ onSuccess: invalidate });
+  const hiddenMutation = trpc.account.setHidden.useMutation({ onSuccess: invalidate });
+  const reorderMutation = trpc.account.reorder.useMutation({ onSuccess: invalidate });
+  const deleteMutation = trpc.account.delete.useMutation({ onSuccess: invalidate });
 
   return {
     accounts: data ?? [],

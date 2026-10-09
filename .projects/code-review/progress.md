@@ -13,6 +13,7 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 3. Commit, `git merge --no-ff` into `task/code-quality-review`, delete the temp branch, push the review branch.
 4. Update the Phases table and Fix log here as part of the phase branch.
 5. The user manually tests the review branch at the end before it goes to main.
+6. The user approved running all phases back to back (2026-10-09); continue to the next pending phase without asking.
 
 ## Baseline (2026-10-09)
 - `bun test`: 258 pass, 0 fail (16 files)
@@ -32,7 +33,7 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 | # | Scope | Status |
 |---|-------|--------|
 | 1 | Tooling: scripts, Biome, route tree and lockfile, deps, tsconfig, docs | merged 2026-10-09 |
-| 2 | Bugs 1 to 10 in summary.md, each with a test | pending |
+| 2 | Bugs 1 to 10 in summary.md, each with a test | merged 2026-10-09 |
 | 3 | Router test harness, shared money and domain module | pending |
 | 4 | API extractions: budgetProcedure, writeTransferPair, payee find-or-create, on-budget SQL, indexes | pending |
 | 5 | Frontend primitives and central invalidation | pending |
@@ -48,3 +49,17 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 - README and SETUP refreshed. Small lint fixes with no behavior change.
 - Left for the user: stray root files `znab_rebuild_plan.docx` and `.migration/`. Deferred: ESLint react-hooks `set-state-in-effect` (Biome lacks it), drizzle snapshot gap (L3), types-only API entry (M3).
 - Verified: `bun run check` green (258 tests), `bun run build` green.
+
+### Phase 2 (bugs)
+- 1: API "today" now `localToday()` in `lib/date.ts` (server local date) everywhere.
+- 2: Central `lib/invalidate.ts` (`invalidateMoney`, `invalidateBudgeting`) replaces the hand-written lists in all hooks; invalidates whole routers.
+- 3: One `lib/find-or-create-payee.ts` (trim, case-insensitive match, never matches a transfer payee) used by all six call sites; `transaction.create` runs in one db transaction.
+- 4: One `lib/money-source.ts` on-budget money query used by budget and all reports. Reports now count categorized transfers (on-budget to tracking), like the budget page. Report totals rise (budget 1 Spending by Category all time 1,037,913.94 to 1,597,956.46). Verified category totals equal budget page activity, 0 mismatches.
+- 5: Missing budget throws NOT_FOUND in `budget.byId`, `budget.monthBudget`, `report.netWorth`.
+- 6: `category.list` usage counts scoped to the budget.
+- 7: All Accounts honors sort direction, defaults to date newest first (single account register still defaults oldest first). Logic in `lib/register-sort.ts`.
+- 8: Register search keyed on account, pending timer cleared on unmount.
+- 9: NEEDS DECISION. Schema has no scheduled split table; importer now warns per split schedule instead of dropping silently. Dev DB has none today.
+- 10: No change. No bank file import exists, so payee rename rules have nowhere to apply yet.
+- Not unit tested yet (needs phase 3 harness): `findOrCreatePayee`, `transaction.create` wrapping. Verified against dev DB in a rolled-back transaction instead.
+- Verified: `bun run check` green (282 tests), `bun run build` green.

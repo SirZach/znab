@@ -172,19 +172,22 @@ export const categoryRouter = router({
             },
           },
         }),
+        // Scoped to this budget's categories rather than by each table's
+        // budget_id, so a count here always equals the one `remove` refuses on.
         ctx.db.execute(sql`
+          WITH mine AS (SELECT id FROM categories WHERE budget_id = ${input.budgetId})
           SELECT "categoryId", SUM(n)::int AS used FROM (
             SELECT category_id AS "categoryId", count(*) AS n
-              FROM monthly_budgets WHERE category_id IS NOT NULL GROUP BY category_id
+              FROM monthly_budgets WHERE category_id IN (SELECT id FROM mine) GROUP BY category_id
             UNION ALL
             SELECT category_id, count(*)
-              FROM transactions WHERE category_id IS NOT NULL GROUP BY category_id
+              FROM transactions WHERE category_id IN (SELECT id FROM mine) GROUP BY category_id
             UNION ALL
             SELECT category_id, count(*)
-              FROM sub_transactions WHERE category_id IS NOT NULL GROUP BY category_id
+              FROM sub_transactions WHERE category_id IN (SELECT id FROM mine) GROUP BY category_id
             UNION ALL
             SELECT category_id, count(*)
-              FROM scheduled_transactions WHERE category_id IS NOT NULL GROUP BY category_id
+              FROM scheduled_transactions WHERE category_id IN (SELECT id FROM mine) GROUP BY category_id
           ) x GROUP BY "categoryId"
         `) as unknown as Promise<{ categoryId: number; used: number }[]>,
       ]);

@@ -820,9 +820,22 @@ function AdjustButton({
               className="w-20 text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 py-0.5 tabular-nums"
             />
           </div>
-          <Button size="sm" className="h-7" onClick={() => onApply(typed)}>
-            {op === "+" ? "Add" : "Subtract"}
-          </Button>
+          <div className="flex justify-end gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-muted-foreground"
+              onClick={() => {
+                onOpenChange(false);
+                setTyped("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" className="h-7" onClick={() => onApply(typed)}>
+              {op === "+" ? "Add" : "Subtract"}
+            </Button>
+          </div>
         </div>
       </PopoverContent>
     </Popover>

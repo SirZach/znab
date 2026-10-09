@@ -121,7 +121,10 @@ export function computeBudgetMonth(args: {
   const activityByMonth = new Map<string, Map<number, Activity>>();
   for (const r of activity) {
     let m = activityByMonth.get(r.month);
-    if (!m) activityByMonth.set(r.month, (m = new Map()));
+    if (!m) {
+      m = new Map();
+      activityByMonth.set(r.month, m);
+    }
     m.set(r.categoryId, { credit: cents(r.credit), cash: cents(r.cash) });
   }
 
@@ -129,7 +132,10 @@ export function computeBudgetMonth(args: {
   const budgetedTotal = new Map<string, number>();
   for (const r of budgeted) {
     let m = budgetedByMonth.get(r.month);
-    if (!m) budgetedByMonth.set(r.month, (m = new Map()));
+    if (!m) {
+      m = new Map();
+      budgetedByMonth.set(r.month, m);
+    }
     const amt = cents(r.budgeted);
     m.set(r.categoryId, { budgeted: amt, handling: r.overspendingHandling });
     budgetedTotal.set(r.month, (budgetedTotal.get(r.month) ?? 0) + amt);

@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { budgetSearchSchema } from "@znab/shared";
-import { type MonthSummary } from "@/trpc";
+import type { MonthSummary } from "@/trpc";
 import { useBudgetMonths } from "@/hooks/useBudgetMonths";
 import { useBudgetPage } from "@/hooks/useBudgetPage";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -40,7 +40,6 @@ function BudgetPage() {
   if (!month) {
     return (
       <MonthPicker
-        budgetId={budgetId}
         months={availableMonths}
         onSelect={(m) => navigate({ search: { month: m } })}
       />
@@ -549,6 +548,7 @@ function GoalDot({
           ? `Goal ${pct}% funded, ${formatCurrency(goal.underFunded)} short this month`
           : `Goal ${pct}% funded, on track`
       }
+      role="img"
       aria-label={`Goal ${pct} percent funded`}
       className={cn(
         "inline-block size-2 rounded-full shrink-0",
@@ -850,16 +850,12 @@ function AdjustButton({
 // ─── Month picker (shown when no ?month param) ────────────────────────────────
 
 function MonthPicker({
-  budgetId,
   months,
   onSelect,
 }: {
-  budgetId: string;
   months: string[];
   onSelect: (month: string) => void;
 }) {
-  const navigate = useNavigate({ from: Route.fullPath });
-
   // Group months by year
   const byYear = months.reduce<Record<string, string[]>>((acc, m) => {
     const year = m.slice(0, 4);

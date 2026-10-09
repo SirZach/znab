@@ -16,6 +16,27 @@ function setup() {
 }
 
 describe("RegisterSearch", () => {
+  test("follows a URL change it did not send, such as Back", () => {
+    const { rerender, box, onSearch } = setup();
+    const next = (value: string) => (
+      <RegisterSearch value={value} matches={null} total={10} onSearch={onSearch} />
+    );
+
+    rerender(next("rent"));
+    expect(box).toHaveProperty("value", "rent");
+    rerender(next(""));
+    expect(box).toHaveProperty("value", "");
+  });
+
+  test("keeps text typed after a search once the URL catches up with it", async () => {
+    const { rerender, user, box, onSearch } = setup();
+
+    await user.type(box, "rent{Enter}");
+    await user.type(box, "al");
+    rerender(<RegisterSearch value="rent" matches={null} total={10} onSearch={onSearch} />);
+    expect(box).toHaveProperty("value", "rental");
+  });
+
   test("a word typed in a burst is one search, sent once typing settles", async () => {
     const { user, onSearch, box } = setup();
 

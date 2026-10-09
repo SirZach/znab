@@ -54,7 +54,7 @@ export function AutofillSection({
         ))}
       </FieldSelect>
 
-      {initial.savedCategoryHidden && categoryId === "" && (
+      {autofillDraft(payee, categoryOptions).savedCategoryHidden && categoryId === "" && (
         <p className="text-xs text-muted-foreground">
           This payee&apos;s saved category is hidden, so saving clears it.
         </p>

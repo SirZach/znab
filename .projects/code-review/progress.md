@@ -36,8 +36,8 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 | 2 | Bugs 1 to 10 in summary.md, each with a test | merged 2026-10-09 |
 | 3 | Router test harness, shared money and domain module | merged 2026-10-09 |
 | 4 | API extractions: budgetProcedure, writeTransferPair, payee find-or-create, on-budget SQL, indexes | merged 2026-10-09 |
-| 5 | Frontend primitives and central invalidation | in progress on `task/cqr-phase5-primitives`: stage A (primitives in components/common, components split, report layout) committed; stage B (routes split, primitives adopted) committed as 8502ac5; cleanup pass (move shared pieces to common, LinkCard, useButtonType on, one component per file sweep) running, then review and merge |
-| 6 | File splits, useAccountRegister split, report layout | combined with phase 5 stage B (route files adopt primitives and split in one pass to save tokens); report layout done in stage A |
+| 5 | Frontend primitives and central invalidation | merged 2026-10-09 (with phase 6) |
+| 6 | File splits, useAccountRegister split, report layout | merged 2026-10-09 (with phase 5) |
 
 ## Fix log
 ### Phase 1 (tooling)
@@ -83,3 +83,15 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 - Dead columns kept, owner decision: `transactions.check_number`, `imported_payee`, `ynab_import_id`, `date_from_schedule` (written, never read); `budgets.currency`, `date_locale`, `budget_type`; `categories.cached_balance`; `accounts.last_entered_check_num`.
 - Small behavior changes: `moveMoney` checks access before argument checks; reorder error text unified.
 - Verified: `bun run check` green (shared 37, api 167, web 115, test:db 40), `bun run build` green.
+
+### Phases 5 and 6 (frontend primitives, file splits)
+- Shared primitives in `apps/web/src/components/common/` (see `primitives-guide.md`): fields, MoneyInput, ActionButton, IconButton, SidePanel*, ConfirmDialog, PageHeader, CenteredMessage, ErrorList, NameInput, InlineName, ReorderArrows, LabeledField, LinkCard, SegmentedControl, StatRow. Tokens `--success`, `--warning`, `--chart-1..4`; Button size `xs`.
+- Reports share `ReportLayout`, `TimeframeToggle`, `SummaryStat`, `lib/chart.ts`.
+- Every route split to one component per file under `components/<feature>/`. Route lines: `$accountId` 1006 to 428, budget grid 906 to 26, budget layout 351 to 46, scheduled 798 to 154, payees 718 to 175, accounts 701 to 111, categories 533 to 148, balancing 299 to 95.
+- `useAccountRegister` replaced by `useRegisterPages` (render-time page reset, no effect), `useRegisterLookups`, `useRegisterWrites`, `useReconcile`, `useRegisterUpcoming`, `useRegisterSelection`.
+- Logic moved to tested lib modules: `register-edit`, `register-bulk`, `row-selection` (used by register and budget grid), `budget-grid`, `schedule-draft`, `payees`, `accounts`, `category-groups`, `category-options`, `reorder`, `require-user` (login check as `beforeLoad`), `reports`.
+- BudgetedCell prop-to-state effect removed. All Accounts filters, sort and page live in the URL (`allAccountsSearchSchema`); search uses replace history; clicking the sidebar All Accounts link clears filters.
+- Biome `a11y/useButtonType` back on; `noLabelWithoutControl` knows the field components.
+- Review (findings/f-phase5-review.md): no class, handler or hook regressions; two minor issues fixed (search box follows Back, payee autofill hidden-category note recomputed).
+- Not done: shared payee/category picker comboboxes (scheduled pickers are local, could move to common); `useInfiniteQuery` for the register needs an API cursor.
+- Verified: `bun run check` green (shared 40, api 167, web 289, test:db 40), `bun run build` green.

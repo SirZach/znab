@@ -22,7 +22,7 @@ export type InspectedCategory = {
   budgeted: number;
   activity: number;
   available: number;
-  overspendKind: "cash" | "credit" | null;
+  overspendKind: "cash" | "confined" | null;
   confined: boolean;
   goal: CategoryGoal | null;
 };
@@ -179,7 +179,7 @@ export function CategoryInspector({
             emphasis
             tone={
               category.available < 0
-                ? category.overspendKind === "credit"
+                ? category.overspendKind === "confined"
                   ? "warn"
                   : "danger"
                 : category.available > 0
@@ -189,9 +189,9 @@ export function CategoryInspector({
           />
           {category.available < 0 && (
             <p className="text-xs text-muted-foreground pt-1">
-              {category.overspendKind === "credit"
-                ? "Overspent on credit. This carries as debt and does not reduce next month's To be Budgeted."
-                : "Overspent in cash. This comes out of next month's To be Budgeted."}
+              {category.overspendKind === "confined"
+                ? "Overspending is confined to this category. It carries forward and does not reduce next month's To be Budgeted."
+                : "Overspent. This comes out of next month's To be Budgeted."}
             </p>
           )}
         </dl>

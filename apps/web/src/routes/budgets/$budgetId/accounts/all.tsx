@@ -65,7 +65,10 @@ function AllAccountsRegister() {
           matches={q ? data?.matches ?? 0 : null}
           total={data?.total ?? 0}
           onSearch={(next) =>
-            navigate({ search: (prev) => ({ ...prev, q: next || undefined, offset: 0 }) })
+            navigate({
+              search: (prev) => ({ ...prev, q: next || undefined, offset: 0 }),
+              replace: true,
+            })
           }
         />
         <ClearedFilter

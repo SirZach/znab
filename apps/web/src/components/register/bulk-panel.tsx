@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -9,17 +8,14 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { fromCents, toCents } from "@znab/shared";
 import { formatCurrency, formatDateShort } from "@/lib/utils";
+import { ActionButton } from "@/components/common/action-button";
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { SidePanel } from "@/components/common/side-panel";
+import { SidePanelHeader } from "@/components/common/side-panel-header";
+import { SidePanelSection } from "@/components/common/side-panel-section";
 
 /** A selected row, as much of it as the panel has to list or reason about. */
 export type BulkRow = {
@@ -76,23 +72,15 @@ export function RegisterBulkPanel({
   const transfers = rows.filter((r) => r.isTransfer).length;
 
   return (
-    <aside className="w-80 shrink-0 border-l border-border bg-card overflow-y-auto">
-      <div className="flex items-start justify-between gap-2 px-4 py-3 border-b border-border">
-        <div className="min-w-0">
-          <h3 className="font-semibold">{count} selected</h3>
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {formatCurrency(total)} between them
-          </p>
-        </div>
-        <button
-          onClick={onClear}
-          aria-label="Clear selection"
-          title="Clear the selection and go back to opening rows for editing"
-          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <X size={15} />
-        </button>
-      </div>
+    <SidePanel>
+      <SidePanelHeader
+        title={`${count} selected`}
+        subtitle={`${formatCurrency(total)} between them`}
+        subtitleClassName="tabular-nums"
+        onClose={onClear}
+        closeLabel="Clear selection"
+        closeTitle="Clear the selection and go back to opening rows for editing"
+      />
 
       {(note ?? error) && (
         <div className="px-4 py-2 border-b border-border space-y-1">
@@ -101,10 +89,7 @@ export function RegisterBulkPanel({
         </div>
       )}
 
-      <section className="px-4 py-3 border-b border-border">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Categorise them
-        </h4>
+      <SidePanelSection title="Categorise them">
         <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
           <PopoverTrigger
             render={
@@ -147,22 +132,20 @@ export function RegisterBulkPanel({
             parts, and money moved between two budgeted accounts is categorised nowhere.
           </p>
         )}
-      </section>
+      </SidePanelSection>
 
-      <section className="px-4 py-3 border-b border-border">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Cleared
-        </h4>
+      <SidePanelSection title="Cleared">
         <div className="flex gap-2">
           {(["Cleared", "Uncleared"] as const).map((target) => (
-            <button
+            <ActionButton
               key={target}
+              variant="outline"
               onClick={() => onSetCleared(target)}
               disabled={isBusy}
-              className="flex-1 rounded border border-border px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50 transition-colors"
+              className="flex-1"
             >
               Mark {target.toLowerCase()}
-            </button>
+            </ActionButton>
           ))}
         </div>
         {reconciled > 0 && (
@@ -170,56 +153,42 @@ export function RegisterBulkPanel({
             {reconciled} of them are reconciled against a statement and stay as they are.
           </p>
         )}
-      </section>
+      </SidePanelSection>
 
-      <section className="px-4 py-3 border-b border-border">
-        <button
+      <SidePanelSection>
+        <ActionButton
+          variant="outline-danger"
           onClick={() => setConfirming(true)}
           disabled={isBusy}
-          className="w-full rounded border border-border px-2.5 py-1.5 text-sm text-muted-foreground hover:text-destructive hover:bg-accent disabled:opacity-50 transition-colors"
+          className="w-full"
         >
           Delete them
-        </button>
+        </ActionButton>
 
         {/* The same confirmation a single delete gets, for the same reason: none
             of this comes back from here, and a transfer takes the other
             account's row with it however many are going at once. */}
-        <Dialog open={confirming} onOpenChange={setConfirming}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Delete {count}?</DialogTitle>
-              <DialogDescription>
-                {formatCurrency(total)} between them.
-                {transfers > 0
-                  ? ` ${transfers} ${
-                      transfers === 1 ? "is a transfer" : "are transfers"
-                    }, so the matching transaction in the other account goes too.`
-                  : ""}{" "}
-                This cannot be undone here.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setConfirming(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  setConfirming(false);
-                  onDelete();
-                }}
-              >
-                Delete
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </section>
+        <ConfirmDialog
+          open={confirming}
+          onOpenChange={setConfirming}
+          title={<>Delete {count}?</>}
+          description={
+            <>
+              {formatCurrency(total)} between them.
+              {transfers > 0
+                ? ` ${transfers} ${
+                    transfers === 1 ? "is a transfer" : "are transfers"
+                  }, so the matching transaction in the other account goes too.`
+                : ""}{" "}
+              This cannot be undone here.
+            </>
+          }
+          confirmLabel="Delete"
+          onConfirm={onDelete}
+        />
+      </SidePanelSection>
 
-      <section className="px-4 py-3">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Selected
-        </h4>
+      <SidePanelSection title="Selected" bordered={false}>
         <ul className="space-y-1">
           {rows.map((r) => (
             <li key={r.id} className="flex justify-between gap-2 text-sm">
@@ -230,7 +199,7 @@ export function RegisterBulkPanel({
             </li>
           ))}
         </ul>
-      </section>
-    </aside>
+      </SidePanelSection>
+    </SidePanel>
   );
 }

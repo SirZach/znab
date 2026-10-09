@@ -8,7 +8,7 @@ import { SectionHeading } from "@/components/common/section-heading";
 import { SidePanel } from "@/components/common/side-panel";
 import { SidePanelHeader } from "@/components/common/side-panel-header";
 import { SidePanelSection } from "@/components/common/side-panel-section";
-import { LabeledField } from "@/components/accounts/labeled-field";
+import { LabeledField } from "@/components/common/labeled-field";
 import type { ManagedAccount } from "@/hooks/useAccounts";
 import {
   type AccountPatch,

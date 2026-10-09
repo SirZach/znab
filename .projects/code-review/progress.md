@@ -36,7 +36,7 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 | 2 | Bugs 1 to 10 in summary.md, each with a test | merged 2026-10-09 |
 | 3 | Router test harness, shared money and domain module | merged 2026-10-09 |
 | 4 | API extractions: budgetProcedure, writeTransferPair, payee find-or-create, on-budget SQL, indexes | merged 2026-10-09 |
-| 5 | Frontend primitives and central invalidation | in progress on `task/cqr-phase5-primitives`: stage A (primitives in components/common, components split, report layout) committed; stage B (routes) running, combined with phase 6 |
+| 5 | Frontend primitives and central invalidation | in progress on `task/cqr-phase5-primitives`: stage A (primitives in components/common, components split, report layout) committed; stage B (routes split, primitives adopted) committed as 8502ac5; cleanup pass (move shared pieces to common, LinkCard, useButtonType on, one component per file sweep) running, then review and merge |
 | 6 | File splits, useAccountRegister split, report layout | combined with phase 5 stage B (route files adopt primitives and split in one pass to save tokens); report layout done in stage A |
 
 ## Fix log

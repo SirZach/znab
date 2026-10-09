@@ -1,4 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { LinkCard } from "@/components/common/link-card";
 import { REPORTS } from "@/lib/reports";
 
 export const Route = createFileRoute("/budgets/$budgetId/reports/")({
@@ -19,11 +20,11 @@ function ReportsLauncherPage() {
         {REPORTS.map((report) => {
           const Icon = report.icon;
           return (
-            <Link
+            <LinkCard
               key={report.id}
               to="/budgets/$budgetId/reports/$reportId"
               params={{ budgetId, reportId: report.id }}
-              className="flex items-start gap-4 rounded-xl border border-border bg-card p-5 transition-all hover:border-primary hover:bg-accent"
+              className="flex items-start gap-4"
             >
               <div className="rounded-lg bg-primary/10 p-2.5 text-primary">
                 <Icon size={20} />
@@ -34,7 +35,7 @@ function ReportsLauncherPage() {
                   {report.description}
                 </div>
               </div>
-            </Link>
+            </LinkCard>
           );
         })}
       </div>

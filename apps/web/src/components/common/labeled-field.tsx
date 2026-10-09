@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * A schedule form field with its small label above. A native control goes in a
- * `label`; a popover trigger goes in a `div`, since it labels itself.
+ * A form control with its small muted label above it. A native control goes in
+ * a `label`; a popover trigger goes in a `div`, since it labels itself.
  */
 export function LabeledField({
   label,
@@ -11,7 +11,7 @@ export function LabeledField({
   className,
   children,
 }: {
-  label: string;
+  label: ReactNode;
   as?: "label" | "div";
   className?: string;
   children: ReactNode;

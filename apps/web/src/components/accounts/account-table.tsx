@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
-import { InlineName } from "@/components/categories/inline-name";
-import { ReorderArrows } from "@/components/categories/reorder-arrows";
+import { InlineName } from "@/components/common/inline-name";
+import { ReorderArrows } from "@/components/common/reorder-arrows";
 import type { ManagedAccount } from "@/hooks/useAccounts";
 import { accountSections, accountTypeLabel } from "@/lib/accounts";
 import { swapIds } from "@/lib/reorder";

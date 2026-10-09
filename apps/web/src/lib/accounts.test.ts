@@ -1,12 +1,43 @@
 import { describe, expect, test } from "bun:test";
 import { ACCOUNT_TYPES, isCreditAccountType } from "@znab/shared";
-import { accountPatch, accountSections, accountTypeLabel, accountTypeOptions } from "./accounts";
+import {
+  accountPatch,
+  accountSections,
+  accountTypeLabel,
+  accountTypeOptions,
+  groupAccounts,
+} from "./accounts";
 
 describe("accountTypeLabel", () => {
   test("spaces out the run-together types and leaves the rest", () => {
     expect(accountTypeLabel("CreditCard")).toBe("Credit Card");
     expect(accountTypeLabel("InvestmentAccount")).toBe("Investment");
     expect(accountTypeLabel("Checking")).toBe("Checking");
+  });
+});
+
+describe("groupAccounts", () => {
+  const account = (id: number, onBudget: boolean, hidden: boolean) => ({ id, onBudget, hidden });
+
+  test("files hidden accounts as closed whatever their kind, the rest by budgeting", () => {
+    const groups = groupAccounts([
+      account(1, true, false),
+      account(2, false, false),
+      account(3, true, true),
+      account(4, false, true),
+      account(5, true, false),
+    ]);
+    expect(groups.onBudgetAccounts.map((a) => a.id)).toEqual([1, 5]);
+    expect(groups.trackingAccounts.map((a) => a.id)).toEqual([2]);
+    expect(groups.closedAccounts.map((a) => a.id)).toEqual([3, 4]);
+  });
+
+  test("gives empty groups for no accounts", () => {
+    expect(groupAccounts([])).toEqual({
+      onBudgetAccounts: [],
+      trackingAccounts: [],
+      closedAccounts: [],
+    });
   });
 });
 

@@ -11,4 +11,5 @@ All in `apps/web/src/components/common/` unless noted. Rule: zero visual change.
 - `<SegmentedControl options value onChange variant="primary|subtle|pill" />`, `StatRow`.
 - Reports: `components/reports/report-layout.tsx`, `timeframe-toggle.tsx`, `summary-stat.tsx`, `lib/chart.ts`.
 - Tokens: `text-success`, `text-warning`, `--chart-1..4`.
-- After routes are typed, set biome `a11y/useButtonType` to error.
+- `<LabeledField label as="label|div">`, `<InlineName>`, `<ReorderArrows>`, `<LinkCard to params className>` (TanStack `createLink`).
+- Biome `a11y/useButtonType` is error; `noLabelWithoutControl` treats FieldInput/FieldSelect/MoneyInput as inputs.

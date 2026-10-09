@@ -30,7 +30,11 @@
         "noNonNullAssertion": "off"
       },
       "a11y": {
-        "useButtonType": "off",
+        "useButtonType": "error",
+        "noLabelWithoutControl": {
+          "level": "error",
+          "options": { "inputComponents": ["FieldInput", "FieldSelect", "MoneyInput"] }
+        },
         "noAutofocus": "off",
         "useKeyWithClickEvents": "off",
         "noStaticElementInteractions": "off",

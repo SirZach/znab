@@ -9,7 +9,7 @@
  * already writes `new Date(date + "T00:00:00")` to undo exactly that.
  */
 
-import type { FrequencyValue } from "@znab/shared";
+import { type FrequencyValue, isOneOff } from "@znab/shared";
 
 /** What the recurrence rules need of a scheduled transaction, and no more. */
 export type Recurrence = {
@@ -54,11 +54,6 @@ const MONTH_STEP: Partial<Record<FrequencyValue, number>> = {
  * asks only for the start day and puts the other occurrence half a month later.
  */
 const TWICE_A_MONTH_GAP = 15;
-
-/** A schedule that never comes round again: it happens once and is done. */
-export function isOneOff(frequency: FrequencyValue): boolean {
-  return frequency === "Once";
-}
 
 export function parseDate(iso: string): Civil {
   const [year, month, day] = iso.split("-").map(Number);

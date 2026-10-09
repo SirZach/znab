@@ -5,6 +5,7 @@ import { scheduledTransactions, transactions, payees, accounts } from "@znab/db"
 import {
   FREQUENCY_VALUES,
   createScheduledTransactionSchema,
+  isOneOff,
   updateScheduledTransactionSchema,
   type FrequencyValue,
 } from "@znab/shared";
@@ -15,7 +16,6 @@ import { findOrCreatePayee } from "../lib/find-or-create-payee";
 import { transferCategoryId, transferPayeeName, transferPayeeYnabId } from "../lib/transfer";
 import {
   addDays,
-  isOneOff,
   nextOccurrence,
   occurrencesThrough,
   parseDate,
@@ -615,7 +615,7 @@ export const scheduledTransactionRouter = router({
     .mutation(async ({ ctx, input }) => {
       return ctx.db.transaction(async (tx) => {
         const row = await loadScheduled(tx, ctx, input.id);
-        if (isOneOff(row.frequency as FrequencyValue)) {
+        if (isOneOff(row.frequency)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message:

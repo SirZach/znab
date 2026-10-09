@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment, useRef, useState } from "react";
 import { CalendarIcon, ChevronDown, ChevronUp, X } from "lucide-react";
-import { ACCOUNT_TYPES, type AccountType } from "@znab/shared";
+import { ACCOUNT_TYPES, type AccountType, isCreditAccountType } from "@znab/shared";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -34,10 +34,6 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
 
 const typeLabel = (accountType: string) =>
   ACCOUNT_TYPE_LABELS[accountType] ?? accountType;
-
-/** Whether a balance in this type of account is money owed rather than held. */
-const isCredit = (accountType: string) =>
-  accountType === "CreditCard" || accountType === "OtherLiability";
 
 const TRACKING_NOTE =
   "A tracking account is for money you do not budget, like a loan or an investment. Its balance counts towards net worth, but nothing in it is budgeted.";
@@ -538,7 +534,9 @@ function AccountInspector({
   // other side is left out of the picker rather than offered and then refused.
   const typeOptions = empty
     ? ACCOUNT_TYPES
-    : ACCOUNT_TYPES.filter((t) => isCredit(t) === isCredit(account.accountType));
+    : ACCOUNT_TYPES.filter(
+        (t) => isCreditAccountType(t) === isCreditAccountType(account.accountType)
+      );
 
   const patch = {
     accountType:

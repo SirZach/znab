@@ -34,7 +34,7 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 |---|-------|--------|
 | 1 | Tooling: scripts, Biome, route tree and lockfile, deps, tsconfig, docs | merged 2026-10-09 |
 | 2 | Bugs 1 to 10 in summary.md, each with a test | merged 2026-10-09 |
-| 3 | Router test harness, shared money and domain module | pending |
+| 3 | Router test harness, shared money and domain module | merged 2026-10-09 |
 | 4 | API extractions: budgetProcedure, writeTransferPair, payee find-or-create, on-budget SQL, indexes | pending |
 | 5 | Frontend primitives and central invalidation | pending |
 | 6 | File splits, useAccountRegister split, report layout | pending |
@@ -63,3 +63,12 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 - 10: No change. No bank file import exists, so payee rename rules have nowhere to apply yet.
 - Not unit tested yet (needs phase 3 harness): `findOrCreatePayee`, `transaction.create` wrapping. Verified against dev DB in a rolled-back transaction instead.
 - Verified: `bun run check` green (282 tests), `bun run build` green.
+
+### Phase 3 (test harnesses, shared module)
+- API harness: `apps/api/test/` (`harness.ts` `withCaller`, `seedBudget`), separate `znab_test` db in the docker Postgres, refuses any db not ending in `_test`. `bun run test:db` creates, migrates, runs 26 router tests; part of `bun run check`. Unit `bun run test` needs no db.
+- Web harness: `apps/web/test/` (happy-dom preload, `renderWithTrpc` with a fixture tRPC link, `renderRoute` for full routes). Component tests for register edit and reconcile (via full route), search, sort header, spending by payee.
+- Shared: `packages/shared/src/money.ts` (`toCents`, `fromCents`, `roundMoney`, `moneySchema`), `reconcile.ts` (`reconcileDifference({ statementBalance, clearedBalance })`), `rules.ts` (credit types, transfer category rule, `isOneOff`), constants in `types.ts`. Dead exports removed.
+- Behavior changes: money inputs with sub-cent precision or above NUMERIC(12,2) now return 400. Negative half cents round away from zero.
+- Gaps found: `category.remove` has no reassignment (refuses used categories). Impossible dates like 2025-02-30 pass validation and 500 in Postgres. Import idempotency test (item 13) deferred: needs `main()` split from `import-yfull.ts`.
+- Phase 6 input: register edit rules (`locksFor`, `fieldsFrom`, `EditCells`, `saveEdit`) are private to the 1008 line `$accountId.tsx`; extract them to make them unit testable.
+- Verified: `bun run check` green (shared 37, api 154, web 115, test:db 26), `bun run build` green.

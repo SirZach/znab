@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { budgetSearchSchema } from "@znab/shared";
+import { budgetSearchSchema, type OverspendKind } from "@znab/shared";
 import type { MonthSummary } from "@/trpc";
 import { useBudgetMonths } from "@/hooks/useBudgetMonths";
 import { useBudgetPage } from "@/hooks/useBudgetPage";
@@ -570,7 +570,7 @@ function AvailablePill({
   overspendKind,
 }: {
   amount: number;
-  overspendKind: "cash" | "confined" | null;
+  overspendKind: OverspendKind;
 }) {
   const tone =
     amount < 0

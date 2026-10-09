@@ -4,7 +4,6 @@ import {
   addMonths,
   daysBetween,
   daysInMonth,
-  isOneOff,
   nextOccurrence,
   occurrencesThrough,
   type Recurrence,
@@ -114,14 +113,6 @@ describe("daysBetween: two civil dates subtracted", () => {
 
   test("is negative the other way round", () => {
     expect(daysBetween("2026-09-18", "2026-09-17")).toBe(-1);
-  });
-});
-
-describe("isOneOff: only Once never comes round again", () => {
-  test("Once is the one", () => {
-    expect(isOneOff("Once")).toBe(true);
-    expect(isOneOff("Monthly")).toBe(false);
-    expect(isOneOff("TwiceAMonth")).toBe(false);
   });
 });
 

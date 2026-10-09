@@ -3,7 +3,6 @@ import {
   amountToFields,
   fieldsToAmount,
   focusOffset,
-  transferCategoryEditable,
   unsaveableReason,
 } from "./register-row";
 import type { RegisterFields } from "./register-row";
@@ -100,33 +99,6 @@ describe("fieldsToAmount: an entry it cannot read comes back as nothing", () => 
     expect(fieldsToAmount(money("-5", ""))).toBeNull();
     expect(fieldsToAmount(money("", "-5"))).toBeNull();
     expect(fieldsToAmount(money("20-25", ""))).toBeNull();
-  });
-});
-
-describe("transferCategoryEditable: only spending out of the budget is categorised", () => {
-  const onBudget = { onBudget: true };
-  const offBudget = { onBudget: false };
-
-  test("paying a tracking account from a budgeted one is spending, so it has a category", () => {
-    expect(transferCategoryEditable(onBudget, offBudget)).toBe(true);
-  });
-
-  test("moving money between two budgeted accounts spends nothing", () => {
-    expect(transferCategoryEditable(onBudget, onBudget)).toBe(false);
-  });
-
-  test("the off-budget side of that same pair carries no category either", () => {
-    expect(transferCategoryEditable(offBudget, onBudget)).toBe(false);
-  });
-
-  test("two tracking accounts are outside the budget entirely", () => {
-    expect(transferCategoryEditable(offBudget, offBudget)).toBe(false);
-  });
-
-  test("an account that has not loaded yet is not a category to edit", () => {
-    expect(transferCategoryEditable(undefined, offBudget)).toBe(false);
-    expect(transferCategoryEditable(onBudget, undefined)).toBe(false);
-    expect(transferCategoryEditable(undefined, undefined)).toBe(false);
   });
 });
 

@@ -29,6 +29,23 @@ export function RegisterSearch({
 }) {
   const [text, setText] = useState(value);
   const settle = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // The last search this box sent. When the URL changes to anything else (Back,
+  // a link), the box follows it; when it catches up with what was sent, the
+  // text being typed is left alone.
+  const sent = useRef(value);
+  const [seenValue, setSeenValue] = useState(value);
+  if (value !== seenValue) {
+    setSeenValue(value);
+    if (value !== sent.current) {
+      sent.current = value;
+      setText(value);
+    }
+  }
+
+  function send(next: string) {
+    sent.current = next;
+    onSearch(next);
+  }
 
   // A search still settling when the box goes away (another account, another
   // page) must not land in wherever the user went next.
@@ -37,13 +54,13 @@ export function RegisterSearch({
   function change(next: string) {
     setText(next);
     clearTimeout(settle.current);
-    settle.current = setTimeout(() => onSearch(next), SETTLE_MS);
+    settle.current = setTimeout(() => send(next), SETTLE_MS);
   }
 
   function clear() {
     clearTimeout(settle.current);
     setText("");
-    onSearch("");
+    send("");
   }
 
   return (
@@ -64,7 +81,7 @@ export function RegisterSearch({
             // empties the field, which is the quickest way back to the register.
             if (e.key === "Enter") {
               clearTimeout(settle.current);
-              onSearch(text);
+              send(text);
             }
             if (e.key === "Escape") clear();
           }}

@@ -1,36 +1,10 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { BarChart2, TrendingUp, Landmark, Store } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import { LinkCard } from "@/components/common/link-card";
+import { REPORTS } from "@/lib/reports";
 
 export const Route = createFileRoute("/budgets/$budgetId/reports/")({
   component: ReportsLauncherPage,
 });
-
-const REPORTS = [
-  {
-    id: "spending",
-    label: "Spending by Category",
-    description: "See where your money goes each month",
-    icon: BarChart2,
-  },
-  {
-    id: "spending-by-payee",
-    label: "Spending by Payee",
-    description: "See who your money goes to",
-    icon: Store,
-  },
-  {
-    id: "income-vs-expenses",
-    label: "Income vs. Expenses",
-    description: "Compare income and outflow over time",
-    icon: TrendingUp,
-  },
-  {
-    id: "net-worth",
-    label: "Net Worth",
-    description: "Track your net worth across all accounts",
-    icon: Landmark,
-  },
-] as const;
 
 function ReportsLauncherPage() {
   const { budgetId } = Route.useParams();
@@ -46,11 +20,11 @@ function ReportsLauncherPage() {
         {REPORTS.map((report) => {
           const Icon = report.icon;
           return (
-            <Link
+            <LinkCard
               key={report.id}
               to="/budgets/$budgetId/reports/$reportId"
               params={{ budgetId, reportId: report.id }}
-              className="flex items-start gap-4 rounded-xl border border-border bg-card p-5 transition-all hover:border-primary hover:bg-accent"
+              className="flex items-start gap-4"
             >
               <div className="rounded-lg bg-primary/10 p-2.5 text-primary">
                 <Icon size={20} />
@@ -61,7 +35,7 @@ function ReportsLauncherPage() {
                   {report.description}
                 </div>
               </div>
-            </Link>
+            </LinkCard>
           );
         })}
       </div>

@@ -264,22 +264,22 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
               return (
                 <Fragment key={group.id}>
                   {/* Group header, with the group's own totals */}
-                  <tr
-                    className="bg-muted/30 border-b border-border/50 cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => toggleGroup(group.id)}
-                  >
+                  <tr className="bg-muted/30 border-b border-border/50">
                     <td className="px-3 md:px-6 py-2 max-md:max-w-0">
-                      <button
-                        aria-expanded={!isCollapsed}
-                        aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.name}`}
-                        className="flex max-w-full items-center gap-1.5 font-semibold text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        <ChevronDown
-                          size={13}
-                          className={cn("shrink-0 transition-transform", isCollapsed && "-rotate-90")}
-                        />
+                      <div className="flex max-w-full items-center gap-1.5 font-semibold text-xs uppercase tracking-wider text-muted-foreground">
+                        <button
+                          aria-expanded={!isCollapsed}
+                          aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.name}`}
+                          onClick={() => toggleGroup(group.id)}
+                          className="shrink-0 hover:text-foreground transition-colors"
+                        >
+                          <ChevronDown
+                            size={13}
+                            className={cn("transition-transform", isCollapsed && "-rotate-90")}
+                          />
+                        </button>
                         <span className="max-md:truncate">{group.name}</span>
-                      </button>
+                      </div>
                     </td>
                     <td className="text-right px-2 md:px-4 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
                       {formatCurrency(totals.budgeted)}

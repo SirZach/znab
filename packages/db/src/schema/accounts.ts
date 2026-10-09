@@ -24,7 +24,11 @@ export const accounts = pgTable("accounts", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-}, (t) => [unique().on(t.ynabId, t.budgetId)]);
+}, (t) => [
+  // account_type has no CHECK: YNAB 4 knows more types than znab (Mortgage,
+  // LineOfCredit, ...), and the sync copies them as they come
+  unique().on(t.budgetId, t.ynabId),
+]);
 
 export const accountsRelations = relations(accounts, ({ one, many }) => ({
   budget: one(budgets, { fields: [accounts.budgetId], references: [budgets.id] }),

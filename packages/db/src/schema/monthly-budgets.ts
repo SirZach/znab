@@ -1,7 +1,8 @@
 import {
-  pgTable, serial, text, timestamp, integer, numeric, date, unique,
+  pgTable, serial, text, timestamp, integer, numeric, date, unique, check,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import { OVERSPENDING_HANDLING, oneOf } from "./checks";
 import { budgets } from "./budgets";
 import { categories } from "./categories";
 
@@ -24,7 +25,11 @@ export const monthlyBudgets = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (t) => [unique().on(t.categoryId, t.month), unique().on(t.ynabId, t.budgetId)]
+  (t) => [
+    unique().on(t.categoryId, t.month),
+    unique().on(t.budgetId, t.ynabId),
+    check("monthly_budgets_overspending_handling_check", oneOf(t.overspendingHandling, OVERSPENDING_HANDLING)),
+  ]
 );
 
 export const monthlyBudgetsRelations = relations(monthlyBudgets, ({ one }) => ({

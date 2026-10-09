@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, asc, count, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure } from "../trpc";
+import { router, budgetProcedure } from "../trpc";
 import {
   payees,
   payeeRenameRules,
@@ -11,22 +11,30 @@ import {
   categories,
 } from "@znab/db";
 import { moneySchema, PAYEE_RENAME_OPERATORS, type PayeeRenameOperator } from "@znab/shared";
-import { assertBudgetAccess, type AuthedContext } from "../lib/authz";
+import { ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import { countOf } from "../lib/plural";
+import type { Tx } from "../lib/tx";
 
 /**
- * Throws unless the payee is a live payee of that budget. `assertBudgetAccess`
- * proves the caller owns the budget they named, not that the payee id sent
- * alongside it lives there, so a payee from any other budget would otherwise be
- * renamed, merged or deleted by whoever could guess its id.
+ * Reads one live payee of the budget, locked for the rest of the transaction,
+ * the way `lockAccount` and `lockCategory` do. Owning the budget says nothing
+ * about the payee id sent alongside it, so a payee from any other budget would
+ * otherwise be renamed or deleted by whoever could guess its id; the lock keeps
+ * the checks that follow true until the write lands.
  */
-async function assertPayeeInBudget(ctx: AuthedContext, payeeId: number, budgetId: number) {
-  const payee = await ctx.db.query.payees.findFirst({
-    where: and(
-      eq(payees.id, payeeId),
-      eq(payees.budgetId, budgetId),
-      isNull(payees.deletedAt)
-    ),
-  });
+async function lockPayee(tx: Tx, ctx: AuthedContext, payeeId: number, budgetId: number) {
+  const [payee] = await tx
+    .select({ id: payees.id, name: payees.name, targetAccountId: payees.targetAccountId })
+    .from(payees)
+    .where(
+      and(
+        eq(payees.id, payeeId),
+        eq(payees.budgetId, budgetId),
+        isNull(payees.deletedAt),
+        inArray(payees.budgetId, ownedBudgetIds(ctx))
+      )
+    )
+    .for("update");
   if (!payee) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Payee not found" });
   }
@@ -55,11 +63,8 @@ export const payeeRouter = router({
   // The register's payee picker: live, enabled payees only, plus the autofill
   // defaults so choosing a payee can fill in category, amount and memo without
   // a second round trip.
-  list: protectedProcedure
-    .input(z.object({ budgetId: z.number().int().positive() }))
+  list: budgetProcedure
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       return ctx.db.query.payees.findMany({
         where: and(
           eq(payees.budgetId, input.budgetId),
@@ -82,16 +87,13 @@ export const payeeRouter = router({
   // budget. Usage totals come back from one grouped join and the rename rules
   // from one more query, stitched together here: a per-payee count query would
   // be a thousand round trips for a screen that opens once.
-  listForManage: protectedProcedure
+  listForManage: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         includeDisabled: z.boolean().default(false),
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const rows = await ctx.db
         .select({
           id: payees.id,
@@ -162,53 +164,52 @@ export const payeeRouter = router({
   // shouting in capitals). A name already in use is refused rather than allowed
   // to create a second payee nobody can tell apart, since what that user wants
   // is a merge.
-  rename: protectedProcedure
+  rename: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         id: z.number().int().positive(),
         // The column is unbounded text, so the ceiling has to come from here.
         name: z.string().max(200),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const name = input.name.trim();
       if (!name) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Payee name cannot be empty" });
       }
 
-      const payee = await assertPayeeInBudget(ctx, input.id, input.budgetId);
-      assertNotTransfer(payee, "renamed");
+      return ctx.db.transaction(async (tx) => {
+        const payee = await lockPayee(tx, ctx, input.id, input.budgetId);
+        assertNotTransfer(payee, "renamed");
 
-      const clash = await ctx.db.query.payees.findFirst({
-        where: and(
-          eq(payees.budgetId, input.budgetId),
-          isNull(payees.deletedAt),
-          ne(payees.id, input.id),
-          // Trimmed on both sides: the imported list carries names stored with
-          // trailing spaces ("Hilton "), and comparing those against a trimmed
-          // input would wave through the exact duplicate this check exists to
-          // stop.
-          sql`lower(trim(${payees.name})) = ${name.toLowerCase()}`
-        ),
-        columns: { id: true, name: true },
-      });
-      if (clash) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: `"${clash.name}" already exists. Merge the two payees instead.`,
+        const clash = await tx.query.payees.findFirst({
+          where: and(
+            eq(payees.budgetId, input.budgetId),
+            isNull(payees.deletedAt),
+            ne(payees.id, input.id),
+            // Trimmed on both sides: the imported list carries names stored
+            // with trailing spaces ("Hilton "), and comparing those against a
+            // trimmed input would wave through the exact duplicate this check
+            // exists to stop.
+            sql`lower(trim(${payees.name})) = ${name.toLowerCase()}`
+          ),
+          columns: { id: true, name: true },
         });
-      }
+        if (clash) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `"${clash.name}" already exists. Merge the two payees instead.`,
+          });
+        }
 
-      const [updated] = await ctx.db
-        .update(payees)
-        .set({ name, updatedAt: new Date() })
-        .where(and(eq(payees.id, input.id), eq(payees.budgetId, input.budgetId)))
-        .returning({ id: payees.id, name: payees.name });
+        const [updated] = await tx
+          .update(payees)
+          .set({ name, updatedAt: new Date() })
+          .where(and(eq(payees.id, payee.id), eq(payees.budgetId, input.budgetId)))
+          .returning({ id: payees.id, name: payees.name });
 
-      return updated!;
+        return updated!;
+      });
     }),
 
   // Folding duplicates into one payee. Every table that names a payee is
@@ -216,10 +217,9 @@ export const payeeRouter = router({
   // leave half the history on a payee the other half has stopped using. Rows
   // that are themselves soft deleted move too, so nothing is left pointing at a
   // payee that has been merged away.
-  merge: protectedProcedure
+  merge: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         // Capped well under Postgres' bind parameter limit: a longer list
         // fails inside the driver, which reports it by echoing the whole query.
         sourceIds: z.array(z.number().int().positive()).min(1).max(500),
@@ -227,8 +227,6 @@ export const payeeRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const sourceIds = [...new Set(input.sourceIds)];
       if (sourceIds.includes(input.targetId)) {
         throw new TRPCError({
@@ -251,7 +249,8 @@ export const payeeRouter = router({
               isNull(payees.deletedAt),
               inArray(payees.id, [input.targetId, ...sourceIds])
             )
-          );
+          )
+          .for("update");
 
         const byId = new Map(involved.map((p) => [p.id, p]));
         for (const id of [input.targetId, ...sourceIds]) {
@@ -322,66 +321,62 @@ export const payeeRouter = router({
   // one that is still in use would leave its transactions showing a blank payee
   // with no way back, which is worse than refusing: merging is the operation
   // that keeps the history.
-  delete: protectedProcedure
+  delete: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         id: z.number().int().positive(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-      const payee = await assertPayeeInBudget(ctx, input.id, input.budgetId);
-      assertNotTransfer(payee, "deleted");
-
-      const [txnRefs, subRefs, scheduledRefs] = await Promise.all([
-        ctx.db
-          .select({ value: count() })
-          .from(transactions)
-          .where(and(eq(transactions.payeeId, input.id), isNull(transactions.deletedAt))),
-        ctx.db
-          .select({ value: count() })
-          .from(subTransactions)
-          .where(
-            and(eq(subTransactions.payeeId, input.id), isNull(subTransactions.deletedAt))
-          ),
-        ctx.db
-          .select({ value: count() })
-          .from(scheduledTransactions)
-          .where(
-            and(
-              eq(scheduledTransactions.payeeId, input.id),
-              isNull(scheduledTransactions.deletedAt)
-            )
-          ),
-      ]);
-
-      const references =
-        Number(txnRefs[0]!.value) +
-        Number(subRefs[0]!.value) +
-        Number(scheduledRefs[0]!.value);
-      if (references > 0) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: `"${payee.name}" is still used by ${references} transaction${
-            references === 1 ? "" : "s"
-          }. Merge it into another payee instead.`,
-        });
-      }
-
-      // The rename rules go with the payee, in the one transaction, and are
-      // deliberately not part of the reference count above: a rule is the
-      // payee's own configuration rather than history the way a transaction is.
-      // Left behind it would be invisible, since the manage screen only hangs
-      // rules off live payees, while still holding its operand against every
-      // other payee through the clash check in `addRenameRule`.
       return ctx.db.transaction(async (tx) => {
+        const payee = await lockPayee(tx, ctx, input.id, input.budgetId);
+        assertNotTransfer(payee, "deleted");
+
+        const [txnRefs, subRefs, scheduledRefs] = await Promise.all([
+          tx
+            .select({ value: count() })
+            .from(transactions)
+            .where(and(eq(transactions.payeeId, payee.id), isNull(transactions.deletedAt))),
+          tx
+            .select({ value: count() })
+            .from(subTransactions)
+            .where(
+              and(eq(subTransactions.payeeId, payee.id), isNull(subTransactions.deletedAt))
+            ),
+          tx
+            .select({ value: count() })
+            .from(scheduledTransactions)
+            .where(
+              and(
+                eq(scheduledTransactions.payeeId, payee.id),
+                isNull(scheduledTransactions.deletedAt)
+              )
+            ),
+        ]);
+
+        const references =
+          Number(txnRefs[0]!.value) +
+          Number(subRefs[0]!.value) +
+          Number(scheduledRefs[0]!.value);
+        if (references > 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `"${payee.name}" is still used by ${countOf(references, "transaction")}. Merge it into another payee instead.`,
+          });
+        }
+
+        // The rename rules go with the payee and are deliberately not part of
+        // the reference count above: a rule is the payee's own configuration
+        // rather than history the way a transaction is. Left behind it would
+        // be invisible, since the manage screen only hangs rules off live
+        // payees, while still holding its operand against every other payee
+        // through the clash check in `addRenameRule`.
         await tx
           .update(payeeRenameRules)
           .set({ deletedAt: new Date(), updatedAt: new Date() })
           .where(
             and(
-              eq(payeeRenameRules.payeeId, input.id),
+              eq(payeeRenameRules.payeeId, payee.id),
               eq(payeeRenameRules.budgetId, input.budgetId),
               isNull(payeeRenameRules.deletedAt)
             )
@@ -390,7 +385,7 @@ export const payeeRouter = router({
         const [deleted] = await tx
           .update(payees)
           .set({ deletedAt: new Date(), updatedAt: new Date() })
-          .where(and(eq(payees.id, input.id), eq(payees.budgetId, input.budgetId)))
+          .where(and(eq(payees.id, payee.id), eq(payees.budgetId, input.budgetId)))
           .returning({ id: payees.id });
 
         return deleted!;
@@ -400,10 +395,9 @@ export const payeeRouter = router({
   // The defaults a payee fills in on a new transaction. All three fields are
   // sent together and each is nullable, so clearing one is an ordinary save
   // rather than an operation of its own.
-  setAutofill: protectedProcedure
+  setAutofill: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         id: z.number().int().positive(),
         categoryId: z.number().int().positive().nullable(),
         amount: moneySchema.nullable(),
@@ -411,129 +405,126 @@ export const payeeRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-      await assertPayeeInBudget(ctx, input.id, input.budgetId);
+      return ctx.db.transaction(async (tx) => {
+        const payee = await lockPayee(tx, ctx, input.id, input.budgetId);
 
-      // A category from another budget would autofill transactions with an
-      // envelope this budget cannot even show.
-      if (input.categoryId !== null) {
-        const category = await ctx.db.query.categories.findFirst({
-          where: and(
-            eq(categories.id, input.categoryId),
-            eq(categories.budgetId, input.budgetId),
-            isNull(categories.deletedAt)
-          ),
-          columns: { id: true },
-        });
-        if (!category) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Category not found" });
+        // A category from another budget would autofill transactions with an
+        // envelope this budget cannot even show.
+        if (input.categoryId !== null) {
+          const category = await tx.query.categories.findFirst({
+            where: and(
+              eq(categories.id, input.categoryId),
+              eq(categories.budgetId, input.budgetId),
+              isNull(categories.deletedAt)
+            ),
+            columns: { id: true },
+          });
+          if (!category) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Category not found" });
+          }
         }
-      }
 
-      const [updated] = await ctx.db
-        .update(payees)
-        .set({
-          autofillCategoryId: input.categoryId,
-          // Money crosses the drizzle boundary as a string.
-          autofillAmount: input.amount === null ? null : String(input.amount),
-          autofillMemo: input.memo?.trim() || null,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(payees.id, input.id), eq(payees.budgetId, input.budgetId)))
-        .returning({
-          id: payees.id,
-          autofillCategoryId: payees.autofillCategoryId,
-          autofillAmount: payees.autofillAmount,
-          autofillMemo: payees.autofillMemo,
-        });
+        const [updated] = await tx
+          .update(payees)
+          .set({
+            autofillCategoryId: input.categoryId,
+            // Money crosses the drizzle boundary as a string.
+            autofillAmount: input.amount === null ? null : String(input.amount),
+            autofillMemo: input.memo?.trim() || null,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(payees.id, payee.id), eq(payees.budgetId, input.budgetId)))
+          .returning({
+            id: payees.id,
+            autofillCategoryId: payees.autofillCategoryId,
+            autofillAmount: payees.autofillAmount,
+            autofillMemo: payees.autofillMemo,
+          });
 
-      return updated!;
+        return updated!;
+      });
     }),
 
   // A rename rule teaches the importer that one bank string means one payee.
   // Two rules over the same text would make which payee wins depend on row
   // order, so the second one is refused.
-  addRenameRule: protectedProcedure
+  addRenameRule: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         payeeId: z.number().int().positive(),
         operator: z.enum(PAYEE_RENAME_OPERATORS),
         operand: z.string().max(500),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const operand = input.operand.trim();
       if (!operand) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Rule text cannot be empty" });
       }
 
-      await assertPayeeInBudget(ctx, input.payeeId, input.budgetId);
+      return ctx.db.transaction(async (tx) => {
+        const payee = await lockPayee(tx, ctx, input.payeeId, input.budgetId);
 
-      // Joined to payees so only a rule on a live payee can refuse this one.
-      // A rule stranded on a deleted payee has no screen that can clear it, so
-      // counting one would lock its operand away from the budget for good.
-      const [clash] = await ctx.db
-        .select({ id: payeeRenameRules.id })
-        .from(payeeRenameRules)
-        .innerJoin(payees, eq(payees.id, payeeRenameRules.payeeId))
-        .where(
-          and(
-            eq(payeeRenameRules.budgetId, input.budgetId),
-            isNull(payeeRenameRules.deletedAt),
-            isNull(payees.deletedAt),
-            eq(payeeRenameRules.operator, input.operator),
-            // Trimmed to match how the matcher compares, which ignores padding
-            // on both sides. One imported operand is stored with a leading tab,
-            // so an untrimmed check here would accept a second rule that
-            // behaves identically to the first.
-            sql`lower(trim(${payeeRenameRules.operand})) = ${operand.toLowerCase()}`
+        // Joined to payees so only a rule on a live payee can refuse this one.
+        // A rule stranded on a deleted payee has no screen that can clear it,
+        // so counting one would lock its operand away from the budget for good.
+        const [clash] = await tx
+          .select({ id: payeeRenameRules.id })
+          .from(payeeRenameRules)
+          .innerJoin(payees, eq(payees.id, payeeRenameRules.payeeId))
+          .where(
+            and(
+              eq(payeeRenameRules.budgetId, input.budgetId),
+              isNull(payeeRenameRules.deletedAt),
+              isNull(payees.deletedAt),
+              eq(payeeRenameRules.operator, input.operator),
+              // Trimmed to match how the matcher compares, which ignores
+              // padding on both sides. One imported operand is stored with a
+              // leading tab, so an untrimmed check here would accept a second
+              // rule that behaves identically to the first.
+              sql`lower(trim(${payeeRenameRules.operand})) = ${operand.toLowerCase()}`
+            )
           )
-        )
-        .limit(1);
-      if (clash) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: `A rule for "${operand}" already exists`,
-        });
-      }
+          .limit(1);
+        if (clash) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `A rule for "${operand}" already exists`,
+          });
+        }
 
-      // YNAB 4 calls these entities payeeStringCondition, so a rule authored
-      // here carries the same id shape as an imported one.
-      const [created] = await ctx.db
-        .insert(payeeRenameRules)
-        .values({
-          ynabId: `PayeeStringCondition/${crypto.randomUUID()}`,
-          budgetId: input.budgetId,
-          payeeId: input.payeeId,
-          operator: input.operator,
-          operand,
-        })
-        .returning({
-          id: payeeRenameRules.id,
-          payeeId: payeeRenameRules.payeeId,
-          operator: payeeRenameRules.operator,
-          operand: payeeRenameRules.operand,
-        });
+        // YNAB 4 calls these entities payeeStringCondition, so a rule authored
+        // here carries the same id shape as an imported one.
+        const [created] = await tx
+          .insert(payeeRenameRules)
+          .values({
+            ynabId: `PayeeStringCondition/${crypto.randomUUID()}`,
+            budgetId: input.budgetId,
+            payeeId: payee.id,
+            operator: input.operator,
+            operand,
+          })
+          .returning({
+            id: payeeRenameRules.id,
+            payeeId: payeeRenameRules.payeeId,
+            operator: payeeRenameRules.operator,
+            operand: payeeRenameRules.operand,
+          });
 
-      return created!;
+        return created!;
+      });
     }),
 
   // Soft delete, like everything else here, so a rule dropped by accident is
   // still on disk. The budget scope rides on the UPDATE itself, since a rule id
   // on its own says nothing about who owns it.
-  deleteRenameRule: protectedProcedure
+  deleteRenameRule: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         id: z.number().int().positive(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const [deleted] = await ctx.db
         .update(payeeRenameRules)
         .set({ deletedAt: new Date(), updatedAt: new Date() })

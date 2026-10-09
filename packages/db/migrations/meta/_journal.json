@@ -64,6 +64,13 @@
       "when": 1790384624377,
       "tag": "0008_handy_sasquatch",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791554560559,
+      "tag": "0009_indexes_and_checks",
+      "breakpoints": true
     }
   ]
 }

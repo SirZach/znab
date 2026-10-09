@@ -1,7 +1,9 @@
 import {
-  pgTable, serial, text, timestamp, integer, boolean, numeric, date, unique,
+  pgTable, serial, text, timestamp, integer, boolean, numeric, date, unique, check,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import { CLEARED_VALUES } from "@znab/shared";
+import { oneOf } from "./checks";
 import { budgets } from "./budgets";
 import { accounts } from "./accounts";
 import { categories } from "./categories";
@@ -38,7 +40,12 @@ export const scheduledTransactions = pgTable("scheduled_transactions", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-}, (t) => [unique().on(t.ynabId, t.budgetId)]);
+}, (t) => [
+  unique().on(t.budgetId, t.ynabId),
+  // frequency has no CHECK: the sync copies it from YNAB 4, which may send
+  // values outside FREQUENCY_VALUES
+  check("scheduled_transactions_cleared_check", oneOf(t.cleared, CLEARED_VALUES)),
+]);
 
 export const scheduledTransactionsRelations = relations(scheduledTransactions, ({ one }) => ({
   budget: one(budgets, { fields: [scheduledTransactions.budgetId], references: [budgets.id] }),

@@ -15,7 +15,7 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 ## Chunks
 | # | Scope | Output | Status |
 |---|-------|--------|--------|
-| A | apps/api/src/routers, index.ts, trpc.ts, context.ts | findings/a-api-routers.md | pending |
+| A | apps/api/src/routers, index.ts, trpc.ts, context.ts | findings/a-api-routers.md | done (2H 10M 9L) |
 | B | apps/api/src/lib, apps/api/src/scripts, packages/db, packages/shared | findings/b-api-lib-db.md | pending |
 | C | apps/web/src/routes | findings/c-web-routes.md | pending |
 | D | apps/web/src/components (non ui), hooks, lib, store, trpc.ts, main.tsx | findings/d-web-components.md | pending |

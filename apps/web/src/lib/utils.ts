@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { REPORT_TIMEFRAMES, type ReportTimeframe, roundMoney } from "@znab/shared";
+import { roundMoney } from "@znab/shared";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -14,38 +14,6 @@ export function formatCurrency(amount: string | number | null | undefined): stri
     currency: "USD",
   }).format(n);
 }
-
-/** A dollar amount short enough for a chart axis: "$1.2K". */
-export function formatCompactCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
-}
-
-/** "YYYY-MM" -> "MMM 'YY", for a chart axis. */
-export function formatMonthTick(month: string): string {
-  const [year = "", m = ""] = month.split("-");
-  const label = new Date(Number(year), Number(m) - 1, 1).toLocaleString("en-US", {
-    month: "short",
-  });
-  return `${label} '${year.slice(2)}`;
-}
-
-const REPORT_TIMEFRAME_LABELS: Record<ReportTimeframe, string> = {
-  all: "All Dates",
-  thisYear: "This Year",
-  last12: "Last 12 Months",
-  last4Years: "Last 4 Years",
-};
-
-/** The report timeframes in toggle order, with their labels. */
-export const REPORT_TIMEFRAME_OPTIONS = REPORT_TIMEFRAMES.map((value) => ({
-  value,
-  label: REPORT_TIMEFRAME_LABELS[value],
-}));
 
 /** Convert "MM/YYYY" (URL param) to "YYYY-MM-01" (DB date) */
 export function monthParamToDate(month: string): string {

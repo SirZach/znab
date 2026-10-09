@@ -18,18 +18,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AccountBalances } from "@/components/register/balances";
-import { ReconcilePanel, ReconcileSummary } from "@/components/register/reconcile-panel";
+import { AccountBalances } from "@/components/register/account-balances";
+import { ReconcilePanel } from "@/components/register/reconcile-panel";
+import { ReconcileSummary } from "@/components/register/reconcile-summary";
 import { UpcomingPanel } from "@/components/register/upcoming-panel";
 import { ClearedFilter } from "@/components/register/cleared-filter";
 import { RegisterSearch } from "@/components/register/register-search";
 import { SortHeader } from "@/components/register/sort-header";
 import { RegisterBulkPanel } from "@/components/register/bulk-panel";
-import {
-  FlagCell,
-  RegisterRowFields,
-  type RegisterRowLocks,
-} from "@/components/register/row-fields";
+import { FlagCell } from "@/components/register/flag-cell";
+import { RegisterRowFields, type RegisterRowLocks } from "@/components/register/row-fields";
 import {
   isReconciled,
   useAccountRegister,

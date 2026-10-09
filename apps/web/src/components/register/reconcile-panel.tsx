@@ -1,17 +1,11 @@
 import { useState } from "react";
-import { CalendarIcon, X } from "lucide-react";
+import { CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { BalanceFigure } from "@/components/register/balances";
+import { BalanceFigure } from "@/components/register/balance-figure";
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { MoneyInput } from "@/components/common/money-input";
 import { clearedBalanceAsOf, type ReconcilableRow, reconcileDifference } from "@znab/shared";
 import { coversStatement } from "@/lib/reconcile";
 import { cn, formatCurrency, formatDateISO, formatDateShort, parseAmountExpression } from "@/lib/utils";
@@ -22,9 +16,6 @@ export type ReconcileInput = {
   statementBalance: number;
   adjustment: boolean;
 };
-
-const statementInputClass =
-  "bg-transparent border-b border-border focus:outline-none focus:border-primary text-sm w-28 px-1 py-0.5 text-right tabular-nums";
 
 /**
  * Reconciling, in a panel rather than a dialog: the register rows behind it
@@ -140,18 +131,14 @@ export function ReconcilePanel({
             >
               Statement balance
             </label>
-            <input
+            <MoneyInput
               id="statement-balance"
-              // Text rather than a number input: these take arithmetic like
-              // `25+13`, the same as every other money field in the app.
-              type="text"
-              inputMode="decimal"
-              placeholder="0.00"
+              variant="underline"
               autoFocus
               value={statement}
               onChange={(e) => setStatement(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && onCancel()}
-              className={statementInputClass}
+              className="w-28 tabular-nums"
             />
           </div>
         </div>
@@ -209,6 +196,7 @@ export function ReconcilePanel({
             : "This statement closes before the oldest transaction loaded, so what has cleared since it is not all here yet."}{" "}
           {clearedFilter === "all" && (
             <button
+              type="button"
               onClick={onLoadOlder}
               disabled={isLoadingMore}
               className="underline hover:text-foreground disabled:opacity-50"
@@ -223,51 +211,21 @@ export function ReconcilePanel({
 
       {/* A difference the reader accepts is written as a transaction of its
           own, so it is asked about rather than entered on their behalf. */}
-      <Dialog open={confirming} onOpenChange={setConfirming}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>This statement does not agree</DialogTitle>
-            <DialogDescription>
-              A balance adjustment of {formatCurrency(figures?.difference ?? 0)} will be
-              entered to make the account agree with the statement, and everything ticked as
-              cleared will be marked reconciled.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setConfirming(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => finish(true)}>Enter adjustment</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-/** What the last reconciliation did, said once and dismissable. */
-export function ReconcileSummary({
-  result,
-  onDismiss,
-}: {
-  result: { reconciledCount: number; adjustmentAmount: number | null };
-  onDismiss: () => void;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 px-6 py-2 border-b border-border bg-accent/20">
-      <p className="text-xs text-muted-foreground">
-        Reconciled {result.reconciledCount}{" "}
-        {result.reconciledCount === 1 ? "transaction" : "transactions"}.
-        {result.adjustmentAmount !== null &&
-          ` A balance adjustment of ${formatCurrency(result.adjustmentAmount)} was entered.`}
-      </p>
-      <button
-        onClick={onDismiss}
-        aria-label="Dismiss"
-        className="text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <X size={14} />
-      </button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="This statement does not agree"
+        description={
+          <>
+            A balance adjustment of {formatCurrency(figures?.difference ?? 0)} will be
+            entered to make the account agree with the statement, and everything ticked as
+            cleared will be marked reconciled.
+          </>
+        }
+        confirmLabel="Enter adjustment"
+        variant="default"
+        onConfirm={() => finish(true)}
+      />
     </div>
   );
 }

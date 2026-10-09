@@ -17,6 +17,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, Plus, Minus } from "lucide-reac
 import { CategoryInspector } from "@/components/budget/category-inspector";
 import { BulkBudgetPanel } from "@/components/budget/bulk-budget-panel";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { format, addMonths, subMonths, parseISO } from "date-fns";
 
@@ -269,22 +270,22 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
               return (
                 <Fragment key={group.id}>
                   {/* Group header, with the group's own totals */}
-                  <tr
-                    className="bg-muted/30 border-b border-border/50 cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => toggleGroup(group.id)}
-                  >
+                  <tr className="bg-muted/30 border-b border-border/50">
                     <td className={cn("px-3 md:px-6 py-2 max-md:max-w-0", NAME_COL)}>
-                      <button
-                        aria-expanded={!isCollapsed}
-                        aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.name}`}
-                        className="flex max-w-full items-center gap-1.5 font-semibold text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        <ChevronDown
-                          size={13}
-                          className={cn("shrink-0 transition-transform", isCollapsed && "-rotate-90")}
-                        />
+                      <div className="flex max-w-full items-center gap-1.5 font-semibold text-xs uppercase tracking-wider text-muted-foreground">
+                        <button
+                          aria-expanded={!isCollapsed}
+                          aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.name}`}
+                          onClick={() => toggleGroup(group.id)}
+                          className="shrink-0 hover:text-foreground transition-colors"
+                        >
+                          <ChevronDown
+                            size={13}
+                            className={cn("transition-transform", isCollapsed && "-rotate-90")}
+                          />
+                        </button>
                         <span className="max-md:truncate">{group.name}</span>
-                      </button>
+                      </div>
                     </td>
                     <td className="text-right px-2 md:px-4 py-2 text-xs font-semibold tabular-nums text-muted-foreground">
                       {formatCurrency(totals.budgeted)}
@@ -560,20 +561,20 @@ function GoalDot({
 // ─── Available balance ────────────────────────────────────────────────────────
 
 /**
- * A category's month-end balance. YNAB 4 separates the two ways a category goes
- * negative: red when cash overspending will come out of next month's
- * To-be-Budgeted, amber when it is credit-card debt that will not.
+ * A category's month-end balance. Red when the overspending will come out of
+ * next month's To-be-Budgeted, amber when the category is confined and carries
+ * it forward instead.
  */
 function AvailablePill({
   amount,
   overspendKind,
 }: {
   amount: number;
-  overspendKind: "cash" | "credit" | null;
+  overspendKind: "cash" | "confined" | null;
 }) {
   const tone =
     amount < 0
-      ? overspendKind === "credit"
+      ? overspendKind === "confined"
         ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
         : "bg-destructive/15 text-destructive"
       : amount > 0
@@ -582,9 +583,9 @@ function AvailablePill({
 
   const title =
     amount < 0
-      ? overspendKind === "credit"
-        ? "Overspent on credit. Carried as debt, so it does not reduce next month's To be Budgeted"
-        : "Overspent in cash. This comes out of next month's To be Budgeted"
+      ? overspendKind === "confined"
+        ? "Overspending confined to this category. It carries forward and does not reduce next month's To be Budgeted"
+        : "Overspent. This comes out of next month's To be Budgeted"
       : undefined;
 
   return (
@@ -804,21 +805,42 @@ function AdjustButton({
           }
         }}
       >
-        <div className="flex items-center gap-1">
-          {/* Which of the two buttons was pressed, said again where the amount
-              is being typed, since the button itself is now behind a popup. */}
-          <span aria-hidden className="text-muted-foreground">
-            {op}
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-center">
+            {op === "+" ? "Amount to Add" : "Amount to Subtract"}
           </span>
-          <input
-            type="text"
-            inputMode="decimal"
-            aria-label={op === "+" ? "Amount to add" : "Amount to subtract"}
-            autoFocus
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            className="w-20 text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 py-0.5 tabular-nums"
-          />
+          <div className="flex items-center justify-end gap-1">
+            {/* Which of the two buttons was pressed, said again where the amount
+                is being typed, since the button itself is now behind a popup. */}
+            <span aria-hidden className="text-muted-foreground">
+              {op}
+            </span>
+            <input
+              type="text"
+              inputMode="decimal"
+              aria-label={op === "+" ? "Amount to add" : "Amount to subtract"}
+              autoFocus
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              className="w-20 text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 py-0.5 tabular-nums"
+            />
+          </div>
+          <div className="flex justify-end gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-muted-foreground"
+              onClick={() => {
+                onOpenChange(false);
+                setTyped("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" className="h-7" onClick={() => onApply(typed)}>
+              {op === "+" ? "Add" : "Subtract"}
+            </Button>
+          </div>
         </div>
       </PopoverContent>
     </Popover>

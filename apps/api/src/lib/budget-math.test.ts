@@ -34,7 +34,7 @@ describe("computeBudgetMonth: overspending is classified by how it was funded", 
     expect(categories.get(1)).toMatchObject({ available: -50, overspendKind: "cash" });
   });
 
-  test("the same overspend on a credit card is debt, not cash", () => {
+  test("the same overspend on a credit card is treated like cash", () => {
     const { categories } = computeBudgetMonth({
       income: [income("2026-01", 1000)],
       budgeted: [budgeted("2026-01", 1, 100)],
@@ -42,7 +42,7 @@ describe("computeBudgetMonth: overspending is classified by how it was funded", 
       targetMonth: "2026-01",
     });
 
-    expect(categories.get(1)).toMatchObject({ available: -50, overspendKind: "credit" });
+    expect(categories.get(1)).toMatchObject({ available: -50, overspendKind: "cash" });
   });
 
   test("a category in the black is not overspent", () => {
@@ -56,7 +56,7 @@ describe("computeBudgetMonth: overspending is classified by how it was funded", 
     expect(categories.get(1)).toMatchObject({ available: 60, overspendKind: null });
   });
 
-  test("cash overspending reduces the next month's To-be-Budgeted; credit does not", () => {
+  test("cash and credit overspending both reduce the next month's To-be-Budgeted", () => {
     const base = {
       income: [income("2026-01", 1000)],
       budgeted: [budgeted("2026-01", 1, 100)],
@@ -72,13 +72,11 @@ describe("computeBudgetMonth: overspending is classified by how it was funded", 
       activity: [activity("2026-01", 1, { credit: -150 })],
     });
 
-    expect(cash.summary.overspentPrev).toBe(50);
-    expect(credit.summary.overspentPrev).toBe(0);
-
-    // The cash shortfall is settled against To-be-Budgeted and the category
-    // starts clean; the credit shortfall carries as debt.
-    expect(cash.categories.get(1)).toMatchObject({ available: 0, overspendKind: null });
-    expect(credit.categories.get(1)).toMatchObject({ available: -50, overspendKind: "credit" });
+    // YNAB 4 settles both against To-be-Budgeted and starts the category clean.
+    for (const r of [cash, credit]) {
+      expect(r.summary.overspentPrev).toBe(50);
+      expect(r.categories.get(1)).toMatchObject({ available: 0, overspendKind: null });
+    }
   });
 
   test("confining overspending keeps it out of To-be-Budgeted but not off the books", () => {
@@ -91,6 +89,35 @@ describe("computeBudgetMonth: overspending is classified by how it was funded", 
 
     expect(confined.summary.overspentPrev).toBe(0);
     expect(confined.categories.get(1)?.available).toBe(-50);
+  });
+
+  test("confining carries into later months until it is turned off", () => {
+    const run = (targetMonth: string, extra: ReturnType<typeof budgeted>[] = []) =>
+      computeBudgetMonth({
+        income: [income("2026-01", 1000)],
+        budgeted: [budgeted("2026-01", 1, 0, true), ...extra],
+        activity: [
+          activity("2026-02", 1, { cash: -30 }),
+          activity("2026-03", 1, { cash: -20 }),
+        ],
+        targetMonth,
+      });
+
+    // Set in January only, so February's overspending is still confined.
+    const mar = run("2026-03");
+    expect(mar.summary.overspentPrev).toBe(0);
+    expect(mar.categories.get(1)).toMatchObject({
+      available: -50,
+      confined: true,
+      overspendKind: "confined",
+    });
+
+    // Turned off in March: the whole negative balance hits April's
+    // To-be-Budgeted and the category starts April clean.
+    const off = { ...budgeted("2026-03", 1, 0), overspendingHandling: "AffectsBuffer" };
+    const apr = run("2026-04", [off]);
+    expect(apr.summary.overspentPrev).toBe(50);
+    expect(apr.categories.get(1)).toMatchObject({ available: 0, confined: false });
   });
 });
 

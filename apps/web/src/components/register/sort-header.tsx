@@ -1,13 +1,11 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { RegisterSort, SortDirection } from "@znab/shared";
+import { nextSortDirection } from "@/lib/register-sort";
 import { cn } from "@/lib/utils";
 
 /**
- * A register column header that can be sorted by.
- *
- * Clicking the column already sorted turns it round; clicking another starts it
- * off ascending, except for the date, which starts newest first because asking
- * to sort a ledger by date almost always means wanting to see the recent end.
+ * A register column header that can be sorted by. The direction a click asks
+ * for is `nextSortDirection`, and `onSort` is handed it to apply as given.
  */
 export function SortHeader({
   column,
@@ -27,13 +25,7 @@ export function SortHeader({
   onSort: (column: RegisterSort, dir: SortDirection) => void;
 }) {
   const active = sort === column;
-  const next: SortDirection = active
-    ? dir === "asc"
-      ? "desc"
-      : "asc"
-    : column === "date"
-      ? "desc"
-      : "asc";
+  const next = nextSortDirection(column, sort, dir);
 
   return (
     <th

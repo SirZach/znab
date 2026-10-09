@@ -1,3 +1,4 @@
+import { invalidateMoney } from "@/lib/invalidate";
 import { trpc } from "@/trpc";
 
 /**
@@ -13,15 +14,9 @@ export function useCategories({ budgetId }: { budgetId: number }) {
 
   const { data, isLoading } = trpc.category.list.useQuery({ budgetId });
 
-  // The budget grid draws these same groups and categories in this same order,
-  // so a name, a move or a reorder leaves a month of it stale as well as the
-  // lists a category is picked from.
-  const invalidate = () =>
-    Promise.all([
-      utils.category.list.invalidate(),
-      utils.budget.monthBudget.invalidate(),
-      utils.budget.monthData.invalidate(),
-    ]);
+  // The budget grid, registers, reports and the household split all show these
+  // groups and categories, and a delete moves their transactions elsewhere.
+  const invalidate = () => invalidateMoney(utils);
 
   // One mutation per write: one write's refusal has no business turning up
   // beside another's controls.

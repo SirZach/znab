@@ -10,6 +10,8 @@ import {
 } from "@znab/shared";
 import { TRPCError } from "@trpc/server";
 import { assertBudgetAccess, assertIdsInBudget, ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import { localToday } from "../lib/date";
+import { findOrCreatePayee } from "../lib/find-or-create-payee";
 import { transferCategoryId, transferPayeeName, transferPayeeYnabId } from "../lib/transfer";
 import {
   addDays,
@@ -33,11 +35,6 @@ const MAX_CATCH_UP = 60;
 
 /** How far ahead the register looks by default, in days. */
 const DEFAULT_HORIZON_DAYS = 30;
-
-/** The server's own calendar day, the way the account router reads it. */
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 /**
  * TwiceAMonth is the only frequency that reads the start day, and YNAB 4 writes
@@ -407,7 +404,7 @@ export const scheduledTransactionRouter = router({
         orderBy: [asc(scheduledTransactions.date), asc(scheduledTransactions.id)],
       });
 
-      const asOf = today();
+      const asOf = localToday();
       return rows.map((row) => withDueness(row, asOf));
     }),
 
@@ -438,7 +435,7 @@ export const scheduledTransactionRouter = router({
         },
       });
 
-      const asOf = today();
+      const asOf = localToday();
       const through = addDays(asOf, input.days);
       const occurrences = rows.flatMap((row) =>
         occurrencesThrough(recurrenceOf(row), through, MAX_CATCH_UP).map((date) => ({
@@ -479,15 +476,7 @@ export const scheduledTransactionRouter = router({
 
         let payeeId = input.payeeId;
         if (!payeeId && input.payeeName) {
-          const [newPayee] = await tx
-            .insert(payees)
-            .values({
-              ynabId: `Payee/${crypto.randomUUID()}`,
-              budgetId: input.budgetId,
-              name: input.payeeName,
-            })
-            .returning();
-          payeeId = newPayee!.id;
+          payeeId = (await findOrCreatePayee(tx, input.budgetId, input.payeeName)) ?? payeeId;
         }
         await assertIdsInBudget(tx, input.budgetId, { payeeId });
         await assertNotSelfTransfer(tx, input.budgetId, payeeId, input.accountId);
@@ -538,15 +527,7 @@ export const scheduledTransactionRouter = router({
 
         let resolvedPayeeId = payeeId;
         if (resolvedPayeeId === undefined && payeeName) {
-          const [newPayee] = await tx
-            .insert(payees)
-            .values({
-              ynabId: `Payee/${crypto.randomUUID()}`,
-              budgetId: row.budgetId,
-              name: payeeName,
-            })
-            .returning();
-          resolvedPayeeId = newPayee!.id;
+          resolvedPayeeId = (await findOrCreatePayee(tx, row.budgetId, payeeName)) ?? resolvedPayeeId;
         }
 
         await assertNotSelfTransfer(
@@ -656,7 +637,7 @@ export const scheduledTransactionRouter = router({
     .input(z.object({ budgetId: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       await assertBudgetAccess(ctx, input.budgetId);
-      const asOf = today();
+      const asOf = localToday();
 
       return ctx.db.transaction(async (tx) => {
         const rows = await tx

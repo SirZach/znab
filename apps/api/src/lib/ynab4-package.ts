@@ -507,6 +507,21 @@ export function staleSubTransactionIds(
     .map((row) => row.id);
 }
 
+/**
+ * Live scheduled transactions YNAB 4 files as splits, described for a warning.
+ * znab has no table for scheduled split parts, so the import keeps only the
+ * parent row and entering it gives one uncategorised transaction.
+ */
+export function splitScheduleDescriptions(data: Pick<YfullFile, "payees" | "scheduledTransactions">): string[] {
+  const payeeNames = new Map(data.payees.map((p) => [p.entityId, p.name]));
+  return data.scheduledTransactions
+    .filter((st) => !st.isTombstone && st.categoryId === "Category/__Split__")
+    .map((st) => {
+      const payee = (st.payeeId && payeeNames.get(st.payeeId)) || "(no payee)";
+      return `${payee} ${st.amount.toFixed(2)} ${st.frequency} from ${st.date}`;
+    });
+}
+
 /** Loads a budget from either a `.ynab4` package or a flat `.yfull` file. */
 export async function loadBudget(source: string): Promise<{ data: YfullFile; summary: PackageSummary }> {
   if (source.endsWith(".yfull")) {

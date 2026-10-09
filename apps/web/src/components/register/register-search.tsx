@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,10 @@ export function RegisterSearch({
 }) {
   const [text, setText] = useState(value);
   const settle = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // A search still settling when the box goes away (another account, another
+  // page) must not land in wherever the user went next.
+  useEffect(() => () => clearTimeout(settle.current), []);
 
   function change(next: string) {
     setText(next);

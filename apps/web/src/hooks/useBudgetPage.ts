@@ -1,3 +1,4 @@
+import { invalidateBudgeting } from "@/lib/invalidate";
 import { trpc } from "@/trpc";
 
 export function useBudgetPage({
@@ -11,14 +12,7 @@ export function useBudgetPage({
 
   const { data, isLoading } = trpc.budget.monthBudget.useQuery({ budgetId, month });
 
-  // Budgeting in one month feeds every later month's carry-forward, so every
-  // cached month is stale after any of these, not just the one that was edited.
-  // The Quick Budget figures are derived from the same rows, so they go too.
-  const invalidateBudget = () =>
-    Promise.all([
-      utils.budget.monthBudget.invalidate(),
-      utils.budget.quickBudget.invalidate(),
-    ]);
+  const invalidateBudget = () => invalidateBudgeting(utils);
 
   const setMutation = trpc.budget.setBudgeted.useMutation({
     onSuccess: invalidateBudget,

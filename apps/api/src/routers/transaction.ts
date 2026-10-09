@@ -5,6 +5,7 @@ import { transactions, payees, accounts, budgets } from "@znab/db";
 import { createTransactionSchema, updateTransactionSchema } from "@znab/shared";
 import { TRPCError } from "@trpc/server";
 import { assertIdsInBudget, ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import { findOrCreatePayee } from "../lib/find-or-create-payee";
 import { transferCategoryId, transferPayeeName, transferPayeeYnabId } from "../lib/transfer";
 
 /**
@@ -90,72 +91,65 @@ export const transactionRouter = router({
         accountId: input.accountId,
       });
 
-      // Handle on-the-fly payee creation
-      let payeeId = input.payeeId;
-      if (!payeeId && input.payeeName) {
-        const [newPayee] = await ctx.db
-          .insert(payees)
-          .values({
-            ynabId: `Payee/${crypto.randomUUID()}`,
-            budgetId: input.budgetId,
-            name: input.payeeName,
-          })
-          .returning();
-        payeeId = newPayee!.id;
-      }
+      // The on-the-fly payee and the row that names it are written together,
+      // so a refused row does not leave a payee nobody asked for behind it.
+      return ctx.db.transaction(async (tx) => {
+        let payeeId = input.payeeId;
+        if (!payeeId && input.payeeName) {
+          payeeId = (await findOrCreatePayee(tx, input.budgetId, input.payeeName)) ?? payeeId;
+        }
 
-      // A transfer is declared the way YNAB 4 declares one, by choosing the
-      // payee that stands in for the other account, so the payee has to be
-      // read before the row can be written. Scoped to the budget, since a
-      // payee id off the wire says nothing about where it lives.
-      const payee = payeeId
-        ? await ctx.db.query.payees.findFirst({
+        // A transfer is declared the way YNAB 4 declares one, by choosing the
+        // payee that stands in for the other account, so the payee has to be
+        // read before the row can be written. Scoped to the budget, since a
+        // payee id off the wire says nothing about where it lives.
+        const payee = payeeId
+          ? await tx.query.payees.findFirst({
+              where: and(
+                eq(payees.id, payeeId),
+                eq(payees.budgetId, input.budgetId),
+                isNull(payees.deletedAt)
+              ),
+              columns: { id: true, name: true, targetAccountId: true },
+            })
+          : null;
+        if (payeeId && !payee) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Payee not found" });
+        }
+
+        if (payee && payee.targetAccountId !== null) {
+          const farAccountId = payee.targetAccountId;
+          if (farAccountId === input.accountId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "A transfer has to go to a different account.",
+            });
+          }
+
+          const ends = await tx.query.accounts.findMany({
             where: and(
-              eq(payees.id, payeeId),
-              eq(payees.budgetId, input.budgetId),
-              isNull(payees.deletedAt)
+              inArray(accounts.id, [input.accountId, farAccountId]),
+              eq(accounts.budgetId, input.budgetId),
+              isNull(accounts.deletedAt)
             ),
-            columns: { id: true, name: true, targetAccountId: true },
-          })
-        : null;
-      if (payeeId && !payee) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Payee not found" });
-      }
-
-      if (payee && payee.targetAccountId !== null) {
-        const farAccountId = payee.targetAccountId;
-        if (farAccountId === input.accountId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "A transfer has to go to a different account.",
+            columns: { id: true, name: true, ynabId: true, onBudget: true, hidden: true },
           });
-        }
+          const near = ends.find((a) => a.id === input.accountId);
+          const far = ends.find((a) => a.id === farAccountId);
+          if (!near) throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
+          if (!far) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `"${payee.name}" points at an account that is no longer in this budget.`,
+            });
+          }
 
-        const ends = await ctx.db.query.accounts.findMany({
-          where: and(
-            inArray(accounts.id, [input.accountId, farAccountId]),
-            eq(accounts.budgetId, input.budgetId),
-            isNull(accounts.deletedAt)
-          ),
-          columns: { id: true, name: true, ynabId: true, onBudget: true, hidden: true },
-        });
-        const near = ends.find((a) => a.id === input.accountId);
-        const far = ends.find((a) => a.id === farAccountId);
-        if (!near) throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
-        if (!far) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `"${payee.name}" points at an account that is no longer in this budget.`,
-          });
-        }
+          // The far side is a real row in the other account, so the two are
+          // written together or not at all. Both ynab ids are minted up front
+          // because each row has to name the other.
+          const nearYnabId = crypto.randomUUID();
+          const farYnabId = crypto.randomUUID();
 
-        // The far side is a real row in the other account, so the two are
-        // written together or not at all. Both ynab ids are minted up front
-        // because each row has to name the other.
-        const nearYnabId = crypto.randomUUID();
-        const farYnabId = crypto.randomUUID();
-
-        return ctx.db.transaction(async (tx) => {
           // The far side names this account through the payee pointing back at
           // it. Every imported budget has one per account, but a budget
           // started here has none, so it is made on demand.
@@ -225,31 +219,29 @@ export const transactionRouter = router({
             transferTransactionId: nearYnabId,
           });
 
-
           // The near side is the row the register asked for and renders.
           return nearTxn!;
-        });
-      }
+        }
 
-      const [txn] = await ctx.db
-        .insert(transactions)
-        .values({
-          ynabId: crypto.randomUUID(),
-          budgetId: input.budgetId,
-          accountId: input.accountId,
-          payeeId,
-          categoryId: input.categoryId,
-          amount: String(input.amount),
-          date: input.date,
-          cleared: input.cleared,
-          accepted: input.accepted,
-          memo: input.memo,
-          flagColor: input.flagColor,
-        })
-        .returning();
+        const [txn] = await tx
+          .insert(transactions)
+          .values({
+            ynabId: crypto.randomUUID(),
+            budgetId: input.budgetId,
+            accountId: input.accountId,
+            payeeId,
+            categoryId: input.categoryId,
+            amount: String(input.amount),
+            date: input.date,
+            cleared: input.cleared,
+            accepted: input.accepted,
+            memo: input.memo,
+            flagColor: input.flagColor,
+          })
+          .returning();
 
-
-      return txn;
+        return txn;
+      });
     }),
 
   update: protectedProcedure
@@ -322,15 +314,7 @@ export const transactionRouter = router({
 
         let resolvedPayeeId = payeeId;
         if (!resolvedPayeeId && payeeName) {
-          const [newPayee] = await tx
-            .insert(payees)
-            .values({
-              ynabId: `Payee/${crypto.randomUUID()}`,
-              budgetId: row.budgetId,
-              name: payeeName,
-            })
-            .returning({ id: payees.id });
-          resolvedPayeeId = newPayee!.id;
+          resolvedPayeeId = (await findOrCreatePayee(tx, row.budgetId, payeeName)) ?? resolvedPayeeId;
         }
 
         // Which side of a transfer carries the category follows from the two
@@ -388,7 +372,6 @@ export const transactionRouter = router({
             })
             .where(counterpartWhere(ctx, row.budgetId, row.transferTransactionId));
         }
-
 
         return updated!;
       });

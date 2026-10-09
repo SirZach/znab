@@ -1,3 +1,4 @@
+import { invalidateMoney } from "@/lib/invalidate";
 import { trpc } from "@/trpc";
 import type { PayeeRenameOperator } from "@znab/shared";
 
@@ -25,19 +26,11 @@ export function usePayees({
   // Autofill defaults, rename rules and deleting a payee nothing points at
   // change no transaction already on the books, only the lists a payee is
   // picked from.
-  const invalidateLists = () =>
-    Promise.all([
-      utils.payee.listForManage.invalidate(),
-      utils.payee.list.invalidate(),
-    ]);
+  const invalidateLists = () => utils.payee.invalidate();
 
-  // A payee's name is printed on every register row it appears in, and merging
-  // moves transactions between payees, so a rename or a merge leaves the
-  // registers stale too, not just the lists. The budget grid is left alone:
-  // neither one touches a category, a month or an amount, and it prints no
-  // payee names.
-  const invalidateEverywhere = () =>
-    Promise.all([invalidateLists(), utils.account.transactions.invalidate()]);
+  // A payee's name is printed on every register row and report it appears in,
+  // and merging moves transactions between payees.
+  const invalidateEverywhere = () => invalidateMoney(utils);
 
   const renameMutation = trpc.payee.rename.useMutation({
     onSuccess: invalidateEverywhere,

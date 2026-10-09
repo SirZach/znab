@@ -32,6 +32,8 @@ import {
   RECONCILE_MEMO,
   RECONCILE_PAYEE_NAME,
 } from "../lib/reconcile";
+import { localToday } from "../lib/date";
+import { findOrCreatePayee } from "../lib/find-or-create-payee";
 import { transferPayeeName, transferPayeeYnabId } from "../lib/transfer";
 
 /** The handle inside `db.transaction`, for the helpers the writes below share. */
@@ -404,7 +406,7 @@ export const accountRouter = router({
       // that date reads as empty. There is no account that opened tomorrow.
       if (
         input.startingBalanceDate &&
-        input.startingBalanceDate > new Date().toISOString().slice(0, 10)
+        input.startingBalanceDate > localToday()
       ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -515,32 +517,15 @@ export const accountRouter = router({
             categoryId = category!.id;
           }
 
-          // Matched trimmed and case-insensitively, the way reconcile matches
-          // its own payee, so a stored name with stray whitespace is reused
-          // rather than doubled. A new one is disabled as the imported one is:
-          // it is the account's own bookkeeping rather than a payee anybody
-          // enters a transaction against, so it stays out of the picker.
-          const existing = await tx.query.payees.findFirst({
-            where: and(
-              eq(payees.budgetId, input.budgetId),
-              isNull(payees.deletedAt),
-              sql`lower(trim(${payees.name})) = ${STARTING_BALANCE_PAYEE_NAME.toLowerCase()}`
-            ),
-            columns: { id: true },
-          });
-          let payeeId = existing?.id;
-          if (!payeeId) {
-            const [created] = await tx
-              .insert(payees)
-              .values({
-                ynabId: `Payee/${crypto.randomUUID()}`,
-                budgetId: input.budgetId,
-                name: STARTING_BALANCE_PAYEE_NAME,
-                enabled: false,
-              })
-              .returning({ id: payees.id });
-            payeeId = created!.id;
-          }
+          // A new one is disabled as the imported one is: it is the account's
+          // own bookkeeping rather than a payee anybody enters a transaction
+          // against, so it stays out of the picker.
+          const payeeId = await findOrCreatePayee(
+            tx,
+            input.budgetId,
+            STARTING_BALANCE_PAYEE_NAME,
+            { enabled: false }
+          );
 
           await tx.insert(transactions).values({
             ynabId: crypto.randomUUID(),
@@ -552,7 +537,7 @@ export const accountRouter = router({
             categoryId,
             categoryYnabId: opening.categoryYnabId,
             amount: String(amount),
-            date: input.startingBalanceDate ?? new Date().toISOString().slice(0, 10),
+            date: input.startingBalanceDate ?? localToday(),
             // The money is already there, so the bank has agreed to it.
             cleared: "Cleared",
             accepted: true,
@@ -875,7 +860,7 @@ export const accountRouter = router({
         // A statement cannot close in the future, and letting one say it did
         // would be hard to undo: the guard below would then refuse every
         // correctly dated reconciliation until that date came round.
-        if (input.statementDate > new Date().toISOString().slice(0, 10)) {
+        if (input.statementDate > localToday()) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "A statement cannot close in the future.",
@@ -926,29 +911,8 @@ export const accountRouter = router({
           const adjustment = balanceAdjustment(account, difference);
 
           // Every imported budget already has this payee; one started here
-          // does not, so it is made on demand. Matched the way the payee
-          // screen matches a rename, trimmed and case-insensitively, so a
-          // stored name with stray whitespace is reused rather than doubled.
-          const existing = await tx.query.payees.findFirst({
-            where: and(
-              eq(payees.budgetId, input.budgetId),
-              isNull(payees.deletedAt),
-              sql`lower(trim(${payees.name})) = ${RECONCILE_PAYEE_NAME.toLowerCase()}`
-            ),
-            columns: { id: true },
-          });
-          let payeeId = existing?.id;
-          if (!payeeId) {
-            const [created] = await tx
-              .insert(payees)
-              .values({
-                ynabId: `Payee/${crypto.randomUUID()}`,
-                budgetId: input.budgetId,
-                name: RECONCILE_PAYEE_NAME,
-              })
-              .returning({ id: payees.id });
-            payeeId = created!.id;
-          }
+          // does not, so it is made on demand.
+          const payeeId = await findOrCreatePayee(tx, input.budgetId, RECONCILE_PAYEE_NAME);
 
           await tx.insert(transactions).values({
             ynabId: crypto.randomUUID(),

@@ -237,6 +237,7 @@ export function CategoryInspector({
               Move money
             </h4>
 
+            {/* biome-ignore lint/a11y/useSemanticElements: a styled segmented toggle; a fieldset would bring its own border and layout */}
             <div className="flex rounded border border-border overflow-hidden mb-2" role="group">
               {(
                 [

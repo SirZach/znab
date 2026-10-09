@@ -4,8 +4,15 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 
 ## Resume instructions
 1. Check the chunk table. Rerun any chunk not marked `done` by giving a reviewer its scope and output file.
-2. Done: all chunks consolidated into `summary.md` (2026-10-09). Next step is fix phases listed there, once the user approves.
-3. Fixes are a later phase; track them in the Fix log below.
+2. Done: all chunks consolidated into `summary.md` (2026-10-09).
+3. Fix phases (from `summary.md`) follow the workflow below; the Phases table says what is merged.
+
+## Fix workflow
+1. From `task/code-quality-review`, branch `task/cqr-phaseN-<slug>`.
+2. Implement, then verify with `bun run check` (typecheck, lint, test) and `bun run build`.
+3. Commit, `git merge --no-ff` into `task/code-quality-review`, delete the temp branch, push the review branch.
+4. Update the Phases table and Fix log here as part of the phase branch.
+5. The user manually tests the review branch at the end before it goes to main.
 
 ## Baseline (2026-10-09)
 - `bun test`: 258 pass, 0 fail (16 files)
@@ -21,5 +28,23 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 | D | apps/web/src/components (non ui), hooks, lib, store, trpc.ts, main.tsx | findings/d-web-components.md | done (5H 9M 8L) |
 | E | Cross cutting: test coverage gaps, tooling, shared types, repo hygiene | findings/e-cross-cutting.md | done (3H 7M 5L) |
 
+## Phases
+| # | Scope | Status |
+|---|-------|--------|
+| 1 | Tooling: scripts, Biome, route tree and lockfile, deps, tsconfig, docs | merged 2026-10-09 |
+| 2 | Bugs 1 to 10 in summary.md, each with a test | pending |
+| 3 | Router test harness, shared money and domain module | pending |
+| 4 | API extractions: budgetProcedure, writeTransferPair, payee find-or-create, on-budget SQL, indexes | pending |
+| 5 | Frontend primitives and central invalidation | pending |
+| 6 | File splits, useAccountRegister split, report layout | pending |
+
 ## Fix log
-(none yet)
+### Phase 1 (tooling)
+- Root scripts `test`, `typecheck`, `lint` (`biome lint .`), `check`; per package `test` only where tests exist (api, web).
+- Biome 2.5.15, formatter and assist off. Disabled: `style/noNonNullAssertion` (110 hits), `a11y/useButtonType` (74), `a11y/noAutofocus` (6), `a11y/useKeyWithClickEvents` (5), `a11y/noStaticElementInteractions` (1), `a11y/noSvgWithoutTitle` (1). Revisit `useButtonType` and click a11y in phase 5.
+- `routeTree.gen.ts` and `bun.lock` now committed; `@types/bun` pinned to 1.4.2.
+- Removed unused deps: web `@tanstack/react-form`, web `zod`, api `postgres`. `typescript` moved to root. `@znab/shared` resolves through the workspace only.
+- tsconfig: `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`, `noImplicitOverride`; db and shared set `noEmit`.
+- README and SETUP refreshed. Small lint fixes with no behavior change.
+- Left for the user: stray root files `znab_rebuild_plan.docx` and `.migration/`. Deferred: ESLint react-hooks `set-state-in-effect` (Biome lacks it), drizzle snapshot gap (L3), types-only API entry (M3).
+- Verified: `bun run check` green (258 tests), `bun run build` green.

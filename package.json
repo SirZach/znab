@@ -16,7 +16,15 @@
     "db:generate": "bun run --filter @znab/db generate",
     "db:migrate": "bun run --filter @znab/db migrate",
     "db:studio": "bun run --filter @znab/db studio",
-    "import": "cd apps/api && bun src/scripts/import-yfull.ts",
-    "ynab:reset": "FORCE=1 bash scripts/sync-ynab4.sh"
+    "import": "bun run --filter api import",
+    "ynab:reset": "FORCE=1 bash scripts/sync-ynab4.sh",
+    "test": "bun run --filter '*' test",
+    "typecheck": "tsc --noEmit -p apps/api && tsc --noEmit -p apps/web && tsc --noEmit -p packages/db && tsc --noEmit -p packages/shared",
+    "lint": "biome lint .",
+    "check": "bun run typecheck && bun run lint && bun run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "typescript": "^7.0.2"
   }
 }

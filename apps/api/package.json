@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
-    "import": "bun src/scripts/import-yfull.ts"
+    "import": "bun src/scripts/import-yfull.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "@hono/trpc-server": "^0.4.2",
@@ -14,10 +15,9 @@
     "@znab/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.6.20",
-    "postgres": "^3.4.5",
     "zod": "^4.6.2"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "1.4.2"
   }
 }

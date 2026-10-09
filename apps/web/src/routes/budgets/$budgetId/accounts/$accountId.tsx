@@ -111,7 +111,7 @@ const flagColorOf = (value: string | null): FlagColor | null =>
 const fieldsFrom = (txn: RegisterTransaction): RegisterFields => ({
   // Local midnight, the way every other date in the register is read, so a row
   // does not shift a day on its way into the picker.
-  date: new Date(txn.date + "T00:00:00"),
+  date: new Date(`${txn.date}T00:00:00`),
   payeeId: txn.payeeId,
   payeeName: txn.payee?.name ?? "",
   categoryId: txn.categoryId,
@@ -246,6 +246,7 @@ function AccountRegisterPage() {
   // page around it has loaded. Keyed on its arrival rather than on every
   // refetch, so editing nearby does not keep dragging the view back to it.
   const focusLoaded = transactions.some((t) => t.id === focusId);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focusId re-runs the scroll when the link target changes while focusLoaded stays true
   useEffect(() => {
     if (focusLoaded) focusRowRef.current?.scrollIntoView({ block: "center" });
   }, [focusId, focusLoaded]);

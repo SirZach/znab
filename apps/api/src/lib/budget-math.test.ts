@@ -9,11 +9,12 @@ const budgeted = (month: string, categoryId: number, amount: number, confined = 
   overspendingHandling: confined ? "Confined" : null,
 });
 
+// Cash and credit are named apart so a case can say which paid, but the engine
+// reads one total: YNAB 4 treats overspending the same either way.
 const activity = (month: string, categoryId: number, { cash = 0, credit = 0 }) => ({
   month,
   categoryId,
-  cash: String(cash),
-  credit: String(credit),
+  amount: String(cash + credit),
 });
 
 const income = (month: string, amount: number, kind = "Category/__ImmediateIncome__") => ({
@@ -22,7 +23,7 @@ const income = (month: string, amount: number, kind = "Category/__ImmediateIncom
   amount: String(amount),
 });
 
-describe("computeBudgetMonth: overspending is classified by how it was funded", () => {
+describe("computeBudgetMonth: overspending is the same however it was funded", () => {
   test("spending past the envelope with cash is cash overspending", () => {
     const { categories } = computeBudgetMonth({
       income: [income("2026-01", 1000)],

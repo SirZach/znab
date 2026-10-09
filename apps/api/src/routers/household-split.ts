@@ -1,13 +1,14 @@
 import { z } from "zod";
 import { eq, and, isNull } from "drizzle-orm";
 import { TRPCError, type inferRouterOutputs } from "@trpc/server";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, budgetProcedure } from "../trpc";
 import { budgets, categoryGroups, householdSplitSettings } from "@znab/db";
 import { assertBudgetAccess, type AuthedContext } from "../lib/authz";
 import { fromCents, toCents } from "@znab/shared";
 import { computeBudgetMonth } from "../lib/budget-math";
+import { loadBudgetInputs } from "../lib/budget-queries";
+import { isoDateSchema } from "../lib/input";
 import { computeHouseholdSplit } from "../lib/household-split";
-import { loadBudgetInputs } from "./budget";
 
 const DEFAULT_SAVINGS_PERCENT = 40;
 
@@ -116,17 +117,14 @@ export const householdSplitRouter = router({
         });
     }),
 
-  setGroupFlag: protectedProcedure
+  setGroupFlag: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         groupId: z.number().int().positive(),
         inMasterBudgets: z.boolean(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       // Constraining the update to the budget makes a group from anywhere else
       // simply match nothing.
       const updated = await ctx.db
@@ -140,7 +138,7 @@ export const householdSplitRouter = router({
     }),
 
   month: protectedProcedure
-    .input(z.object({ month: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })) // first-of-month
+    .input(z.object({ month: isoDateSchema })) // first-of-month
     .query(async ({ ctx, input }) => {
       const row = await ctx.db.query.householdSplitSettings.findFirst({
         where: eq(householdSplitSettings.userId, ctx.user.id),

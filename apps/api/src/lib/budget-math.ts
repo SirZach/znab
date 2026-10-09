@@ -11,7 +11,7 @@ import {
   toCents,
 } from "@znab/shared";
 
-export type ActivityRow = { categoryId: number; month: string; credit: string; cash: string };
+export type ActivityRow = { categoryId: number; month: string; amount: string };
 export type IncomeRow = { month: string; kind: string; amount: string };
 export type BudgetedRow = {
   month: string;
@@ -66,7 +66,6 @@ const zeroSummary = (month: string): MonthSummary => ({
   availableToBudget: 0,
 });
 
-type Activity = { credit: number; cash: number };
 // `handling` is YNAB 4's raw per-month flag: "Confined", "AffectsBuffer" or
 // null. YNAB 4 only writes it in the month it was toggled, so null means "same
 // as last month" and the setting carries forward until changed.
@@ -82,11 +81,11 @@ type Budgeted = { budgeted: number; handling: string | null };
 function rollCategory(
   prior: number,
   b: Budgeted | undefined,
-  act: Activity | undefined,
+  act: number | undefined,
   confined: boolean
 ) {
   const budgeted = b?.budgeted ?? 0;
-  const activity = (act?.credit ?? 0) + (act?.cash ?? 0);
+  const activity = act ?? 0;
   const balance = prior + budgeted + activity;
   const deficit = balance < 0 ? -balance : 0;
   const overspend = confined ? 0 : deficit;
@@ -112,14 +111,14 @@ export function computeBudgetMonth(args: {
   const { activity, income, budgeted, targetMonth } = args;
 
   // Index inputs by month (all amounts in integer cents).
-  const activityByMonth = new Map<string, Map<number, Activity>>();
+  const activityByMonth = new Map<string, Map<number, number>>();
   for (const r of activity) {
     let m = activityByMonth.get(r.month);
     if (!m) {
       m = new Map();
       activityByMonth.set(r.month, m);
     }
-    m.set(r.categoryId, { credit: toCents(r.credit), cash: toCents(r.cash) });
+    m.set(r.categoryId, toCents(r.amount));
   }
 
   const budgetedByMonth = new Map<string, Map<number, Budgeted>>();
@@ -357,7 +356,7 @@ export function computeQuickBudget(args: {
   const spentIn = (month: string) => {
     const row = myActivity.find((r) => r.month === month);
     if (!row) return 0;
-    const net = toCents(row.cash) + toCents(row.credit);
+    const net = toCents(row.amount);
     return net < 0 ? -net : 0;
   };
   const budgetedIn = (month: string) =>

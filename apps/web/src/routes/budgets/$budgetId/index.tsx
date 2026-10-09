@@ -218,7 +218,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
     // Fills what the shell leaves, which on a phone is less the top bar above
     // Kept to a centered reading width on a wide screen, so the eye does not
     // travel far from a category's name to its numbers
-    <div className="flex flex-col flex-1 min-h-0 w-full md:max-w-5xl md:mx-auto md:border-x md:border-border">
+    <div className="flex flex-col flex-1 min-h-0 w-full md:max-w-4xl md:mx-auto md:border-x md:border-border">
       {/* Month nav + summary header */}
       <div className="px-3 py-3 md:px-6 md:py-4 border-b border-border space-y-3 md:space-y-4">
         <div className="flex items-center justify-between">

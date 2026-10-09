@@ -65,6 +65,7 @@ export function useAccountRegister({
   const [pageCount, setPageCount] = useState(1);
 
   // Reset back to one page whenever the register being viewed changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the deps are reset triggers, not values read by the effect
   React.useEffect(() => {
     setPageCount(1);
   }, [accountId, cleared, q, sort, dir, focusId]);

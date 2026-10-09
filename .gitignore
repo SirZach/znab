@@ -4,13 +4,10 @@ node_modules
 !.env.example
 dist
 .turbo
-bun.lock
-bun.lockb
 *.local
 .DS_Store
 *.log
 *.tsbuildinfo
 .vite/
-apps/web/src/routeTree.gen.ts
 seed-data/
 .claude/worktrees/

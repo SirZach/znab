@@ -36,7 +36,7 @@ export function currentMonthParam(): string {
 
 /** Format a date string "YYYY-MM-DD" for display */
 export function formatDate(date: string): string {
-  return new Date(date + "T00:00:00").toLocaleDateString("en-US", {
+  return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",

@@ -199,6 +199,7 @@ function ScheduledPage() {
           {[enterError, skipError, enterDueError, deleteError]
             .filter((message) => message !== null)
             .map((message, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: messages may repeat and the list is never reordered
               <p key={i} className="text-xs text-destructive">
                 {message}
               </p>

@@ -1,3 +1,4 @@
+import { invalidateMoney } from "@/lib/invalidate";
 import { trpc } from "@/trpc";
 import type { FrequencyValue } from "@znab/shared";
 
@@ -29,22 +30,9 @@ export function useScheduledTransactions({ budgetId }: { budgetId: number }) {
     budgetId,
   });
 
-  // Entering a schedule writes real transactions, so the register they land in,
-  // the month that budgets them and net worth all go stale, not just the lists
-  // of schedules. A transfer moves an account balance, and a payee named on the
-  // fly is a new payee, so those two lists go with them.
-  const invalidate = () =>
-    Promise.all([
-      utils.scheduledTransaction.list.invalidate(),
-      utils.scheduledTransaction.upcoming.invalidate(),
-      utils.account.transactions.invalidate(),
-      utils.budget.monthBudget.invalidate(),
-      utils.budget.categoryTransactions.invalidate(),
-      utils.report.netWorth.invalidate(),
-      utils.account.list.invalidate(),
-      utils.payee.list.invalidate(),
-      utils.payee.listForManage.invalidate(),
-    ]);
+  // Entering a schedule writes real transactions, and a payee named on the fly
+  // is a new payee, so every write here can move money.
+  const invalidate = () => invalidateMoney(utils);
 
   // One mutation per write: one write's refusal has no business turning up
   // beside another's controls.

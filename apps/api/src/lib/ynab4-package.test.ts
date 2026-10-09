@@ -10,6 +10,7 @@ import {
   loadBudget,
   parseKnowledge,
   readYnab4Package,
+  splitScheduleDescriptions,
   staleSubTransactionIds,
   type YdiffFile,
   type YfullFile,
@@ -342,5 +343,43 @@ describe("readYnab4Package", () => {
     await mkdir(path.join(root, "d", "devices"), { recursive: true });
     await writeFile(path.join(root, "Budget.ymeta"), JSON.stringify({ relativeDataFolderName: "d" }));
     await expect(readYnab4Package(root)).rejects.toThrow(/No Budget.yfull/);
+  });
+});
+
+describe("splitScheduleDescriptions", () => {
+  const schedule = (over: Partial<YfullFile["scheduledTransactions"][number]>) => ({
+    entityId: "s",
+    accountId: "acc1",
+    payeeId: "p1",
+    categoryId: "Category/__Split__",
+    amount: -120.5,
+    date: "2026-11-01",
+    frequency: "Monthly",
+    cleared: "Uncleared",
+    accepted: true,
+    ...over,
+  });
+  const payees = [{ entityId: "p1", entityVersion: "A-1", name: "Rent", enabled: true }];
+
+  test("describes each live split schedule by payee, amount, frequency and date", () => {
+    expect(
+      splitScheduleDescriptions({ payees, scheduledTransactions: [schedule({})] })
+    ).toEqual(["Rent -120.50 Monthly from 2026-11-01"]);
+  });
+
+  test("skips ordinary and tombstoned schedules", () => {
+    const scheduledTransactions = [
+      schedule({ categoryId: "Category/A" }),
+      schedule({ isTombstone: true }),
+    ];
+    expect(splitScheduleDescriptions({ payees, scheduledTransactions })).toEqual([]);
+  });
+
+  test("names a schedule with no known payee", () => {
+    const scheduledTransactions = [schedule({ payeeId: null }), schedule({ payeeId: "gone" })];
+    expect(splitScheduleDescriptions({ payees, scheduledTransactions })).toEqual([
+      "(no payee) -120.50 Monthly from 2026-11-01",
+      "(no payee) -120.50 Monthly from 2026-11-01",
+    ]);
   });
 });

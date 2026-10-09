@@ -5,14 +5,13 @@ import { router, protectedProcedure } from "../trpc";
 import { budgets, monthlyBudgets, categories } from "@znab/db";
 import { setBudgetedSchema } from "@znab/shared";
 import { assertBudgetAccess, type AuthedContext } from "../lib/authz";
+import { IS_CREDIT_ACCOUNT, IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
 import {
   computeBudgetMonth,
   computeQuickBudget,
   computeCategoryGoal,
   monthIndex,
   monthFromIndex,
-  IMMEDIATE_INCOME,
-  DEFERRED_INCOME,
   type ActivityRow,
   type IncomeRow,
   type BudgetedRow,
@@ -52,28 +51,13 @@ async function assertCategoryInBudget(
 function categoryActivitySource(budgetId: number) {
   // Outflows on a credit card or other on-budget liability become debt, so
   // they are classified separately from cash for overspending purposes.
-  const klass = sql`CASE WHEN a.account_type IN ('CreditCard', 'OtherLiability') THEN 'credit' ELSE 'cash' END`;
-
   return sql`
     SELECT
-      t.id AS transaction_id, NULL::int AS sub_transaction_id, t.category_id,
-      t.date AS d, t.amount, ${klass} AS klass, t.account_id, t.payee_id, t.memo
-    FROM transactions t
-    JOIN accounts a ON a.id = t.account_id
-    WHERE t.budget_id = ${budgetId}
-      AND t.deleted_at IS NULL AND a.deleted_at IS NULL
-      AND a.on_budget = true AND t.is_split = false
-      AND t.category_id IS NOT NULL
-    UNION ALL
-    SELECT
-      t.id, s.id, s.category_id,
-      t.date, s.amount, ${klass}, t.account_id, t.payee_id, s.memo
-    FROM sub_transactions s
-    JOIN transactions t ON t.id = s.transaction_id
-    JOIN accounts a ON a.id = t.account_id
-    WHERE t.budget_id = ${budgetId}
-      AND t.deleted_at IS NULL AND s.deleted_at IS NULL AND a.deleted_at IS NULL
-      AND a.on_budget = true AND s.category_id IS NOT NULL
+      transaction_id, sub_transaction_id, category_id, d, amount,
+      CASE WHEN ${IS_CREDIT_ACCOUNT} THEN 'credit' ELSE 'cash' END AS klass,
+      account_id, payee_id, memo
+    FROM (${onBudgetMoneySource(budgetId)}) m
+    WHERE category_id IS NOT NULL
   `;
 }
 
@@ -99,27 +83,11 @@ export function loadBudgetInputs(db: AuthedContext["db"], budgetId: number) {
     db.execute(sql`
       SELECT
         to_char(date_trunc('month', d), 'YYYY-MM') AS month,
-        kind,
+        category_ynab_id AS kind,
         sum(amount) AS amount
-      FROM (
-        SELECT t.date AS d, t.category_ynab_id AS kind, t.amount
-        FROM transactions t
-        JOIN accounts a ON a.id = t.account_id
-        WHERE t.budget_id = ${budgetId}
-          AND t.deleted_at IS NULL AND a.deleted_at IS NULL AND a.on_budget = true
-          AND t.is_split = false
-          AND t.category_ynab_id IN (${IMMEDIATE_INCOME}, ${DEFERRED_INCOME})
-        UNION ALL
-        SELECT t.date AS d, s.category_ynab_id AS kind, s.amount
-        FROM sub_transactions s
-        JOIN transactions t ON t.id = s.transaction_id
-        JOIN accounts a ON a.id = t.account_id
-        WHERE t.budget_id = ${budgetId}
-          AND t.deleted_at IS NULL AND s.deleted_at IS NULL AND a.deleted_at IS NULL
-          AND a.on_budget = true
-          AND s.category_ynab_id IN (${IMMEDIATE_INCOME}, ${DEFERRED_INCOME})
-      ) x
-      GROUP BY date_trunc('month', d), kind
+      FROM (${onBudgetMoneySource(budgetId)}) x
+      WHERE ${IS_INCOME}
+      GROUP BY date_trunc('month', d), category_ynab_id
     `) as unknown as Promise<IncomeRow[]>,
     db.execute(sql`
       SELECT
@@ -152,7 +120,7 @@ export const budgetRouter = router({
           eq(budgets.userId, ctx.user.id)
         ),
       });
-      if (!budget) throw new Error("Budget not found");
+      if (!budget) throw new TRPCError({ code: "NOT_FOUND", message: "Budget not found" });
       return budget;
     }),
 
@@ -262,7 +230,7 @@ export const budgetRouter = router({
           with: { group: { columns: { name: true } } },
         }),
       ]);
-      if (!budget) throw new Error("Budget not found");
+      if (!budget) throw new TRPCError({ code: "NOT_FOUND", message: "Budget not found" });
 
       const currentMonth = input.month.slice(0, 7);
       const { summary, categories } = computeBudgetMonth({

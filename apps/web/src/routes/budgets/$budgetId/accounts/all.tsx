@@ -32,7 +32,9 @@ function AllAccountsRegister() {
   const [q, setQ] = useState("");
   const [cleared, setCleared] = useState<ClearedFilterValue>("all");
   const [sort, setSort] = useState<RegisterSort>("date");
-  const [dir, setDir] = useState<SortDirection>("asc");
+  // Newest first: this is the screen for finding something, and the pager's
+  // "Newer" and "Older" read from the recent end.
+  const [dir, setDir] = useState<SortDirection>("desc");
   const [offset, setOffset] = useState(0);
 
   const { data, isLoading } = trpc.account.transactions.useQuery({
@@ -47,14 +49,10 @@ function AllAccountsRegister() {
 
   const rows = data?.transactions ?? [];
 
-  function sortBy(column: RegisterSort) {
+  function sortBy(column: RegisterSort, nextDir: SortDirection) {
     setOffset(0);
-    if (column === sort) {
-      setDir(dir === "asc" ? "desc" : "asc");
-    } else {
-      setSort(column);
-      setDir(column === "date" ? "asc" : "desc");
-    }
+    setSort(column);
+    setDir(nextDir);
   }
 
   return (

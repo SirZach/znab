@@ -183,8 +183,7 @@ function SplitSettings({
   const [partnerId, setPartnerId] = useState<number | null>(settings.partnerBudgetId);
   const [percent, setPercent] = useState(String(settings.savingsPercent));
 
-  const onSuccess = () =>
-    Promise.all([utils.householdSplit.settings.invalidate(), utils.householdSplit.month.invalidate()]);
+  const onSuccess = () => utils.householdSplit.invalidate();
   const update = trpc.householdSplit.updateSettings.useMutation({ onSuccess });
   const setFlag = trpc.householdSplit.setGroupFlag.useMutation({ onSuccess });
 

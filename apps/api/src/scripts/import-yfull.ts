@@ -27,7 +27,12 @@ import { FLAG_COLORS, isSpecialCategoryId, PAYEE_RENAME_OPERATORS } from "@znab/
 import path from "node:path";
 import { isSystemGroupYnabId } from "../lib/category";
 import { assertMirrorable, knownYnabIds, planMirrorDeletes, type MirrorRows } from "../lib/ynab4-mirror";
-import { loadBudget, staleSubTransactionIds, type YfullFile } from "../lib/ynab4-package";
+import {
+  loadBudget,
+  splitScheduleDescriptions,
+  staleSubTransactionIds,
+  type YfullFile,
+} from "../lib/ynab4-package";
 
 type Database = typeof db;
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -464,6 +469,16 @@ export async function importBudgetData(
   );
 
   // 9. Scheduled transactions
+  // znab has no table for scheduled split parts, so a split schedule arrives as
+  // its parent alone and is entered as one uncategorised transaction. Said out
+  // loud rather than dropped silently until that gap is closed.
+  const splitSchedules = splitScheduleDescriptions(data);
+  if (splitSchedules.length) {
+    console.warn(
+      `  Warning: ${splitSchedules.length} split scheduled transaction(s) imported without their split parts:`
+    );
+    for (const s of splitSchedules) console.warn(`    ${s}`);
+  }
   const schedRows = data.scheduledTransactions
     .filter((st) => accountYnabToId.has(st.accountId))
     .map((st) => ({

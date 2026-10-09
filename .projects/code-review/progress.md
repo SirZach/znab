@@ -4,7 +4,7 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 
 ## Resume instructions
 1. Check the chunk table. Rerun any chunk not marked `done` by giving a reviewer its scope and output file.
-2. When all chunks are done, consolidate into `summary.md` (ranked, deduplicated).
+2. Done: all chunks consolidated into `summary.md` (2026-10-09). Next step is fix phases listed there, once the user approves.
 3. Fixes are a later phase; track them in the Fix log below.
 
 ## Baseline (2026-10-09)
@@ -19,7 +19,7 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 | B | apps/api/src/lib, apps/api/src/scripts, packages/db, packages/shared | findings/b-api-lib-db.md | done (4H 7M 11L) |
 | C | apps/web/src/routes | findings/c-web-routes.md | done (5H 14M 11L) |
 | D | apps/web/src/components (non ui), hooks, lib, store, trpc.ts, main.tsx | findings/d-web-components.md | done (5H 9M 8L) |
-| E | Cross cutting: test coverage gaps, tooling, shared types, repo hygiene | findings/e-cross-cutting.md | pending |
+| E | Cross cutting: test coverage gaps, tooling, shared types, repo hygiene | findings/e-cross-cutting.md | done (3H 7M 5L) |
 
 ## Fix log
 (none yet)

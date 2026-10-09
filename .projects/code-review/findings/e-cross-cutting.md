@@ -109,7 +109,7 @@ Every layer re-rounds independently. The input schemas accept any `z.number()`, 
 
 ### M2. Cache invalidation lists maintained by hand in 5 hooks
 `apps/web/src/hooks/useAccountRegister.ts:126-155`, `useAccounts.ts:28-53`, `useCategories.ts:19-24`, `useBudgetPage.ts`, `useScheduledTransactions.ts`
-Each money mutation lists by hand the queries it might affect. Missing one (for example `budget.monthData` is listed in `useCategories` but not in `useAccountRegister`) leaves stale budget or report numbers. **Fix:** one `invalidateMoney(utils)` helper covering budget, account, report, payee and schedule queries, used by every money mutation. At this app size `utils.invalidate()` is also acceptable.
+Each money mutation lists by hand the queries it might affect, and `staleTime` is 30 s (`main.tsx:11`). The lists have already drifted. Register writes do not invalidate `budget.categoryHistory`, `budget.quickBudget`, `householdSplit.month`, `report.spendingByCategory`, `spendingByPayee` or `incomeVsExpense`, so those show stale numbers for up to 30 s after an edit. Meanwhile `useCategories.ts:23` invalidates `budget.monthData`, which no screen queries. **Fix:** one `invalidateMoney(utils)` helper covering budget, account, report, payee and schedule queries, used by every money mutation. At this app size `utils.invalidate()` is also acceptable.
 
 ### M3. The web compiles API source to get router types
 `apps/web/src/trpc.ts:3-8`, `packages/db/src/index.ts:1-3`

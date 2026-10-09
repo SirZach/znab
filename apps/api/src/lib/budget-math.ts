@@ -3,8 +3,13 @@
  * so the rules can be read, and tested, on their own.
  */
 
-export const IMMEDIATE_INCOME = "Category/__ImmediateIncome__";
-export const DEFERRED_INCOME = "Category/__DeferredIncome__";
+import {
+  DEFERRED_INCOME,
+  fromCents,
+  type GoalType,
+  type OverspendKind,
+  toCents,
+} from "@znab/shared";
 
 export type ActivityRow = { categoryId: number; month: string; credit: string; cash: string };
 export type IncomeRow = { month: string; kind: string; amount: string };
@@ -25,14 +30,6 @@ export type MonthSummary = {
   availableToBudget: number;
 };
 
-/**
- * Where a category's negative balance goes at month end. YNAB 4 takes all
- * overspending, cash or credit card, out of next month's To-be-Budgeted and
- * resets the category, unless it is confined (the red arrow), in which case
- * the category carries the negative balance forward instead.
- */
-export type OverspendKind = "cash" | "confined" | null;
-
 /** A single category's state for one month (dollars). */
 export type CategoryMonth = {
   budgeted: number; // budgeted this month
@@ -46,9 +43,6 @@ export type BudgetMonth = {
   summary: MonthSummary;
   categories: Map<number, CategoryMonth>;
 };
-
-const cents = (v: string | number | null | undefined) =>
-  Math.round(parseFloat(String(v ?? 0)) * 100);
 
 /**
  * Zero-based month index for "YYYY-MM", and its inverse. Exported so callers
@@ -125,7 +119,7 @@ export function computeBudgetMonth(args: {
       m = new Map();
       activityByMonth.set(r.month, m);
     }
-    m.set(r.categoryId, { credit: cents(r.credit), cash: cents(r.cash) });
+    m.set(r.categoryId, { credit: toCents(r.credit), cash: toCents(r.cash) });
   }
 
   const budgetedByMonth = new Map<string, Map<number, Budgeted>>();
@@ -136,7 +130,7 @@ export function computeBudgetMonth(args: {
       m = new Map();
       budgetedByMonth.set(r.month, m);
     }
-    const amt = cents(r.budgeted);
+    const amt = toCents(r.budgeted);
     m.set(r.categoryId, { budgeted: amt, handling: r.overspendingHandling });
     budgetedTotal.set(r.month, (budgetedTotal.get(r.month) ?? 0) + amt);
   }
@@ -145,7 +139,7 @@ export function computeBudgetMonth(args: {
   const incomeByMonth = new Map<string, number>();
   for (const r of income) {
     const month = r.kind === DEFERRED_INCOME ? monthFromIndex(monthIndex(r.month) + 1) : r.month;
-    incomeByMonth.set(month, (incomeByMonth.get(month) ?? 0) + cents(r.amount));
+    incomeByMonth.set(month, (incomeByMonth.get(month) ?? 0) + toCents(r.amount));
   }
 
   // Earliest month any money moves, so the carry-forward starts from zero.
@@ -201,7 +195,7 @@ export function computeBudgetMonth(args: {
         categories.set(catId, {
           budgeted: 0,
           activity: 0,
-          available: bal / 100,
+          available: fromCents(bal),
           overspendKind: bal < 0 ? "confined" : null,
           confined: confinedById.get(catId) ?? false,
         });
@@ -210,9 +204,9 @@ export function computeBudgetMonth(args: {
         const confined = confinedById.get(catId) ?? false;
         const r = rollCategory(balances.get(catId) ?? 0, budM?.get(catId), actM?.get(catId), confined);
         categories.set(catId, {
-          budgeted: r.budgeted / 100,
-          activity: r.activity / 100,
-          available: r.balance / 100,
+          budgeted: fromCents(r.budgeted),
+          activity: fromCents(r.activity),
+          available: fromCents(r.balance),
           overspendKind: r.overspendKind,
           confined,
         });
@@ -220,12 +214,12 @@ export function computeBudgetMonth(args: {
       return {
         summary: {
           month: targetMonth,
-          notBudgeted: prevAvailable / 100,
-          overspentPrev: prevCashOverspent / 100,
-          income: inc / 100,
-          budgeted: bud / 100,
-          budgetedFuture: budgetedFuture / 100,
-          availableToBudget: (available - budgetedFuture) / 100,
+          notBudgeted: fromCents(prevAvailable),
+          overspentPrev: fromCents(prevCashOverspent),
+          income: fromCents(inc),
+          budgeted: fromCents(bud),
+          budgetedFuture: fromCents(budgetedFuture),
+          availableToBudget: fromCents(available - budgetedFuture),
         },
         categories,
       };
@@ -248,9 +242,6 @@ export function computeBudgetMonth(args: {
 }
 
 // ─── Category Goals ───────────────────────────────────────────────────────────
-
-/** YNAB 4's three goal types. */
-export type GoalType = "TB" | "TBD" | "MF";
 
 /** A category's goal progress for one month (dollars). */
 export type CategoryGoal = {
@@ -285,9 +276,9 @@ export function computeCategoryGoal(args: {
   currentMonth: string; // "YYYY-MM"
 }): CategoryGoal {
   const { type, targetMonth, currentMonth } = args;
-  const target = cents(args.target);
-  const budgeted = cents(args.budgeted);
-  const available = cents(args.available);
+  const target = toCents(args.target);
+  const budgeted = toCents(args.budgeted);
+  const available = toCents(args.available);
 
   let neededThisMonth: number;
   let underFunded: number;
@@ -320,10 +311,10 @@ export function computeCategoryGoal(args: {
 
   return {
     type,
-    target: target / 100,
+    target: fromCents(target),
     targetMonth,
-    neededThisMonth: Math.round(neededThisMonth) / 100,
-    underFunded: Math.round(underFunded) / 100,
+    neededThisMonth: fromCents(Math.round(neededThisMonth)),
+    underFunded: fromCents(Math.round(underFunded)),
     percent,
   };
 }
@@ -366,11 +357,11 @@ export function computeQuickBudget(args: {
   const spentIn = (month: string) => {
     const row = myActivity.find((r) => r.month === month);
     if (!row) return 0;
-    const net = cents(row.cash) + cents(row.credit);
+    const net = toCents(row.cash) + toCents(row.credit);
     return net < 0 ? -net : 0;
   };
   const budgetedIn = (month: string) =>
-    cents(mine.find((r) => r.month === month)?.budgeted);
+    toCents(mine.find((r) => r.month === month)?.budgeted);
 
   // Averages run over the months in the lookback window that the category was
   // actually in use, so a category only a few months old is not averaged down
@@ -399,13 +390,13 @@ export function computeQuickBudget(args: {
   const month = computeBudgetMonth({ activity, income, budgeted, targetMonth });
   const current = month.categories.get(categoryId);
   const balanceToZero =
-    Math.round((current?.budgeted ?? 0) * 100) - Math.round((current?.available ?? 0) * 100);
+    toCents(current?.budgeted) - toCents(current?.available);
 
   return {
-    budgetedLastMonth: budgetedIn(prevMonth) / 100,
-    spentLastMonth: spentIn(prevMonth) / 100,
-    averageBudgeted: averageBudgeted / 100,
-    averageSpent: averageSpent / 100,
-    balanceToZero: balanceToZero / 100,
+    budgetedLastMonth: fromCents(budgetedIn(prevMonth)),
+    spentLastMonth: fromCents(spentIn(prevMonth)),
+    averageBudgeted: fromCents(averageBudgeted),
+    averageSpent: fromCents(averageSpent),
+    balanceToZero: fromCents(balanceToZero),
   };
 }

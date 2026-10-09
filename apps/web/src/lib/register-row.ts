@@ -68,20 +68,6 @@ export function fieldsToAmount(fields: MoneyFields): number | null {
 }
 
 /**
- * Whether the side of a transfer held in `own` carries a category. Money moved
- * between two budgeted accounts has not been spent, so YNAB 4 categorises it
- * nowhere; money moved out to a tracking account has been spent, and that is
- * recorded against the on-budget side alone. An account that has not loaded yet
- * is no category either, since there is no telling which case this is.
- */
-export function transferCategoryEditable(
-  own: { onBudget: boolean } | undefined,
-  other: { onBudget: boolean } | undefined
-): boolean {
-  return own?.onBudget === true && other?.onBudget === false;
-}
-
-/**
  * Why this row cannot be saved yet, or null when it can. The register used to
  * drop an unsaveable row on the floor: pressing Enter with both money columns
  * empty, or with something in each of them, did nothing at all and said nothing

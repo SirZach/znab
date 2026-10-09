@@ -16,7 +16,9 @@ import {
   REGISTER_SORTS,
   SORT_DIRECTIONS,
   createAccountSchema,
+  moneySchema,
   reconcileAccountSchema,
+  reconcileDifference,
 } from "@znab/shared";
 import { assertBudgetAccess, ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import {
@@ -28,7 +30,6 @@ import {
 } from "../lib/account";
 import {
   balanceAdjustment,
-  reconcileDifference,
   RECONCILE_MEMO,
   RECONCILE_PAYEE_NAME,
 } from "../lib/reconcile";
@@ -390,7 +391,7 @@ export const accountRouter = router({
     .input(
       createAccountSchema.extend({
         budgetId: z.number().int().positive(),
-        startingBalance: z.number().optional(),
+        startingBalance: moneySchema.optional(),
         startingBalanceDate: z
           .string()
           .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -897,7 +898,10 @@ export const accountRouter = router({
             )
           );
         const clearedBalance = parseFloat(cleared?.balance ?? "0");
-        const difference = reconcileDifference(input.statementBalance, clearedBalance);
+        const difference = reconcileDifference({
+          statementBalance: input.statementBalance,
+          clearedBalance,
+        });
 
         if (difference !== 0 && !input.adjustment) {
           throw new TRPCError({

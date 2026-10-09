@@ -4,6 +4,8 @@
  * database and tRPC imports, like the budget math beside it.
  */
 
+import { fromCents, toCents } from "@znab/shared";
+
 export type SplitPerson = { income: number; master: number };
 
 export type HouseholdSplit = {
@@ -14,8 +16,6 @@ export type HouseholdSplit = {
   partnerLeftOver: number;
   primaryLeftOver: number;
 };
-
-const cents = (v: number) => Math.round(v * 100);
 
 /**
  * All dollars. Sums are taken in whole cents so they stay exact; the saving is
@@ -29,19 +29,19 @@ export function computeHouseholdSplit(args: {
   savingsPercent: number;
 }): HouseholdSplit {
   const { primary, partner, savingsPercent } = args;
-  const incomeTotal = cents(primary.income) + cents(partner.income);
-  const masterTotal = cents(primary.master) + cents(partner.master);
+  const incomeTotal = toCents(primary.income) + toCents(partner.income);
+  const masterTotal = toCents(primary.master) + toCents(partner.master);
   const leftOver = incomeTotal - masterTotal;
   const saving = (leftOver * savingsPercent) / 100;
-  const partnerLeftOver = cents(partner.income) - cents(partner.master);
+  const partnerLeftOver = toCents(partner.income) - toCents(partner.master);
   const primaryLeftOver = leftOver - (saving + partnerLeftOver);
 
   return {
-    incomeTotal: incomeTotal / 100,
-    masterTotal: masterTotal / 100,
-    leftOver: leftOver / 100,
-    saving: saving / 100,
-    partnerLeftOver: partnerLeftOver / 100,
-    primaryLeftOver: primaryLeftOver / 100,
+    incomeTotal: fromCents(incomeTotal),
+    masterTotal: fromCents(masterTotal),
+    leftOver: fromCents(leftOver),
+    saving: fromCents(saving),
+    partnerLeftOver: fromCents(partnerLeftOver),
+    primaryLeftOver: fromCents(primaryLeftOver),
   };
 }

@@ -1,3 +1,4 @@
+import type { GoalType } from "@znab/shared";
 import { invalidateBudgeting } from "@/lib/invalidate";
 import { trpc } from "@/trpc";
 
@@ -57,7 +58,7 @@ export function useBudgetPage({
   function setCategoryGoal(
     categoryId: number,
     goal: {
-      goalType: "TB" | "TBD" | "MF" | null;
+      goalType: GoalType | null;
       target?: number;
       targetMonth?: string;
     }

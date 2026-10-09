@@ -4,8 +4,7 @@
  * database connection is opened here.
  */
 import { sql, type SQL } from "drizzle-orm";
-import { CREDIT_ACCOUNT_TYPES } from "./account";
-import { DEFERRED_INCOME, IMMEDIATE_INCOME } from "./budget-math";
+import { CREDIT_ACCOUNT_TYPES, DEFERRED_INCOME, IMMEDIATE_INCOME } from "@znab/shared";
 
 /**
  * Every row of budget money, one per transaction or split part, with columns

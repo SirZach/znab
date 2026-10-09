@@ -12,8 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BalanceFigure } from "@/components/register/balances";
-import { clearedBalanceAsOf, coversStatement, reconcileDifference } from "@/lib/reconcile";
-import type { ReconcilableRow } from "@/lib/reconcile";
+import { clearedBalanceAsOf, type ReconcilableRow, reconcileDifference } from "@znab/shared";
+import { coversStatement } from "@/lib/reconcile";
 import { cn, formatCurrency, formatDateISO, formatDateShort, parseAmountExpression } from "@/lib/utils";
 
 /** What Finish sends, once the reader has agreed to any adjustment it needs. */
@@ -86,7 +86,10 @@ export function ReconcilePanel({
   const figures =
     typed === null
       ? null
-      : { statementBalance: typed, difference: reconcileDifference(clearedAsOf, typed) };
+      : {
+          statementBalance: typed,
+          difference: reconcileDifference({ statementBalance: typed, clearedBalance: clearedAsOf }),
+        };
 
   function finish(adjustment: boolean) {
     if (!figures) return;

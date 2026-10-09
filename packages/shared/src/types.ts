@@ -77,22 +77,42 @@ export type FrequencyValue = typeof FREQUENCY_VALUES[number];
 export const PAYEE_RENAME_OPERATORS = ["Is", "Contains", "StartsWith", "EndsWith"] as const;
 export type PayeeRenameOperator = typeof PAYEE_RENAME_OPERATORS[number];
 
+/** The two income categories YNAB 4 files money to be budgeted under. */
+export const IMMEDIATE_INCOME = "Category/__ImmediateIncome__";
+/** Income for next month: it lands in the month after the one it is dated. */
+export const DEFERRED_INCOME = "Category/__DeferredIncome__";
+/** The category a split parent carries; its parts carry the real ones. */
+export const SPLIT_CATEGORY_ID = "Category/__Split__";
+
 // Special YNAB category IDs that aren't real categories. Pre-YNAB-debt
 // categories (Category/PreYNABDebt/<accountId>) are intentionally NOT here:
 // they are real categories imported under the Pre-YNAB Debt master group, so
 // their id must resolve like any other category.
-export const SPECIAL_CATEGORY_IDS = new Set([
-  "Category/__ImmediateIncome__",
-  "Category/__DeferredIncome__",
-  "Category/__Split__",
+const SPECIAL_CATEGORY_IDS: ReadonlySet<string> = new Set([
+  IMMEDIATE_INCOME,
+  DEFERRED_INCOME,
+  SPLIT_CATEGORY_ID,
 ]);
 
 export function isSpecialCategoryId(id: string): boolean {
   return SPECIAL_CATEGORY_IDS.has(id);
 }
 
-// Hard-coded user slugs
-export const USER_SLUGS = {
-  ZACH: "zach",
-  DEMO: "demo",
-} as const;
+/**
+ * YNAB 4's three goal types: TB (target balance), TBD (target balance by
+ * date) and MF (monthly funding).
+ */
+export const GOAL_TYPES = ["TB", "TBD", "MF"] as const;
+export type GoalType = typeof GOAL_TYPES[number];
+
+/**
+ * Where a category's negative balance goes at month end. YNAB 4 takes all
+ * overspending, cash or credit card, out of next month's To-be-Budgeted and
+ * resets the category, unless it is confined (the red arrow), in which case
+ * the category carries the negative balance forward instead.
+ */
+export type OverspendKind = "cash" | "confined" | null;
+
+/** The timeframes every report can be narrowed to. */
+export const REPORT_TIMEFRAMES = ["all", "thisYear", "last12", "last4Years"] as const;
+export type ReportTimeframe = typeof REPORT_TIMEFRAMES[number];

@@ -9,16 +9,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { trpc } from "@/trpc";
-import { formatCurrency, cn } from "@/lib/utils";
-
-const TIMEFRAMES = [
-  { value: "all", label: "All Dates" },
-  { value: "thisYear", label: "This Year" },
-  { value: "last12", label: "Last 12 Months" },
-  { value: "last4Years", label: "Last 4 Years" },
-] as const;
-
-type Timeframe = (typeof TIMEFRAMES)[number]["value"];
+import type { ReportTimeframe } from "@znab/shared";
+import {
+  cn,
+  formatCompactCurrency,
+  formatCurrency,
+  REPORT_TIMEFRAME_OPTIONS,
+} from "@/lib/utils";
 
 const BAR_COLOR = "#b3a2d4";
 
@@ -29,17 +26,8 @@ const BAR_COLOR = "#b3a2d4";
  */
 const CHARTED = 15;
 
-function formatCompactCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
-}
-
 export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
-  const [timeframe, setTimeframe] = useState<Timeframe>("last12");
+  const [timeframe, setTimeframe] = useState<ReportTimeframe>("last12");
   const { data, isLoading } = trpc.report.spendingByPayee.useQuery({ budgetId, timeframe });
 
   const spending = data?.spending ?? [];
@@ -50,7 +38,7 @@ export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-2xl font-bold">Spending by Payee</h2>
         <div className="flex rounded-lg border border-border p-0.5">
-          {TIMEFRAMES.map((tf) => (
+          {REPORT_TIMEFRAME_OPTIONS.map((tf) => (
             <button
               key={tf.value}
               onClick={() => setTimeframe(tf.value)}

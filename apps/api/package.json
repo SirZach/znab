@@ -6,7 +6,9 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "import": "bun src/scripts/import-yfull.ts",
-    "test": "bun test"
+    "test": "bun test ./src",
+    "test:db:setup": "bun test/db-setup.ts",
+    "test:db": "bun run test:db:setup && bun test ./test"
   },
   "dependencies": {
     "@hono/trpc-server": "^0.4.2",

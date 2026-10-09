@@ -10,40 +10,20 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { trpc } from "@/trpc";
-import { formatCurrency, cn } from "@/lib/utils";
-
-const TIMEFRAMES = [
-  { value: "all", label: "All Dates" },
-  { value: "thisYear", label: "This Year" },
-  { value: "last12", label: "Last 12 Months" },
-  { value: "last4Years", label: "Last 4 Years" },
-] as const;
-
-type Timeframe = (typeof TIMEFRAMES)[number]["value"];
+import type { ReportTimeframe } from "@znab/shared";
+import {
+  cn,
+  formatCompactCurrency,
+  formatCurrency,
+  formatMonthTick,
+  REPORT_TIMEFRAME_OPTIONS,
+} from "@/lib/utils";
 
 const INCOME_COLOR = "#7fb98b";
 const EXPENSE_COLOR = "#e15a4a";
 
-/** "YYYY-MM" -> "MMM 'YY" */
-function formatMonthTick(month: string): string {
-  const [year = "", m = ""] = month.split("-");
-  const label = new Date(Number(year), Number(m) - 1, 1).toLocaleString("en-US", {
-    month: "short",
-  });
-  return `${label} '${year.slice(2)}`;
-}
-
-function formatCompactCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(value);
-}
-
 export function IncomeVsExpenseReport({ budgetId }: { budgetId: number }) {
-  const [timeframe, setTimeframe] = useState<Timeframe>("last12");
+  const [timeframe, setTimeframe] = useState<ReportTimeframe>("last12");
   const { data, isLoading } = trpc.report.incomeVsExpense.useQuery({ budgetId, timeframe });
 
   const series = data?.series ?? [];
@@ -53,7 +33,7 @@ export function IncomeVsExpenseReport({ budgetId }: { budgetId: number }) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-2xl font-bold">Income vs. Expenses</h2>
         <div className="flex rounded-lg border border-border p-0.5">
-          {TIMEFRAMES.map((tf) => (
+          {REPORT_TIMEFRAME_OPTIONS.map((tf) => (
             <button
               key={tf.value}
               onClick={() => setTimeframe(tf.value)}

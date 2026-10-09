@@ -5,8 +5,13 @@ import { router, protectedProcedure } from "../trpc";
 import { budgets, accounts, transactions } from "@znab/db";
 import { assertBudgetAccess } from "../lib/authz";
 import { IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
-
-const TIMEFRAMES = ["all", "thisYear", "last12", "last4Years"] as const;
+import {
+  fromCents,
+  REPORT_TIMEFRAMES,
+  type ReportTimeframe,
+  roundMoney,
+  toCents,
+} from "@znab/shared";
 
 type NetWorthPoint = {
   month: string; // "YYYY-MM"
@@ -46,7 +51,7 @@ export const reportRouter = router({
     .input(
       z.object({
         budgetId: z.number().int().positive(),
-        timeframe: z.enum(TIMEFRAMES).default("last12"),
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("last12"),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -77,12 +82,12 @@ export const reportRouter = router({
       const spending: PayeeSpend[] = rows.map((row) => ({
         payeeId: row.payeeId,
         payee: row.payee,
-        spent: Math.round(-parseFloat(row.net) * 100) / 100,
+        spent: fromCents(-toCents(row.net)),
       }));
 
       return {
         spending,
-        total: Math.round(spending.reduce((sum, row) => sum + row.spent, 0) * 100) / 100,
+        total: roundMoney(spending.reduce((sum, row) => sum + row.spent, 0)),
       };
     }),
 
@@ -95,7 +100,7 @@ export const reportRouter = router({
     .input(
       z.object({
         budgetId: z.number().int().positive(),
-        timeframe: z.enum(TIMEFRAMES).default("last12"),
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("last12"),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -122,15 +127,15 @@ export const reportRouter = router({
       // A split parent counts on neither side: it carries no category of its
       // own, and its parts are already in the union above.
       const series: IncomeVsExpensePoint[] = rows.map((row) => {
-        const income = Math.round(parseFloat(row.income) * 100) / 100;
+        const income = roundMoney(row.income);
         // Categorised money nets out to a negative in any month that spent
         // more than it was refunded, and that net is the expense.
-        const expense = Math.round(-parseFloat(row.categorised) * 100) / 100;
+        const expense = fromCents(-toCents(row.categorised));
         return {
           month: row.month,
           income,
           expense,
-          net: Math.round((income - expense) * 100) / 100,
+          net: roundMoney(income - expense),
         };
       });
 
@@ -145,9 +150,9 @@ export const reportRouter = router({
       return {
         series,
         summary: {
-          income: Math.round(totals.income * 100) / 100,
-          expense: Math.round(totals.expense * 100) / 100,
-          net: Math.round((totals.income - totals.expense) * 100) / 100,
+          income: roundMoney(totals.income),
+          expense: roundMoney(totals.expense),
+          net: roundMoney(totals.income - totals.expense),
         },
       };
     }),
@@ -162,7 +167,7 @@ export const reportRouter = router({
     .input(
       z.object({
         budgetId: z.number().int().positive(),
-        timeframe: z.enum(TIMEFRAMES).default("all"),
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -207,12 +212,12 @@ export const reportRouter = router({
         categoryId: row.categoryId,
         category: row.category,
         group: row.group,
-        spent: Math.round(-parseFloat(row.net) * 100) / 100,
+        spent: fromCents(-toCents(row.net)),
       }));
 
       return {
         spending,
-        total: Math.round(spending.reduce((sum, row) => sum + row.spent, 0) * 100) / 100,
+        total: roundMoney(spending.reduce((sum, row) => sum + row.spent, 0)),
       };
     }),
 
@@ -223,7 +228,7 @@ export const reportRouter = router({
     .input(
       z.object({
         budgetId: z.number().int().positive(),
-        timeframe: z.enum(TIMEFRAMES).default("all"),
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -261,7 +266,7 @@ export const reportRouter = router({
       let minMonth = rows[0]!.month;
       let maxMonth = rows[0]!.month;
       for (const row of rows) {
-        const cents = Math.round(parseFloat(row.delta) * 100);
+        const cents = toCents(row.delta);
         let monthMap = deltasByMonth.get(row.month);
         if (!monthMap) {
           monthMap = new Map();
@@ -293,9 +298,9 @@ export const reportRouter = router({
 
         series.push({
           month,
-          assets: assets / 100,
-          debts: debts / 100,
-          netWorth: (assets - debts) / 100,
+          assets: fromCents(assets),
+          debts: fromCents(debts),
+          netWorth: fromCents(assets - debts),
         });
       }
 
@@ -327,7 +332,7 @@ function monthRange(start: string, end: string): string[] {
 }
 
 /** First "YYYY-MM" month to include for a timeframe, or null for all dates. */
-function timeframeCutoff(timeframe: (typeof TIMEFRAMES)[number]): string | null {
+function timeframeCutoff(timeframe: ReportTimeframe): string | null {
   if (timeframe === "all") return null;
   const now = new Date();
   const year = now.getFullYear();

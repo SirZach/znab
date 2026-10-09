@@ -19,9 +19,10 @@
     "import": "bun run --filter api import",
     "ynab:reset": "FORCE=1 bash scripts/sync-ynab4.sh",
     "test": "bun run --filter '*' test",
+    "test:db": "bun run --filter api test:db",
     "typecheck": "tsc --noEmit -p apps/api && tsc --noEmit -p apps/web && tsc --noEmit -p packages/db && tsc --noEmit -p packages/shared",
     "lint": "biome lint .",
-    "check": "bun run typecheck && bun run lint && bun run test"
+    "check": "bun run typecheck && bun run lint && bun run test && bun run test:db"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

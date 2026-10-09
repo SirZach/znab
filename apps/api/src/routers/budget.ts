@@ -3,7 +3,15 @@ import { eq, and, isNull, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { budgets, monthlyBudgets, categories } from "@znab/db";
-import { setBudgetedSchema } from "@znab/shared";
+import {
+  fromCents,
+  GOAL_TYPES,
+  type GoalType,
+  moneySchema,
+  roundMoney,
+  setBudgetedSchema,
+  toCents,
+} from "@znab/shared";
 import { assertBudgetAccess, type AuthedContext } from "../lib/authz";
 import { IS_CREDIT_ACCOUNT, IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
 import {
@@ -15,12 +23,11 @@ import {
   type ActivityRow,
   type IncomeRow,
   type BudgetedRow,
-  type GoalType,
   type CategoryGoal,
 } from "../lib/budget-math";
 
 // Re-exported so the web client keeps importing these from the router it calls.
-export type { MonthSummary, CategoryMonth, OverspendKind, GoalType, CategoryGoal } from "../lib/budget-math";
+export type { MonthSummary, CategoryMonth, CategoryGoal } from "../lib/budget-math";
 
 /**
  * Throws unless the category belongs to the budget. Allocation rows are keyed
@@ -373,7 +380,7 @@ export const budgetRouter = router({
         month: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         fromCategoryId: z.number().int().positive(),
         toCategoryId: z.number().int().positive(),
-        amount: z.number().positive(),
+        amount: moneySchema.positive(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -398,11 +405,9 @@ export const budgetRouter = router({
             ),
         });
         const budgetedFor = (categoryId: number) =>
-          Math.round(
-            parseFloat(rows.find((r) => r.categoryId === categoryId)?.budgeted ?? "0") * 100
-          );
+          toCents(rows.find((r) => r.categoryId === categoryId)?.budgeted);
 
-        const delta = Math.round(input.amount * 100);
+        const delta = toCents(input.amount);
         const moves = [
           { categoryId: input.fromCategoryId, cents: budgetedFor(input.fromCategoryId) - delta },
           { categoryId: input.toCategoryId, cents: budgetedFor(input.toCategoryId) + delta },
@@ -416,11 +421,11 @@ export const budgetRouter = router({
               budgetId: input.budgetId,
               categoryId: move.categoryId,
               month: input.month,
-              budgeted: String(move.cents / 100),
+              budgeted: String(fromCents(move.cents)),
             })
             .onConflictDoUpdate({
               target: [monthlyBudgets.categoryId, monthlyBudgets.month],
-              set: { budgeted: String(move.cents / 100), updatedAt: new Date() },
+              set: { budgeted: String(fromCents(move.cents)), updatedAt: new Date() },
             });
         }
       });
@@ -468,8 +473,8 @@ export const budgetRouter = router({
       z.object({
         budgetId: z.number().int().positive(),
         categoryId: z.number().int().positive(),
-        goalType: z.enum(["TB", "TBD", "MF"]).nullable(),
-        target: z.number().positive().optional(),
+        goalType: z.enum(GOAL_TYPES).nullable(),
+        target: moneySchema.positive().optional(),
         targetMonth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       })
     )
@@ -532,7 +537,6 @@ export const budgetRouter = router({
           .filter((r) => r.categoryId === input.categoryId)
           .map((r) => [r.month, r])
       );
-      const toCents = (v: string | null | undefined) => Math.round(parseFloat(v ?? "0") * 100);
 
       const targetIdx = monthIndex(input.month.slice(0, 7));
       const history: { month: string; budgeted: number; spent: number }[] = [];
@@ -543,8 +547,8 @@ export const budgetRouter = router({
         const net = toCents(act?.cash) + toCents(act?.credit);
         history.push({
           month,
-          budgeted: toCents(budgetedByMonth.get(month)) / 100,
-          spent: (net < 0 ? -net : 0) / 100,
+          budgeted: roundMoney(budgetedByMonth.get(month)),
+          spent: fromCents(net < 0 ? -net : 0),
         });
       }
       return history;
@@ -596,10 +600,10 @@ export const budgetRouter = router({
 
       // Summed in cents, the way the engine sums, so the total cannot pick up
       // a stray fraction the Spent cell does not have.
-      const totalCents = rows.reduce((sum, r) => sum + Math.round(parseFloat(r.amount) * 100), 0);
+      const totalCents = rows.reduce((sum, r) => sum + toCents(r.amount), 0);
       return {
         transactions: rows.map((r) => ({ ...r, amount: parseFloat(r.amount) })),
-        total: totalCents / 100,
+        total: fromCents(totalCents),
       };
     }),
 });

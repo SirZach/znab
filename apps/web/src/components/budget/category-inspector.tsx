@@ -2,9 +2,8 @@ import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { trpc } from "@/trpc";
+import type { GoalType, OverspendKind } from "@znab/shared";
 import { cn, formatCurrency, formatDateShort, parseAmountExpression } from "@/lib/utils";
-
-export type GoalType = "TB" | "TBD" | "MF";
 
 export type CategoryGoal = {
   type: GoalType;
@@ -22,7 +21,7 @@ export type InspectedCategory = {
   budgeted: number;
   activity: number;
   available: number;
-  overspendKind: "cash" | "confined" | null;
+  overspendKind: OverspendKind;
   confined: boolean;
   goal: CategoryGoal | null;
 };

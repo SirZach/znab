@@ -25,6 +25,13 @@ export const Route = createFileRoute("/budgets/$budgetId/")({
   component: BudgetPage,
 });
 
+// Kept to a reading width on a wide screen, so the eye does not travel far
+// from a category's name to its numbers
+const GRID_WIDTH = "md:max-w-4xl";
+
+// Sets the names apart from the numbers, as YNAB 4 does with its own pane
+const NAME_COL = "md:bg-muted/40 md:border-r md:border-border";
+
 function BudgetPage() {
   const { budgetId } = Route.useParams();
   const { month } = Route.useSearch();
@@ -215,7 +222,8 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
     // Fills what the shell leaves, which on a phone is less the top bar above
     <div className="flex flex-col flex-1 min-h-0">
       {/* Month nav + summary header */}
-      <div className="px-3 py-3 md:px-6 md:py-4 border-b border-border space-y-3 md:space-y-4">
+      <div className="px-3 py-3 md:px-6 md:py-4 border-b border-border">
+      <div className={cn("space-y-3 md:space-y-4", GRID_WIDTH)}>
         <div className="flex items-center justify-between">
           <button
             onClick={() => navigate({ search: { month: prevMonth } })}
@@ -235,14 +243,15 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
           <BudgetSummary summary={summary} monthShort={monthShort} prevShort={prevShort} />
         )}
       </div>
+      </div>
 
       {/* Budget table, with the selected category's panel alongside */}
       <div className="flex-1 flex min-h-0">
       <div className="flex-1 overflow-y-auto">
-        <table className="w-full text-sm">
+        <table className={cn("w-full text-sm", GRID_WIDTH)}>
           <thead className="sticky top-0 bg-background border-b border-border z-10">
             <tr className="text-muted-foreground">
-              <th className="text-left px-3 md:px-6 py-2 font-medium">Category</th>
+              <th className={cn("text-left px-3 md:px-6 py-2 font-medium", NAME_COL)}>Category</th>
               <th className="text-right px-2 md:px-4 py-2 font-medium w-16 md:w-32">Budgeted</th>
               <th className="text-right px-2 md:px-4 py-2 font-medium w-16 md:w-32">Spent</th>
               <th className="text-right px-3 md:px-6 py-2 font-medium w-20 md:w-32">Available</th>
@@ -268,7 +277,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                     className="bg-muted/30 border-b border-border/50 cursor-pointer hover:bg-muted/50 transition-colors"
                     onClick={() => toggleGroup(group.id)}
                   >
-                    <td className="px-3 md:px-6 py-2 max-md:max-w-0">
+                    <td className={cn("px-3 md:px-6 py-2 max-md:max-w-0", NAME_COL)}>
                       <button
                         aria-expanded={!isCollapsed}
                         aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.name}`}
@@ -308,7 +317,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                       >
                         {/* Narrowed to what is left on a phone, where a long
                             name is cut short rather than widening the page */}
-                        <td className="px-3 pl-5 md:px-6 md:pl-10 py-2 max-md:max-w-0">
+                        <td className={cn("px-3 pl-5 md:px-6 md:pl-10 py-2 max-md:max-w-0", NAME_COL)}>
                           <span className="flex items-center gap-2">
                             <span className="max-md:truncate">{cat.name}</span>
                             {cat.goal && <GoalDot goal={cat.goal} />}
@@ -382,7 +391,7 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
                 {showHidden &&
                   hidden.map((cat) => (
                     <tr key={cat.id} className="border-b border-border/50 text-muted-foreground">
-                      <td className="px-3 pl-5 md:px-6 md:pl-10 py-2 max-md:max-w-0">
+                      <td className={cn("px-3 pl-5 md:px-6 md:pl-10 py-2 max-md:max-w-0", NAME_COL)}>
                         <span className="flex items-baseline gap-2">
                           <span className="truncate">{cat.name}</span>
                           <span className="text-xs opacity-70">{cat.groupName}</span>

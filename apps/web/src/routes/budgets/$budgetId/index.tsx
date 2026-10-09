@@ -25,10 +25,6 @@ export const Route = createFileRoute("/budgets/$budgetId/")({
   component: BudgetPage,
 });
 
-// Kept to a reading width on a wide screen, so the eye does not travel far
-// from a category's name to its numbers
-const GRID_WIDTH = "md:max-w-4xl";
-
 // Sets the names apart from the numbers, as YNAB 4 does with its own pane
 const NAME_COL = "md:bg-muted/40 md:border-r md:border-border";
 
@@ -220,10 +216,11 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
 
   return (
     // Fills what the shell leaves, which on a phone is less the top bar above
-    <div className="flex flex-col flex-1 min-h-0">
+    // Kept to a centered reading width on a wide screen, so the eye does not
+    // travel far from a category's name to its numbers
+    <div className="flex flex-col flex-1 min-h-0 w-full md:max-w-5xl md:mx-auto md:border-x md:border-border">
       {/* Month nav + summary header */}
-      <div className="px-3 py-3 md:px-6 md:py-4 border-b border-border">
-      <div className={cn("space-y-3 md:space-y-4", GRID_WIDTH)}>
+      <div className="px-3 py-3 md:px-6 md:py-4 border-b border-border space-y-3 md:space-y-4">
         <div className="flex items-center justify-between">
           <button
             onClick={() => navigate({ search: { month: prevMonth } })}
@@ -243,12 +240,11 @@ function BudgetGrid({ budgetId, month }: { budgetId: number; month: string }) {
           <BudgetSummary summary={summary} monthShort={monthShort} prevShort={prevShort} />
         )}
       </div>
-      </div>
 
       {/* Budget table, with the selected category's panel alongside */}
       <div className="flex-1 flex min-h-0">
       <div className="flex-1 overflow-y-auto">
-        <table className={cn("w-full text-sm", GRID_WIDTH)}>
+        <table className="w-full text-sm">
           <thead className="sticky top-0 bg-background border-b border-border z-10">
             <tr className="text-muted-foreground">
               <th className={cn("text-left px-3 md:px-6 py-2 font-medium", NAME_COL)}>Category</th>

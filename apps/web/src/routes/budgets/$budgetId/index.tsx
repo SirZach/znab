@@ -17,6 +17,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, Plus, Minus } from "lucide-reac
 import { CategoryInspector } from "@/components/budget/category-inspector";
 import { BulkBudgetPanel } from "@/components/budget/bulk-budget-panel";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { format, addMonths, subMonths, parseISO } from "date-fns";
 
@@ -799,21 +800,29 @@ function AdjustButton({
           }
         }}
       >
-        <div className="flex items-center gap-1">
-          {/* Which of the two buttons was pressed, said again where the amount
-              is being typed, since the button itself is now behind a popup. */}
-          <span aria-hidden className="text-muted-foreground">
-            {op}
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium">
+            {op === "+" ? "Amount to Add" : "Amount to Subtract"}
           </span>
-          <input
-            type="text"
-            inputMode="decimal"
-            aria-label={op === "+" ? "Amount to add" : "Amount to subtract"}
-            autoFocus
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            className="w-20 text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 py-0.5 tabular-nums"
-          />
+          <div className="flex items-center gap-1">
+            {/* Which of the two buttons was pressed, said again where the amount
+                is being typed, since the button itself is now behind a popup. */}
+            <span aria-hidden className="text-muted-foreground">
+              {op}
+            </span>
+            <input
+              type="text"
+              inputMode="decimal"
+              aria-label={op === "+" ? "Amount to add" : "Amount to subtract"}
+              autoFocus
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              className="w-20 text-right bg-transparent focus:outline-none focus:ring-1 focus:ring-ring rounded px-1 py-0.5 tabular-nums"
+            />
+          </div>
+          <Button size="sm" className="h-7" onClick={() => onApply(typed)}>
+            {op === "+" ? "Add" : "Subtract"}
+          </Button>
         </div>
       </PopoverContent>
     </Popover>

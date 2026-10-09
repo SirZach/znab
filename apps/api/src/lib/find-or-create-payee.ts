@@ -1,10 +1,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { payees } from "@znab/db";
-import type { AuthedContext } from "./authz";
 import { normalizePayeeName, payeeNameKey } from "./payee-name";
-
-/** An open transaction, so the payee is written with the row that names it. */
-type Tx = Parameters<Parameters<AuthedContext["db"]["transaction"]>[0]>[0];
+import type { Tx } from "./tx";
 
 /**
  * The id of the budget's payee called `name`, made on demand. Matched trimmed

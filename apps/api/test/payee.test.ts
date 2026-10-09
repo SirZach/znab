@@ -66,3 +66,90 @@ describe("payee.merge", () => {
     });
   });
 });
+
+describe("payee writes run in one transaction against a locked payee", () => {
+  test("rename trims, refuses a clash and a transfer payee, and writes nothing on refusal", async () => {
+    await withCaller(async ({ tx, seed, caller, other }) => {
+      const [extra] = await tx
+        .insert(payees)
+        .values({ ynabId: `Payee/${crypto.randomUUID()}`, budgetId: seed.budgetId, name: "Hilton " })
+        .returning();
+
+      await expectTrpcError(
+        caller.payee.rename({ budgetId: seed.budgetId, id: seed.payees.grocer.id, name: " hilton" }),
+        "CONFLICT"
+      );
+      await expectTrpcError(
+        caller.payee.rename({ budgetId: seed.budgetId, id: seed.transferPayee.savings, name: "Nope" }),
+        "BAD_REQUEST"
+      );
+      await expectTrpcError(
+        caller.payee.rename({ budgetId: seed.budgetId, id: other.payees.grocer.id, name: "Mine" }),
+        "NOT_FOUND"
+      );
+      const grocer = await tx.query.payees.findFirst({ where: eq(payees.id, seed.payees.grocer.id) });
+      expect(grocer!.name).toBe("Corner Grocer");
+
+      expect(
+        await caller.payee.rename({ budgetId: seed.budgetId, id: extra!.id, name: "  Hilton Hotels  " })
+      ).toEqual({ id: extra!.id, name: "Hilton Hotels" });
+    });
+  });
+
+  test("delete refuses a used payee and takes an unused one with its rename rules", async () => {
+    await withCaller(async ({ tx, seed, caller }) => {
+      await caller.transaction.create({
+        budgetId: seed.budgetId,
+        accountId: seed.accounts.checking.id,
+        payeeId: seed.payees.grocer.id,
+        categoryId: null,
+        amount: -1,
+        date: "2025-03-01",
+      });
+      await expectTrpcError(caller.payee.delete({ budgetId: seed.budgetId, id: seed.payees.grocer.id }), "CONFLICT");
+
+      const [unused] = await tx
+        .insert(payees)
+        .values({ ynabId: `Payee/${crypto.randomUUID()}`, budgetId: seed.budgetId, name: "Unused" })
+        .returning();
+      const rule = await caller.payee.addRenameRule({
+        budgetId: seed.budgetId,
+        payeeId: unused!.id,
+        operator: "Contains",
+        operand: " UNUSED ",
+      });
+      expect(rule.operand).toBe("UNUSED");
+      await expectTrpcError(
+        caller.payee.addRenameRule({
+          budgetId: seed.budgetId,
+          payeeId: seed.payees.grocer.id,
+          operator: "Contains",
+          operand: "unused",
+        }),
+        "CONFLICT"
+      );
+
+      expect(await caller.payee.delete({ budgetId: seed.budgetId, id: unused!.id })).toEqual({ id: unused!.id });
+      const gone = await tx.query.payees.findFirst({ where: eq(payees.id, unused!.id) });
+      expect(gone!.deletedAt).not.toBeNull();
+      const rules = await tx.query.payeeRenameRules.findMany({ where: eq(payeeRenameRules.id, rule.id) });
+      expect(rules[0]!.deletedAt).not.toBeNull();
+    });
+  });
+
+  test("setAutofill refuses another budget's category and saves its own", async () => {
+    await withCaller(async ({ seed, caller, other }) => {
+      const base = { budgetId: seed.budgetId, id: seed.payees.grocer.id, amount: -12.5, memo: "  weekly  " };
+      await expectTrpcError(
+        caller.payee.setAutofill({ ...base, categoryId: other.categories.groceries.id }),
+        "NOT_FOUND"
+      );
+      expect(await caller.payee.setAutofill({ ...base, categoryId: seed.categories.groceries.id })).toEqual({
+        id: seed.payees.grocer.id,
+        autofillCategoryId: seed.categories.groceries.id,
+        autofillAmount: "-12.50",
+        autofillMemo: "weekly",
+      });
+    });
+  });
+});

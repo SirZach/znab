@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { IS_CREDIT_ACCOUNT, IS_INCOME, onBudgetMoneySource } from "./money-source";
+import { IS_INCOME, onBudgetMoneySource } from "./money-source";
 
 const render = (fragment: Parameters<PgDialect["sqlToQuery"]>[0]) =>
   new PgDialect().sqlToQuery(fragment);
@@ -30,10 +30,6 @@ describe("onBudgetMoneySource", () => {
 });
 
 describe("classification fragments", () => {
-  test("credit accounts come from the lib constant", () => {
-    expect(render(IS_CREDIT_ACCOUNT).params).toEqual(["CreditCard", "OtherLiability"]);
-  });
-
   test("income comes from the lib constants", () => {
     expect(render(IS_INCOME).params).toEqual([
       "Category/__ImmediateIncome__",

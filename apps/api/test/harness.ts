@@ -19,6 +19,7 @@ import {
 } from "@znab/db";
 import { expect } from "bun:test";
 import { appRouter } from "../src/routers";
+import type { Tx } from "../src/lib/tx";
 
 // Literals rather than imports from src/lib, so the fixture does not move when
 // the helpers there are reorganised. They are YNAB 4's own ids.
@@ -33,7 +34,7 @@ export function localDay(days = 0): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type { Tx };
 export type Caller = ReturnType<typeof appRouter.createCaller>;
 
 export function callerFor(tx: Tx, user: User): Caller {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { eq, and, inArray, isNull, asc } from "drizzle-orm";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, budgetProcedure } from "../trpc";
 import { scheduledTransactions, transactions, payees, accounts } from "@znab/db";
 import {
   FREQUENCY_VALUES,
@@ -10,10 +10,11 @@ import {
   type FrequencyValue,
 } from "@znab/shared";
 import { TRPCError } from "@trpc/server";
-import { assertBudgetAccess, assertIdsInBudget, ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import { assertIdsInBudget, ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import { localToday } from "../lib/date";
 import { findOrCreatePayee } from "../lib/find-or-create-payee";
-import { transferCategoryId, transferPayeeName, transferPayeeYnabId } from "../lib/transfer";
+import { insertTransferPair, resolveTransferEnds } from "../lib/transfer-write";
+import type { Tx } from "../lib/tx";
 import {
   addDays,
   nextOccurrence,
@@ -21,9 +22,6 @@ import {
   parseDate,
   seriesStart,
 } from "../lib/schedule";
-
-/** An open transaction, the way the account router names the same thing. */
-type Tx = Parameters<Parameters<AuthedContext["db"]["transaction"]>[0]>[0];
 
 /**
  * How far past its due date one schedule will be caught up in a single sweep.
@@ -211,19 +209,17 @@ async function advance(
 }
 
 /**
- * Writes the transaction a scheduled occurrence stands for, and the far side
- * too when the schedule is a transfer.
+ * Resolves everything a schedule's occurrences are written against, once, and
+ * returns the writer for one occurrence: the transaction it stands for, and the
+ * far side too when the schedule is a transfer. A catch-up of sixty dates reads
+ * the account, payee and transfer ends once rather than sixty times.
  *
  * A scheduled transfer is declared exactly as a live one is, by the payee that
  * stands in for the other account: YNAB 4's export carries a `targetAccountId`
  * on the scheduled entity but the importer never stored it, and it would be a
  * second source of truth for something the payee already says.
  */
-async function enterOccurrence(
-  tx: Tx,
-  row: typeof scheduledTransactions.$inferSelect,
-  date: string,
-) {
+async function occurrenceWriter(tx: Tx, row: typeof scheduledTransactions.$inferSelect) {
   // The account can go while the schedule pointing at it stays, so the row is
   // only good as long as what it names still exists.
   const into = await tx.query.accounts.findFirst({
@@ -266,131 +262,48 @@ async function enterOccurrence(
   }
 
   if (payee && payee.targetAccountId !== null) {
-    const farAccountId = payee.targetAccountId;
-    if (farAccountId === row.accountId) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "A transfer has to go to a different account.",
-      });
-    }
-
-    const ends = await tx.query.accounts.findMany({
-      where: and(
-        inArray(accounts.id, [row.accountId, farAccountId]),
-        eq(accounts.budgetId, row.budgetId),
-        isNull(accounts.deletedAt),
-      ),
-      columns: { id: true, name: true, ynabId: true, onBudget: true, hidden: true },
+    const ends = await resolveTransferEnds(tx, row.budgetId, row.accountId, {
+      ...payee,
+      targetAccountId: payee.targetAccountId,
     });
-    const near = ends.find((a) => a.id === row.accountId);
-    const far = ends.find((a) => a.id === farAccountId);
-    if (!near) throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
-    if (!far) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `"${payee.name}" points at an account that is no longer in this budget.`,
+    return (date: string) =>
+      insertTransferPair(tx, ends, {
+        amount: Number(row.amount),
+        date,
+        categoryId: row.categoryId,
+        memo: row.memo,
+        dateFromSchedule: date,
       });
-    }
+  }
 
-    const nearYnabId = crypto.randomUUID();
-    const farYnabId = crypto.randomUUID();
-
-    // The far side names this account through the payee pointing back at it,
-    // made on demand for a budget that has none, exactly as entering a transfer
-    // by hand does.
-    const backPayee = await tx.query.payees.findFirst({
-      where: and(
-        eq(payees.budgetId, row.budgetId),
-        eq(payees.targetAccountId, near.id),
-        isNull(payees.deletedAt),
-      ),
-      columns: { id: true },
-    });
-    let farPayeeId = backPayee?.id;
-    if (!farPayeeId) {
-      const [created] = await tx
-        .insert(payees)
-        .values({
-          ynabId: transferPayeeYnabId(near.ynabId),
-          budgetId: row.budgetId,
-          name: transferPayeeName(near.name),
-          targetAccountId: near.id,
-          enabled: !near.hidden,
-        })
-        .returning({ id: payees.id });
-      farPayeeId = created!.id;
-    }
-
-    const [nearTxn] = await tx
+  return async (date: string) => {
+    const [txn] = await tx
       .insert(transactions)
       .values({
-        ynabId: nearYnabId,
+        ynabId: crypto.randomUUID(),
         budgetId: row.budgetId,
-        accountId: near.id,
-        payeeId: payee.id,
-        categoryId: transferCategoryId(near, far, row.categoryId),
+        accountId: row.accountId,
+        payeeId: row.payeeId,
+        categoryId: row.categoryId,
         amount: row.amount,
         date,
+        // A schedule says money is expected, not that the bank has seen it.
         cleared: "Uncleared",
         accepted: true,
         memo: row.memo,
+        // What marks a row as having come from a schedule. 1,136 imported
+        // transactions already carry it, written by YNAB 4's own auto-entry.
         dateFromSchedule: date,
-        isTransfer: true,
-        transferAccountId: far.id,
-        transferTransactionId: farYnabId,
       })
       .returning();
-
-    await tx.insert(transactions).values({
-      ynabId: farYnabId,
-      budgetId: row.budgetId,
-      accountId: far.id,
-      payeeId: farPayeeId,
-      categoryId: transferCategoryId(far, near, row.categoryId),
-      amount: String(-Number(row.amount)),
-      date,
-      cleared: "Uncleared",
-      accepted: true,
-      memo: row.memo,
-      dateFromSchedule: date,
-      isTransfer: true,
-      transferAccountId: near.id,
-      transferTransactionId: nearYnabId,
-    });
-
-    return nearTxn!;
-  }
-
-  const [txn] = await tx
-    .insert(transactions)
-    .values({
-      ynabId: crypto.randomUUID(),
-      budgetId: row.budgetId,
-      accountId: row.accountId,
-      payeeId: row.payeeId,
-      categoryId: row.categoryId,
-      amount: row.amount,
-      date,
-      // A schedule says money is expected, not that the bank has seen it.
-      cleared: "Uncleared",
-      accepted: true,
-      memo: row.memo,
-      // What marks a row as having come from a schedule. 1,136 imported
-      // transactions already carry it, written by YNAB 4's own auto-entry.
-      dateFromSchedule: date,
-    })
-    .returning();
-
-  return txn!;
+    return txn!;
+  };
 }
 
 export const scheduledTransactionRouter = router({
   /** Every live schedule in the budget, for the manage screen. */
-  list: protectedProcedure
-    .input(z.object({ budgetId: z.number().int().positive() }))
+  list: budgetProcedure
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const rows = await ctx.db.query.scheduledTransactions.findMany({
         where: and(
           eq(scheduledTransactions.budgetId, input.budgetId),
@@ -412,17 +325,14 @@ export const scheduledTransactionRouter = router({
    * The occurrences falling between now and the horizon, flattened one row per
    * occurrence, which is what a register shows above its own rows.
    */
-  upcoming: protectedProcedure
+  upcoming: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         accountId: z.number().int().positive().optional(),
         days: z.number().int().min(0).max(365).default(DEFAULT_HORIZON_DAYS),
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const rows = await ctx.db.query.scheduledTransactions.findMany({
         where: and(
           eq(scheduledTransactions.budgetId, input.budgetId),
@@ -457,15 +367,9 @@ export const scheduledTransactionRouter = router({
       return occurrences;
     }),
 
-  create: protectedProcedure
-    .input(
-      createScheduledTransactionSchema.extend({
-        budgetId: z.number().int().positive(),
-      }),
-    )
+  create: budgetProcedure
+    .input(createScheduledTransactionSchema)
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       // The payee is made and the schedule written together, so a refused
       // schedule does not leave a payee nobody asked for behind it.
       return ctx.db.transaction(async (tx) => {
@@ -603,7 +507,8 @@ export const scheduledTransactionRouter = router({
     .mutation(async ({ ctx, input }) => {
       return ctx.db.transaction(async (tx) => {
         const row = await loadScheduled(tx, ctx, input.id);
-        const entered = await enterOccurrence(tx, row, row.date);
+        const write = await occurrenceWriter(tx, row);
+        const entered = await write(row.date);
         const next = await advance(tx, ctx, row, row.date);
         return { transaction: entered, enteredDate: row.date, nextDate: next };
       });
@@ -633,10 +538,8 @@ export const scheduledTransactionRouter = router({
    * the background: znab has no scheduler, and writing transactions into a
    * register the moment a page loads is worse than a button that says so.
    */
-  enterDue: protectedProcedure
-    .input(z.object({ budgetId: z.number().int().positive() }))
+  enterDue: budgetProcedure
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
       const asOf = localToday();
 
       return ctx.db.transaction(async (tx) => {
@@ -665,10 +568,10 @@ export const scheduledTransactionRouter = router({
               // The dates to write are the ones the screens listed as due,
               // read from the same routine, rather than walked separately.
               const due = occurrencesThrough(recurrenceOf(row), asOf, MAX_CATCH_UP);
-              for (const date of due) await enterOccurrence(inner, row, date);
-              if (due.length > 0) {
-                await advance(inner, ctx, row, due[due.length - 1]!);
-              }
+              if (due.length === 0) return 0;
+              const write = await occurrenceWriter(inner, row);
+              for (const date of due) await write(date);
+              await advance(inner, ctx, row, due[due.length - 1]!);
               return due.length;
             });
 
@@ -679,6 +582,16 @@ export const scheduledTransactionRouter = router({
             // of this one still waiting.
             if (written >= MAX_CATCH_UP) cappedOut = true;
           } catch (error) {
+            // A refusal (a deleted account or payee) is the schedule's to fix
+            // and its message says how. Anything else is a bug: logged with
+            // enough to find it, then reported like a refusal so one bad
+            // schedule does not stop the rest of the sweep.
+            if (!(error instanceof TRPCError)) {
+              console.error(
+                `scheduledTransaction.enterDue: schedule ${row.id} in budget ${input.budgetId} failed`,
+                error,
+              );
+            }
             skipped.push({
               id: row.id,
               reason:

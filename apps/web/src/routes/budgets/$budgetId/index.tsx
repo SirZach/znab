@@ -801,10 +801,10 @@ function AdjustButton({
         }}
       >
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium">
+          <span className="text-xs font-medium text-center">
             {op === "+" ? "Amount to Add" : "Amount to Subtract"}
           </span>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center justify-end gap-1">
             {/* Which of the two buttons was pressed, said again where the amount
                 is being typed, since the button itself is now behind a popup. */}
             <span aria-hidden className="text-muted-foreground">

@@ -555,20 +555,20 @@ function GoalDot({
 // ─── Available balance ────────────────────────────────────────────────────────
 
 /**
- * A category's month-end balance. YNAB 4 separates the two ways a category goes
- * negative: red when cash overspending will come out of next month's
- * To-be-Budgeted, amber when it is credit-card debt that will not.
+ * A category's month-end balance. Red when the overspending will come out of
+ * next month's To-be-Budgeted, amber when the category is confined and carries
+ * it forward instead.
  */
 function AvailablePill({
   amount,
   overspendKind,
 }: {
   amount: number;
-  overspendKind: "cash" | "credit" | null;
+  overspendKind: "cash" | "confined" | null;
 }) {
   const tone =
     amount < 0
-      ? overspendKind === "credit"
+      ? overspendKind === "confined"
         ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
         : "bg-destructive/15 text-destructive"
       : amount > 0
@@ -577,9 +577,9 @@ function AvailablePill({
 
   const title =
     amount < 0
-      ? overspendKind === "credit"
-        ? "Overspent on credit. Carried as debt, so it does not reduce next month's To be Budgeted"
-        : "Overspent in cash. This comes out of next month's To be Budgeted"
+      ? overspendKind === "confined"
+        ? "Overspending confined to this category. It carries forward and does not reduce next month's To be Budgeted"
+        : "Overspent. This comes out of next month's To be Budgeted"
       : undefined;
 
   return (

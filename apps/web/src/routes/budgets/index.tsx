@@ -1,16 +1,10 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { CenteredMessage } from "@/components/common/centered-message";
 import { useBudgetList } from "@/hooks/useBudgetList";
-import { useUserStore } from "@/store/user";
+import { requireUser } from "@/lib/require-user";
 
 export const Route = createFileRoute("/budgets/")({
-  // Read the store, not route context: the root route's guard reads the same
-  // value, and a stale context here would bounce the two guards against each
-  // other right after the user is selected or cleared.
-  beforeLoad: () => {
-    if (!useUserStore.getState().userSlug) {
-      throw redirect({ to: "/" });
-    }
-  },
+  beforeLoad: requireUser,
   component: BudgetListPage,
 });
 
@@ -18,11 +12,7 @@ function BudgetListPage() {
   const { budgets, isLoading } = useBudgetList();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground">Loading budgets…</p>
-      </div>
-    );
+    return <CenteredMessage className="min-h-screen bg-background">Loading budgets…</CenteredMessage>;
   }
 
   return (

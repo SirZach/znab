@@ -1,6 +1,12 @@
+import type { inferRouterOutputs } from "@trpc/server";
 import type { GoalType } from "@znab/shared";
 import { invalidateBudgeting } from "@/lib/invalidate";
-import { trpc } from "@/trpc";
+import { trpc, type AppRouter } from "@/trpc";
+
+type MonthBudget = inferRouterOutputs<AppRouter>["budget"]["monthBudget"];
+export type BudgetGroup = MonthBudget["groups"][number];
+export type BudgetCategory = BudgetGroup["categories"][number];
+export type HiddenCategory = MonthBudget["hidden"][number];
 
 export function useBudgetPage({
   budgetId,
@@ -34,13 +40,8 @@ export function useBudgetPage({
   const summary = data?.summary;
   const visibleGroups = (data?.groups ?? []).filter((g) => !g.isSystem && !g.deletedAt);
 
-  function setBudgeted(args: {
-    budgetId: number;
-    categoryId: number;
-    month: string;
-    budgeted: number;
-  }) {
-    setMutation.mutate(args);
+  function setBudgeted(categoryId: number, budgeted: number) {
+    setMutation.mutate({ budgetId, categoryId, month, budgeted });
   }
 
   function moveMoney(args: {

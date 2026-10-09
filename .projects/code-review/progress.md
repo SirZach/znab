@@ -17,7 +17,7 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 |---|-------|--------|--------|
 | A | apps/api/src/routers, index.ts, trpc.ts, context.ts | findings/a-api-routers.md | done (2H 10M 9L) |
 | B | apps/api/src/lib, apps/api/src/scripts, packages/db, packages/shared | findings/b-api-lib-db.md | done (4H 7M 11L) |
-| C | apps/web/src/routes | findings/c-web-routes.md | pending |
+| C | apps/web/src/routes | findings/c-web-routes.md | done (5H 14M 11L) |
 | D | apps/web/src/components (non ui), hooks, lib, store, trpc.ts, main.tsx | findings/d-web-components.md | pending |
 | E | Cross cutting: test coverage gaps, tooling, shared types, repo hygiene | findings/e-cross-cutting.md | pending |
 

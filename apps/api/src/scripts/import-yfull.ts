@@ -24,7 +24,7 @@ import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@znab/db";
 import { db } from "@znab/db";
 import { FLAG_COLORS, isSpecialCategoryId, PAYEE_RENAME_OPERATORS } from "@znab/shared";
-import path from "path";
+import path from "node:path";
 import { isSystemGroupYnabId } from "../lib/category";
 import { assertMirrorable, knownYnabIds, planMirrorDeletes, type MirrorRows } from "../lib/ynab4-mirror";
 import { loadBudget, staleSubTransactionIds, type YfullFile } from "../lib/ynab4-package";
@@ -249,7 +249,9 @@ export async function importBudgetData(
   for (const mc of data.masterCategories) {
     [...(mc.subCategories ?? [])]
       .sort((x, y) => x.sortableIndex - y.sortableIndex)
-      .forEach((sc, index) => catRank.set(sc.entityId, index));
+      .forEach((sc, index) => {
+        catRank.set(sc.entityId, index);
+      });
   }
   const allSubCats = data.masterCategories.flatMap((mc) =>
     (mc.subCategories ?? []).map((sc) => ({ ...sc, masterCategoryId: mc.entityId }))

@@ -1,0 +1,41 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!apps/web/src/components/ui",
+      "!apps/web/src/routeTree.gen.ts",
+      "!packages/db/migrations",
+      "!.projects",
+      "!.agents",
+      "!.claude"
+    ]
+  },
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "css": { "parser": { "tailwindDirectives": true } },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "correctness": {
+        "useExhaustiveDependencies": "error",
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error"
+      },
+      "style": {
+        "noNonNullAssertion": "off"
+      },
+      "a11y": {
+        "useButtonType": "off",
+        "noAutofocus": "off",
+        "useKeyWithClickEvents": "off",
+        "noStaticElementInteractions": "off",
+        "noSvgWithoutTitle": "off"
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "fs/promises";
-import { tmpdir } from "os";
-import path from "path";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   applyDiffs,
   covers,

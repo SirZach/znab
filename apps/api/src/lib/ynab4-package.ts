@@ -8,8 +8,8 @@
  * kept so the importer can apply them.
  */
 
-import { readFile, readdir, stat } from "fs/promises";
-import path from "path";
+import { readFile, readdir, stat } from "node:fs/promises";
+import path from "node:path";
 
 // ─── YNAB 4 entity shapes (the fields the importer reads) ─────────────────────
 
@@ -280,7 +280,10 @@ export function applyDiffs(
   const store = new Map<string, Map<string, Entity>>();
   const bucket = (type: string) => {
     let m = store.get(type);
-    if (!m) store.set(type, (m = new Map()));
+    if (!m) {
+      m = new Map();
+      store.set(type, m);
+    }
     return m;
   };
   let budgetMetaData = base.budgetMetaData;
@@ -375,7 +378,10 @@ export function applyDiffs(
       }
       const key = `${child.parentType}:${parentId}`;
       let byArray = childrenOf.get(key);
-      if (!byArray) childrenOf.set(key, (byArray = new Map()));
+      if (!byArray) {
+        byArray = new Map();
+        childrenOf.set(key, byArray);
+      }
       const list = byArray.get(child.arrayKey) ?? [];
       list.push(e);
       byArray.set(child.arrayKey, list);

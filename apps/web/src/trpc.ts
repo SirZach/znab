@@ -3,7 +3,7 @@ import { httpBatchLink } from "@trpc/client";
 import type { AppRouter } from "../../api/src/routers/index";
 import { useUserStore } from "./store/user";
 
-export { type AppRouter };
+export type { AppRouter };
 export type { MonthSummary, CategoryMonth } from "../../api/src/routers/budget";
 export type { HouseholdSplitOutputs } from "../../api/src/routers/household-split";
 

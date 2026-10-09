@@ -1,8 +1,7 @@
 import { z } from "zod";
 import { eq, and, count, isNull, inArray, lte, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure } from "../trpc";
-import type { db } from "@znab/db";
+import { router, budgetProcedure } from "../trpc";
 import {
   accounts,
   categories,
@@ -20,7 +19,11 @@ import {
   reconcileAccountSchema,
   reconcileDifference,
 } from "@znab/shared";
-import { assertBudgetAccess, ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import { ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import { isoDateSchema } from "../lib/input";
+import { countOf } from "../lib/plural";
+import { assertExactly, reorderRows } from "../lib/reorder";
+import type { Tx } from "../lib/tx";
 import {
   accountClass,
   startingBalanceCategory,
@@ -36,9 +39,6 @@ import {
 import { localToday } from "../lib/date";
 import { findOrCreatePayee } from "../lib/find-or-create-payee";
 import { transferPayeeName, transferPayeeYnabId } from "../lib/transfer";
-
-/** The handle inside `db.transaction`, for the helpers the writes below share. */
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * The live rows an account holds. Three of the writes below turn on it: the two
@@ -67,6 +67,7 @@ async function lockAccount(
       name: accounts.name,
       accountType: accounts.accountType,
       onBudget: accounts.onBudget,
+      lastReconciledDate: accounts.lastReconciledDate,
     })
     .from(accounts)
     .where(
@@ -111,11 +112,8 @@ type TotalsRow = {
 
 export const accountRouter = router({
   // All accounts for a budget
-  list: protectedProcedure
-    .input(z.object({ budgetId: z.number().int().positive() }))
+  list: budgetProcedure
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const rows = await ctx.db.query.accounts.findMany({
         where: and(
           eq(accounts.budgetId, input.budgetId),
@@ -149,10 +147,9 @@ export const accountRouter = router({
   // view still shows real balances. `balance` is the account's working balance
   // and is independent of the page, so the header stays right however far back
   // the register is scrolled.
-  transactions: protectedProcedure
+  transactions: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         // Absent means every account in the budget, which is the All
         // Accounts register: one list to search rather than 27.
         accountId: z.number().int().positive().optional(),
@@ -165,8 +162,6 @@ export const accountRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       // Spanning accounts, the running balance below totals them all in date
       // order, which is the money there was across the budget at that point.
       const accountFilter = input.accountId
@@ -351,17 +346,14 @@ export const accountRouter = router({
   // pages back from its newest row, so this is how many rows it has to load
   // before a link to an old transaction lands on something. Unfiltered on
   // purpose: a link to a row opens the register with its filters cleared.
-  transactionPosition: protectedProcedure
+  transactionPosition: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         accountId: z.number().int().positive(),
         transactionId: z.number().int().positive(),
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       // Ranked by the same tie-break the register pages with, rather than
       // compared against the row's own date, so rows sharing a date or missing
       // a created_at fall exactly where the register puts them.
@@ -387,20 +379,14 @@ export const accountRouter = router({
   // opening balance as an ordinary transaction rather than as a column on the
   // account, so the register shows where the money came from and the budget
   // counts it like any other row.
-  create: protectedProcedure
+  create: budgetProcedure
     .input(
       createAccountSchema.extend({
-        budgetId: z.number().int().positive(),
         startingBalance: moneySchema.optional(),
-        startingBalanceDate: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/)
-          .optional(),
+        startingBalanceDate: isoDateSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       // An opening balance dated ahead of today would be income the budget
       // cannot reach yet, and on a budget with nothing else in it the month
       // engine starts at the earliest row it can find, so every month before
@@ -551,10 +537,9 @@ export const accountRouter = router({
 
   // Renaming an account and changing what it is. Absent keys are left alone,
   // so a form can send only what the user touched.
-  update: protectedProcedure
+  update: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         accountId: z.number().int().positive(),
         name: z.string().max(200).optional(),
         accountType: z.enum(ACCOUNT_TYPES).optional(),
@@ -563,8 +548,6 @@ export const accountRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const name = input.name?.trim();
       if (input.name !== undefined && !name) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Account name cannot be empty" });
@@ -587,7 +570,7 @@ export const accountRouter = router({
           input.onBudget !== undefined && input.onBudget !== account.onBudget;
         const live =
           crossesSplit || flipsOnBudget ? await liveTransactionCount(tx, account.id) : 0;
-        const rows = `${live} transaction${live === 1 ? "" : "s"}`;
+        const rows = countOf(live, "transaction");
 
         if (flipsOnBudget && live > 0) {
           throw new TRPCError({
@@ -646,17 +629,14 @@ export const accountRouter = router({
   // moves: the budget filters on `deleted_at` and never looks at `hidden`, so
   // a closed account's history still counts in every month it belongs to,
   // which is the whole of why YNAB 4 closes accounts instead of deleting them.
-  setHidden: protectedProcedure
+  setHidden: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         accountId: z.number().int().positive(),
         hidden: z.boolean(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       return ctx.db.transaction(async (tx) => {
         const account = await lockAccount(tx, ctx, input.accountId, input.budgetId);
 
@@ -689,16 +669,13 @@ export const accountRouter = router({
   // The sidebar's order, sent whole. A partial order would leave the accounts
   // it left out sitting wherever they were, which is how two of them come to
   // claim the same place, so anything but the complete set is refused.
-  reorder: protectedProcedure
+  reorder: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         accountIds: z.array(z.number().int().positive()).min(1).max(500),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       return ctx.db.transaction(async (tx) => {
         const live = await tx
           .select({ id: accounts.id })
@@ -712,28 +689,8 @@ export const accountRouter = router({
           )
           .for("update");
 
-        const liveIds = new Set(live.map((a) => a.id));
-        const sent = new Set(input.accountIds);
-        if (
-          sent.size !== input.accountIds.length ||
-          sent.size !== liveIds.size ||
-          input.accountIds.some((id) => !liveIds.has(id))
-        ) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `The new order has to name each of this budget's ${liveIds.size} accounts exactly once. Reload the sidebar and try again.`,
-          });
-        }
-
-        // One statement an account, which is a few dozen for even the largest
-        // imported budget, all inside the one transaction so that no reader
-        // ever sees half an order.
-        for (const [index, id] of input.accountIds.entries()) {
-          await tx
-            .update(accounts)
-            .set({ sortOrder: index, updatedAt: new Date() })
-            .where(and(eq(accounts.id, id), inArray(accounts.budgetId, ownedBudgetIds(ctx))));
-        }
+        assertExactly(input.accountIds, new Set(live.map((a) => a.id)), "accounts in this budget");
+        await reorderRows(tx, ctx, accounts, input.accountIds);
 
         return { reordered: input.accountIds.length };
       });
@@ -742,16 +699,13 @@ export const accountRouter = router({
   // Deleting is only ever offered for an account that never held anything, so
   // that one entered by mistake can be taken back. An account with history is
   // closed instead, which is what keeps its months intact.
-  delete: protectedProcedure
+  delete: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         accountId: z.number().int().positive(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       return ctx.db.transaction(async (tx) => {
         const account = await lockAccount(tx, ctx, input.accountId, input.budgetId);
 
@@ -759,9 +713,7 @@ export const accountRouter = router({
         if (live > 0) {
           throw new TRPCError({
             code: "CONFLICT",
-            message: `"${account.name}" still has ${live} transaction${
-              live === 1 ? "" : "s"
-            }. Close the account instead, which keeps its history in every month it belongs to.`,
+            message: `"${account.name}" still has ${countOf(live, "transaction")}. Close the account instead, which keeps its history in every month it belongs to.`,
           });
         }
 
@@ -781,9 +733,7 @@ export const accountRouter = router({
         if (stillScheduled > 0) {
           throw new TRPCError({
             code: "CONFLICT",
-            message: `"${account.name}" still has ${stillScheduled} scheduled transaction${
-              stillScheduled === 1 ? "" : "s"
-            }. Delete those first, or close the account instead.`,
+            message: `"${account.name}" still has ${countOf(stillScheduled, "scheduled transaction")}. Delete those first, or close the account instead.`,
           });
         }
 
@@ -821,15 +771,9 @@ export const accountRouter = router({
   // `lastReconciledBalance` records what was asserted, not anything derived
   // from the rows: it is the claim the account was balanced against, and the
   // rows can move afterwards without making that claim untrue.
-  reconcile: protectedProcedure
-    .input(
-      reconcileAccountSchema.extend({
-        budgetId: z.number().int().positive(),
-      })
-    )
+  reconcile: budgetProcedure
+    .input(reconcileAccountSchema)
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       return ctx.db.transaction(async (tx) => {
         // The account decides whether the adjustment is income to the budget,
         // so it is read inside the same transaction that writes against it,
@@ -837,26 +781,7 @@ export const accountRouter = router({
         // they sent. Locked for the rest of the transaction: two reconciliations
         // racing on one account would each read the balance before either wrote,
         // and each enter an adjustment for the same difference.
-        const [account] = await tx
-          .select({
-            id: accounts.id,
-            name: accounts.name,
-            onBudget: accounts.onBudget,
-            lastReconciledDate: accounts.lastReconciledDate,
-          })
-          .from(accounts)
-          .where(
-            and(
-              eq(accounts.id, input.accountId),
-              eq(accounts.budgetId, input.budgetId),
-              isNull(accounts.deletedAt),
-              inArray(accounts.budgetId, ownedBudgetIds(ctx))
-            )
-          )
-          .for("update");
-        if (!account) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
-        }
+        const account = await lockAccount(tx, ctx, input.accountId, input.budgetId);
 
         // A statement cannot close in the future, and letting one say it did
         // would be hard to undo: the guard below would then refuse every

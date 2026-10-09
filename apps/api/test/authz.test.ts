@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { transactions } from "@znab/db";
+import { categoryGroups, monthlyBudgets, payees, transactions } from "@znab/db";
 import { expectTrpcError, withCaller } from "./harness";
 
 describe("another user's budget is NOT_FOUND", () => {
@@ -11,6 +11,57 @@ describe("another user's budget is NOT_FOUND", () => {
       await expectTrpcError(
         otherCaller.account.transactions({ budgetId: seed.budgetId, accountId: seed.accounts.checking.id }),
         "NOT_FOUND"
+      );
+    });
+  });
+
+  test("budgetProcedure refuses it across routers, reads and writes alike, and writes nothing", async () => {
+    await withCaller(async ({ tx, seed, otherCaller }) => {
+      const budgetId = seed.budgetId;
+      // Thunks, so each call starts only once the one before it has been refused.
+      const refused: (() => Promise<unknown>)[] = [
+        () => otherCaller.budget.byId({ budgetId }),
+        () => otherCaller.budget.months({ budgetId }),
+        () => otherCaller.budget.setBudgeted({
+          budgetId,
+          categoryId: seed.categories.rent.id,
+          month: "2025-01-01",
+          budgeted: 100,
+        }),
+        () => otherCaller.report.netWorth({ budgetId }),
+        () => otherCaller.report.spendingByPayee({ budgetId }),
+        () => otherCaller.category.list({ budgetId }),
+        () => otherCaller.category.reorderGroups({
+          budgetId,
+          groupIds: [seed.groups.everyday.id, seed.groups.bills.id],
+        }),
+        () => otherCaller.account.list({ budgetId }),
+        () => otherCaller.account.reconcile({
+          budgetId,
+          accountId: seed.accounts.checking.id,
+          statementBalance: 0,
+          statementDate: "2025-01-31",
+        }),
+        () => otherCaller.payee.list({ budgetId }),
+        () => otherCaller.payee.rename({ budgetId, id: seed.payees.grocer.id, name: "Taken" }),
+        () => otherCaller.scheduledTransaction.list({ budgetId }),
+        () => otherCaller.scheduledTransaction.enterDue({ budgetId }),
+        () => otherCaller.householdSplit.setGroupFlag({
+          budgetId,
+          groupId: seed.groups.bills.id,
+          inMasterBudgets: true,
+        }),
+      ];
+      for (const call of refused) await expectTrpcError(call(), "NOT_FOUND");
+
+      const grocer = await tx.query.payees.findFirst({ where: eq(payees.id, seed.payees.grocer.id) });
+      expect(grocer!.name).toBe("Corner Grocer");
+      const bills = await tx.query.categoryGroups.findFirst({
+        where: eq(categoryGroups.id, seed.groups.bills.id),
+      });
+      expect(bills).toMatchObject({ sortOrder: 0, inMasterBudgets: false });
+      expect(await tx.query.monthlyBudgets.findMany({ where: eq(monthlyBudgets.budgetId, budgetId) })).toEqual(
+        []
       );
     });
   });

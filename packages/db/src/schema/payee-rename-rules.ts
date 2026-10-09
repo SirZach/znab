@@ -1,7 +1,9 @@
 import {
-  pgTable, serial, text, timestamp, integer, unique,
+  pgTable, serial, text, timestamp, integer, unique, check,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import { PAYEE_RENAME_OPERATORS } from "@znab/shared";
+import { oneOf } from "./checks";
 import { budgets } from "./budgets";
 import { payees } from "./payees";
 
@@ -24,7 +26,10 @@ export const payeeRenameRules = pgTable("payee_rename_rules", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-}, (t) => [unique().on(t.ynabId, t.budgetId)]);
+}, (t) => [
+  unique().on(t.budgetId, t.ynabId),
+  check("payee_rename_rules_operator_check", oneOf(t.operator, PAYEE_RENAME_OPERATORS)),
+]);
 
 export const payeeRenameRulesRelations = relations(payeeRenameRules, ({ one }) => ({
   budget: one(budgets, { fields: [payeeRenameRules.budgetId], references: [budgets.id] }),

@@ -35,7 +35,7 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 | 1 | Tooling: scripts, Biome, route tree and lockfile, deps, tsconfig, docs | merged 2026-10-09 |
 | 2 | Bugs 1 to 10 in summary.md, each with a test | merged 2026-10-09 |
 | 3 | Router test harness, shared money and domain module | merged 2026-10-09 |
-| 4 | API extractions: budgetProcedure, writeTransferPair, payee find-or-create, on-budget SQL, indexes | pending |
+| 4 | API extractions: budgetProcedure, writeTransferPair, payee find-or-create, on-budget SQL, indexes | merged 2026-10-09 |
 | 5 | Frontend primitives and central invalidation | pending |
 | 6 | File splits, useAccountRegister split, report layout | pending |
 
@@ -72,3 +72,14 @@ Branch: `task/code-quality-review`. Scope: simplification, design patterns, arch
 - Gaps found: `category.remove` has no reassignment (refuses used categories). Impossible dates like 2025-02-30 pass validation and 500 in Postgres. Import idempotency test (item 13) deferred: needs `main()` split from `import-yfull.ts`.
 - Phase 6 input: register edit rules (`locksFor`, `fieldsFrom`, `EditCells`, `saveEdit`) are private to the 1008 line `$accountId.tsx`; extract them to make them unit testable.
 - Verified: `bun run check` green (shared 37, api 154, web 115, test:db 26), `bun run build` green.
+
+### Phase 4 (API extractions, db, import)
+- `budgetProcedure` in `trpc.ts` (access check middleware, `ctx.budget`) used by 43 procedures.
+- `lib/transfer-write.ts` (`writeTransferPair`, `resolveTransferEnds`, `insertTransferPair`) shared by `transaction.create` and `enterDue`; drift resolved (near side cleared/accepted/flag options, `dateFromSchedule` option).
+- `lib/budget-queries.ts` (`loadBudgetInputs`, `upsertMonthlyBudget`); `lib/reorder.ts` (one UPDATE per reorder); `lib/tx.ts`, `lib/plural.ts`, `lib/input.ts`; payee writes lock rows in one transaction; reconcile uses `lockAccount`; enterDue reads once per schedule and logs unexpected errors; `budget.monthData` deleted.
+- Credit vs cash activity split removed (all non-confined overspending hits TBB; see memory ynab4-overspending-rules). Rechecked live: both real budgets Not Budgeted 0.00 for Sep 2026.
+- Migration `0009_indexes_and_checks`: uniques lead with `budget_id`, sub_transactions `(transaction_id, ynab_id)`, indexes `(account_id, date)` and `(budget_id, date)` on transactions, 8 CHECK constraints. Account type and frequency deliberately unconstrained (YNAB 4 sends values outside our lists). OWNER ACTION: `bun run db:migrate` on the real db after merge, between sync runs. Code works before migrating.
+- Import: pure row builders in `lib/ynab4-import.ts`, `import-yfull.ts` split into named steps with exported `main()` and `importBudget()`. Old vs new importer proven row-identical. Idempotency and mirror tests in `apps/api/test/import.test.ts`.
+- Dead columns kept, owner decision: `transactions.check_number`, `imported_payee`, `ynab_import_id`, `date_from_schedule` (written, never read); `budgets.currency`, `date_locale`, `budget_type`; `categories.cached_balance`; `accounts.last_entered_check_num`.
+- Small behavior changes: `moveMoney` checks access before argument checks; reorder error text unified.
+- Verified: `bun run check` green (shared 37, api 167, web 115, test:db 40), `bun run build` green.

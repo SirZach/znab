@@ -1,9 +1,7 @@
 import { z } from "zod";
 import { sql, eq, and, isNull } from "drizzle-orm";
-import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure } from "../trpc";
-import { budgets, accounts, transactions } from "@znab/db";
-import { assertBudgetAccess } from "../lib/authz";
+import { router, budgetProcedure } from "../trpc";
+import { accounts, transactions } from "@znab/db";
 import { IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
 import {
   fromCents,
@@ -47,16 +45,13 @@ export const reportRouter = router({
   // two totals agree by construction. A split's parts carry no payee of their
   // own, so they are attributed to the payee on the row the register shows,
   // which is the one the money was actually paid to.
-  spendingByPayee: protectedProcedure
+  spendingByPayee: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         timeframe: z.enum(REPORT_TIMEFRAMES).default("last12"),
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const cutoff = timeframeCutoff(input.timeframe);
       const since = cutoff ? `${cutoff}-01` : null;
 
@@ -96,16 +91,13 @@ export const reportRouter = router({
   // Both sides are budget money only. A tracking account's interest is a gain
   // in net worth rather than income to spend, and thirteen such rows here are
   // worth 153,696.27, which would have swamped every real month.
-  incomeVsExpense: protectedProcedure
+  incomeVsExpense: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         timeframe: z.enum(REPORT_TIMEFRAMES).default("last12"),
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const cutoff = timeframeCutoff(input.timeframe);
       const since = cutoff ? `${cutoff}-01` : null;
 
@@ -163,16 +155,13 @@ export const reportRouter = router({
   // a refund reduces what the category cost rather than being dropped, which
   // is what makes the figures here agree with the register. Categories that
   // come out net positive over the window are left out: they were not spent.
-  spendingByCategory: protectedProcedure
+  spendingByCategory: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const cutoff = timeframeCutoff(input.timeframe);
       const since = cutoff ? `${cutoff}-01` : null;
 
@@ -224,20 +213,13 @@ export const reportRouter = router({
   // Monthly net-worth time series across all accounts in a budget.
   // Each account's month-end balance is an asset if positive, a debt if
   // negative (YNAB's sign-based split). Net worth = assets - debts.
-  netWorth: protectedProcedure
+  netWorth: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
       })
     )
     .query(async ({ ctx, input }) => {
-      // Verify budget belongs to user
-      const budget = await ctx.db.query.budgets.findFirst({
-        where: and(eq(budgets.id, input.budgetId), eq(budgets.userId, ctx.user.id)),
-      });
-      if (!budget) throw new TRPCError({ code: "NOT_FOUND", message: "Budget not found" });
-
       // Sum of transaction amounts per account per month. Only at most
       // (#accounts * #months) rows come back, so no need to pull raw rows.
       const rows = await ctx.db

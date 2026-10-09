@@ -1,15 +1,14 @@
 import { z } from "zod";
 import { eq, and, count, isNull, inArray, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure } from "../trpc";
-import type { db } from "@znab/db";
+import { router, budgetProcedure } from "../trpc";
 import { categories, categoryGroups, payees } from "@znab/db";
 import { categoryNameSchema } from "@znab/shared";
-import { assertBudgetAccess, ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import { ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import { countOf, pluralize } from "../lib/plural";
+import { assertExactly, reorderRows } from "../lib/reorder";
+import type { Tx } from "../lib/tx";
 import { mintCategoryGroupYnabId, mintCategoryYnabId } from "../lib/category";
-
-/** The handle inside `db.transaction`, for the helpers the writes below share. */
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** The name a write is given, refused when it is nothing but whitespace. */
 function cleanName(name: string, what: "Category" | "Category group"): string {
@@ -33,25 +32,6 @@ function assertUserGroup(group: { name: string; isSystem: boolean }) {
     throw new TRPCError({
       code: "CONFLICT",
       message: `"${group.name}" is one of the budget's own groups, which YNAB 4 keeps for itself. Use a group of your own.`,
-    });
-  }
-}
-
-/**
- * Refuses anything but the complete set, in any order. A partial order would
- * leave what it left out sitting wherever it was, which is how two rows come to
- * claim the same place.
- */
-function assertExactly(sent: number[], live: Set<number>, what: string) {
-  const unique = new Set(sent);
-  if (
-    unique.size !== sent.length ||
-    unique.size !== live.size ||
-    sent.some((id) => !live.has(id))
-  ) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: `The new order has to name each of the ${live.size} ${what} exactly once. Reload the page and try again.`,
     });
   }
 }
@@ -145,11 +125,8 @@ export const categoryRouter = router({
   // are month-scoped. Anything that just needs the list of envelopes (the
   // register's category picker, say) should read this rather than pull a
   // month's worth of budget data and discard the allocations.
-  list: protectedProcedure
-    .input(z.object({ budgetId: z.number().int().positive() }))
+  list: budgetProcedure
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       // What points at each category, counted the way `remove` counts it, so a
       // screen can say up front which categories it may offer to delete rather
       // than offering them all and letting the refusal explain afterwards. One
@@ -204,16 +181,14 @@ export const categoryRouter = router({
     }),
 
   // A new category, at the end of the group it is filed under.
-  create: protectedProcedure
+  create: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         groupId: z.number().int().positive(),
         name: categoryNameSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
       const name = cleanName(input.name, "Category");
 
       return ctx.db.transaction(async (tx) => {
@@ -241,16 +216,14 @@ export const categoryRouter = router({
 
   // Renaming a category. Only the name moves: what it has been budgeted and
   // spent hangs off its id, which is untouched.
-  rename: protectedProcedure
+  rename: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         categoryId: z.number().int().positive(),
         name: categoryNameSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
       const name = cleanName(input.name, "Category");
 
       return ctx.db.transaction(async (tx) => {
@@ -277,16 +250,13 @@ export const categoryRouter = router({
   // is hidden instead, which keeps every month it appears in intact — and that
   // is the whole difference between the two: hiding is the soft delete, this
   // takes the row away.
-  remove: protectedProcedure
+  remove: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         categoryId: z.number().int().positive(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       return ctx.db.transaction(async (tx) => {
         const category = await lockCategory(tx, ctx, input.categoryId, input.budgetId);
         assertUserGroup(category.group);
@@ -309,11 +279,10 @@ export const categoryRouter = router({
         if (used > 0) {
           throw new TRPCError({
             code: "CONFLICT",
-            message: `"${category.name}" is still used by ${used} allocation${
-              used === 1 ? "" : "s"
-            } or transaction${
-              used === 1 ? "" : "s"
-            }. Hide it instead, which keeps its history in every month it belongs to.`,
+            message: `"${category.name}" is still used by ${countOf(used, "allocation")} or ${pluralize(
+              used,
+              "transaction"
+            )}. Hide it instead, which keeps its history in every month it belongs to.`,
           });
         }
 
@@ -348,17 +317,14 @@ export const categoryRouter = router({
   // keys off the category's id and never joins the groups, so nothing about
   // the budget's arithmetic moves with it; the grid resolves grouping when it
   // reads.
-  move: protectedProcedure
+  move: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         categoryId: z.number().int().positive(),
         groupId: z.number().int().positive(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       return ctx.db.transaction(async (tx) => {
         const category = await lockCategory(tx, ctx, input.categoryId, input.budgetId);
         assertUserGroup(category.group);
@@ -394,17 +360,14 @@ export const categoryRouter = router({
   // A group's order, sent whole. Hidden categories are left out: the grid
   // cannot show one, so the user cannot have placed it, and their stale places
   // only ever matter against each other.
-  reorder: protectedProcedure
+  reorder: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         groupId: z.number().int().positive(),
         categoryIds: z.array(z.number().int().positive()).min(1).max(500),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       return ctx.db.transaction(async (tx) => {
         // The group is resolved and refused here like everywhere else, rather
         // than inferred from the ids. Nothing displays the order inside one of
@@ -433,19 +396,7 @@ export const categoryRouter = router({
           "categories in this group"
         );
 
-        // One statement a category, all inside the one transaction so that no
-        // reader ever sees half an order.
-        for (const [index, id] of input.categoryIds.entries()) {
-          await tx
-            .update(categories)
-            .set({ sortOrder: index, updatedAt: new Date() })
-            .where(
-              and(
-                eq(categories.id, id),
-                inArray(categories.budgetId, ownedBudgetIds(ctx))
-              )
-            );
-        }
+        await reorderRows(tx, ctx, categories, input.categoryIds);
 
         return { reordered: input.categoryIds.length };
       });
@@ -454,15 +405,13 @@ export const categoryRouter = router({
   // A new group of the user's own, at the end of the ones they already have.
   // YNAB 4's own sit past them all, so the end of the user's groups is the end
   // of the grid.
-  createGroup: protectedProcedure
+  createGroup: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         name: categoryNameSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
       const name = cleanName(input.name, "Category group");
 
       return ctx.db.transaction(async (tx) => {
@@ -492,16 +441,14 @@ export const categoryRouter = router({
       });
     }),
 
-  renameGroup: protectedProcedure
+  renameGroup: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         groupId: z.number().int().positive(),
         name: categoryNameSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
       const name = cleanName(input.name, "Category group");
 
       return ctx.db.transaction(async (tx) => {
@@ -526,16 +473,13 @@ export const categoryRouter = router({
   // Deleting an empty group. A category cannot be left without one, since
   // `group_id` is NOT NULL, so the categories go somewhere first and the group
   // follows — never the other way about.
-  removeGroup: protectedProcedure
+  removeGroup: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         groupId: z.number().int().positive(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       return ctx.db.transaction(async (tx) => {
         const group = await lockGroup(tx, ctx, input.groupId, input.budgetId);
         assertUserGroup(group);
@@ -551,9 +495,7 @@ export const categoryRouter = router({
         if (categoryCount > 0) {
           throw new TRPCError({
             code: "CONFLICT",
-            message: `"${group.name}" still holds ${categoryCount} categor${
-              categoryCount === 1 ? "y" : "ies"
-            }, hidden ones included. Move them to another group, or delete them, first.`,
+            message: `"${group.name}" still holds ${countOf(categoryCount, "category", "categories")}, hidden ones included. Move them to another group, or delete them, first.`,
           });
         }
 
@@ -573,16 +515,13 @@ export const categoryRouter = router({
   // The grid's order of groups, sent whole. Only the user's own are placed:
   // YNAB 4's sit above 9000 so that they always follow, and letting one be
   // dragged in among the rest would put the budget's bookkeeping on screen.
-  reorderGroups: protectedProcedure
+  reorderGroups: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
         groupIds: z.array(z.number().int().positive()).min(1).max(500),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       return ctx.db.transaction(async (tx) => {
         const live = await tx
           .select({ id: categoryGroups.id })
@@ -599,17 +538,7 @@ export const categoryRouter = router({
 
         assertExactly(input.groupIds, new Set(live.map((g) => g.id)), "category groups");
 
-        for (const [index, id] of input.groupIds.entries()) {
-          await tx
-            .update(categoryGroups)
-            .set({ sortOrder: index, updatedAt: new Date() })
-            .where(
-              and(
-                eq(categoryGroups.id, id),
-                inArray(categoryGroups.budgetId, ownedBudgetIds(ctx))
-              )
-            );
-        }
+        await reorderRows(tx, ctx, categoryGroups, input.groupIds);
 
         return { reordered: input.groupIds.length };
       });

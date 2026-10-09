@@ -1,36 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { BarChart2, TrendingUp, Landmark, Store } from "lucide-react";
+import { REPORTS } from "@/lib/reports";
 
 export const Route = createFileRoute("/budgets/$budgetId/reports/")({
   component: ReportsLauncherPage,
 });
-
-const REPORTS = [
-  {
-    id: "spending",
-    label: "Spending by Category",
-    description: "See where your money goes each month",
-    icon: BarChart2,
-  },
-  {
-    id: "spending-by-payee",
-    label: "Spending by Payee",
-    description: "See who your money goes to",
-    icon: Store,
-  },
-  {
-    id: "income-vs-expenses",
-    label: "Income vs. Expenses",
-    description: "Compare income and outflow over time",
-    icon: TrendingUp,
-  },
-  {
-    id: "net-worth",
-    label: "Net Worth",
-    description: "Track your net worth across all accounts",
-    icon: Landmark,
-  },
-] as const;
 
 function ReportsLauncherPage() {
   const { budgetId } = Route.useParams();

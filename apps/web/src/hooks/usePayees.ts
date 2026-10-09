@@ -1,3 +1,4 @@
+import { toCategoryOptions } from "@/lib/category-options";
 import { invalidateMoney } from "@/lib/invalidate";
 import { trpc } from "@/trpc";
 import type { PayeeRenameOperator } from "@znab/shared";
@@ -7,6 +8,17 @@ import type { PayeeRenameOperator } from "@znab/shared";
  * types, since the web app depends on the tRPC client only.
  */
 export type ManagedPayee = ReturnType<typeof usePayees>["payees"][number];
+
+/** A payee's autofill defaults as the inspector saves them. */
+export type AutofillInput = {
+  id: number;
+  categoryId: number | null;
+  amount: number | null;
+  memo: string | null;
+};
+
+/** Stores a rename rule; `onDone` runs only once it is really stored. */
+export type AddRenameRule = ReturnType<typeof usePayees>["addRenameRule"];
 
 export function usePayees({
   budgetId,
@@ -51,14 +63,9 @@ export function usePayees({
     onSuccess: invalidateLists,
   });
 
-  // The register's picker hides system groups, and an autofill category is the
-  // same choice made ahead of time, so it offers the same list.
-  const categoryOptions =
-    categoryGroups
-      ?.filter((g) => !g.isSystem)
-      .flatMap((g) =>
-        g.categories.map((c) => ({ id: c.id, label: `${g.name}: ${c.name}` }))
-      ) ?? [];
+  // An autofill category is the register's choice made ahead of time, so it
+  // offers the register's list.
+  const categoryOptions = toCategoryOptions(categoryGroups);
 
   return {
     payees: data ?? [],
@@ -70,12 +77,7 @@ export function usePayees({
     merge: (sourceIds: number[], targetId: number) =>
       mergeMutation.mutate({ budgetId, sourceIds, targetId }),
     remove: (id: number) => deleteMutation.mutate({ budgetId, id }),
-    setAutofill: (args: {
-      id: number;
-      categoryId: number | null;
-      amount: number | null;
-      memo: string | null;
-    }) => autofillMutation.mutate({ budgetId, ...args }),
+    setAutofill: (args: AutofillInput) => autofillMutation.mutate({ budgetId, ...args }),
     // onDone lets the form clear itself only once the rule is really stored, so
     // a refused duplicate leaves the text there to correct.
     addRenameRule: (
@@ -83,7 +85,7 @@ export function usePayees({
       operator: PayeeRenameOperator,
       operand: string,
       onDone?: () => void
-    ) =>
+    ): void =>
       addRuleMutation.mutate(
         { budgetId, payeeId, operator, operand },
         { onSuccess: () => onDone?.() }

@@ -121,3 +121,10 @@ export const accountRegisterSearchSchema = z.object({
   // register from elsewhere (a category's Spent list).
   txn: z.number().int().positive().optional(),
 });
+
+// All Accounts is the screen for finding something, so it falls back to newest
+// first, and the pager's "Newer" and "Older" read from the recent end.
+export const allAccountsSearchSchema = accountRegisterSearchSchema.omit({ txn: true }).extend({
+  dir: z.enum(SORT_DIRECTIONS).default("desc"),
+  offset: z.number().int().min(0).default(0),
+});

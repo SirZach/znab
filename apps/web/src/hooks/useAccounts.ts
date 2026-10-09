@@ -1,6 +1,7 @@
 import { invalidateMoney } from "@/lib/invalidate";
 import { trpc } from "@/trpc";
 import type { AccountType } from "@znab/shared";
+import type { AccountPatch } from "@/lib/accounts";
 
 /**
  * One row of the manage list. Read back off the hook rather than off the router
@@ -53,14 +54,8 @@ export function useAccounts({ budgetId }: { budgetId: number }) {
     rename: (accountId: number, name: string) =>
       renameMutation.mutate({ budgetId, accountId, name }),
     // Absent keys are left alone, so the panel sends only what it changed.
-    update: (
-      accountId: number,
-      patch: {
-        accountType?: AccountType;
-        onBudget?: boolean;
-        note?: string;
-      }
-    ) => updateMutation.mutate({ budgetId, accountId, ...patch }),
+    update: (accountId: number, patch: AccountPatch) =>
+      updateMutation.mutate({ budgetId, accountId, ...patch }),
     setHidden: (accountId: number, hidden: boolean) =>
       hiddenMutation.mutate({ budgetId, accountId, hidden }),
     /** The budget's whole order, which is what the API checks the set against. */

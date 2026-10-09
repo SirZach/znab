@@ -1,4 +1,4 @@
-import type { QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { trpc } from "@/trpc";
 import { useUserStore } from "@/store/user";
@@ -22,13 +22,8 @@ export function groupAccounts<T extends { onBudget: boolean; hidden: boolean }>(
   };
 }
 
-export function useBudgetLayout({
-  budgetId,
-  queryClient,
-}: {
-  budgetId: number;
-  queryClient: QueryClient;
-}) {
+export function useBudgetLayout({ budgetId }: { budgetId: number }) {
+  const queryClient = useQueryClient();
   const clearUser = useUserStore((s) => s.clearUser);
   const navigate = useNavigate();
 

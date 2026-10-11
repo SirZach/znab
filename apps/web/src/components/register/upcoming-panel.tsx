@@ -40,6 +40,7 @@ export function UpcomingPanel({
   return (
     <div className="px-6 py-2 border-b border-border bg-accent/20">
       <button
+        type="button"
         onClick={() => setOpened(!open)}
         aria-expanded={open}
         className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -49,7 +50,7 @@ export function UpcomingPanel({
           {/* Schedules, not occurrences: one overdue schedule is one row here
               however many times it has come round, and the row says so. */}
           {dueCount > 0 && (
-            <span className="font-medium text-amber-600 dark:text-amber-400">
+            <span className="font-medium text-warning">
               {dueCount} {dueCount === 1 ? "schedule" : "schedules"} due
             </span>
           )}
@@ -70,7 +71,7 @@ export function UpcomingPanel({
             >
               <span className="w-9 shrink-0">
                 {row.due && (
-                  <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                  <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium text-warning">
                     Due
                   </span>
                 )}
@@ -95,7 +96,7 @@ export function UpcomingPanel({
               <span className="w-28 shrink-0 text-right">
                 <span className="block">{frequencyLabel(row.frequency)}</span>
                 {row.behind && (
-                  <span className="block text-amber-600 dark:text-amber-400">{row.behind}</span>
+                  <span className="block text-warning">{row.behind}</span>
                 )}
               </span>
               <span className="w-28 shrink-0 flex justify-end gap-1">
@@ -103,8 +104,7 @@ export function UpcomingPanel({
                   <>
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="h-6 px-2 text-xs"
+                      size="xs"
                       disabled={isBusy}
                       onClick={() => onEnter(row.scheduledTransactionId)}
                     >
@@ -113,8 +113,7 @@ export function UpcomingPanel({
                     {canSkip(row.frequency) && (
                       <Button
                         variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-xs"
+                        size="xs"
                         disabled={isBusy}
                         onClick={() => onSkip(row.scheduledTransactionId)}
                       >

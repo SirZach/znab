@@ -1,7 +1,9 @@
 import {
-  pgTable, serial, text, timestamp, integer, boolean, numeric, date, unique,
+  pgTable, serial, text, timestamp, integer, boolean, numeric, date, unique, check,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import { GOAL_TYPES } from "@znab/shared";
+import { CATEGORY_TYPES, oneOf } from "./checks";
 import { budgets } from "./budgets";
 import { monthlyBudgets } from "./monthly-budgets";
 import { transactions } from "./transactions";
@@ -24,7 +26,10 @@ export const categoryGroups = pgTable("category_groups", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-}, (t) => [unique().on(t.ynabId, t.budgetId)]);
+}, (t) => [
+  unique().on(t.budgetId, t.ynabId),
+  check("category_groups_type_check", oneOf(t.type, CATEGORY_TYPES)),
+]);
 
 export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
@@ -48,7 +53,11 @@ export const categories = pgTable("categories", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-}, (t) => [unique().on(t.ynabId, t.budgetId)]);
+}, (t) => [
+  unique().on(t.budgetId, t.ynabId),
+  check("categories_type_check", oneOf(t.type, CATEGORY_TYPES)),
+  check("categories_goal_type_check", oneOf(t.goalType, GOAL_TYPES)),
+]);
 
 export const categoryGroupsRelations = relations(categoryGroups, ({ one, many }) => ({
   budget: one(budgets, { fields: [categoryGroups.budgetId], references: [budgets.id] }),

@@ -1,5 +1,9 @@
+import { toCategoryOptions } from "@/lib/category-options";
+import { invalidateMoney } from "@/lib/invalidate";
+import type { NewScheduled } from "@/lib/schedule-draft";
 import { trpc } from "@/trpc";
-import type { FrequencyValue } from "@znab/shared";
+
+export type { NewScheduled };
 
 /**
  * One row of the manage list. Read back off the hook rather than off the router
@@ -8,20 +12,6 @@ import type { FrequencyValue } from "@znab/shared";
 export type ScheduledTransaction =
   ReturnType<typeof useScheduledTransactions>["scheduled"][number];
 
-/** What a schedule is made of. A payee may be named instead of picked. */
-export type NewScheduled = {
-  accountId: number;
-  payeeId: number | null;
-  payeeName?: string;
-  categoryId: number | null;
-  /** Negative is an outflow, the way the API reads it. */
-  amount: number;
-  date: string;
-  frequency: FrequencyValue;
-  twiceMonthDay?: number | null;
-  memo?: string;
-};
-
 export function useScheduledTransactions({ budgetId }: { budgetId: number }) {
   const utils = trpc.useUtils();
 
@@ -29,22 +19,14 @@ export function useScheduledTransactions({ budgetId }: { budgetId: number }) {
     budgetId,
   });
 
-  // Entering a schedule writes real transactions, so the register they land in,
-  // the month that budgets them and net worth all go stale, not just the lists
-  // of schedules. A transfer moves an account balance, and a payee named on the
-  // fly is a new payee, so those two lists go with them.
-  const invalidate = () =>
-    Promise.all([
-      utils.scheduledTransaction.list.invalidate(),
-      utils.scheduledTransaction.upcoming.invalidate(),
-      utils.account.transactions.invalidate(),
-      utils.budget.monthBudget.invalidate(),
-      utils.budget.categoryTransactions.invalidate(),
-      utils.report.netWorth.invalidate(),
-      utils.account.list.invalidate(),
-      utils.payee.list.invalidate(),
-      utils.payee.listForManage.invalidate(),
-    ]);
+  // What the schedule form picks from.
+  const { data: accounts } = trpc.account.list.useQuery({ budgetId });
+  const { data: payees } = trpc.payee.list.useQuery({ budgetId });
+  const { data: categoryGroups } = trpc.category.list.useQuery({ budgetId });
+
+  // Entering a schedule writes real transactions, and a payee named on the fly
+  // is a new payee, so every write here can move money.
+  const invalidate = () => invalidateMoney(utils);
 
   // One mutation per write: one write's refusal has no business turning up
   // beside another's controls.
@@ -70,6 +52,14 @@ export function useScheduledTransactions({ budgetId }: { budgetId: number }) {
   return {
     scheduled: data ?? [],
     isLoading,
+
+    // A closed account takes no new transactions, so it is not offered as a
+    // home for one that would keep arriving.
+    openAccounts: accounts?.filter((a) => !a.hidden) ?? [],
+    payees,
+    // A schedule files its money the way a transaction does, so it offers the
+    // register's list.
+    categoryOptions: toCategoryOptions(categoryGroups),
 
     // onDone lets a form clear itself only once the schedule really exists, so
     // a refused one is left there to correct.

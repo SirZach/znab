@@ -52,6 +52,7 @@ function UserPickerPage() {
         <div className="grid gap-4">
           {USERS.map((user) => (
             <button
+              type="button"
               key={user.slug}
               onClick={() => handleSelect(user.slug)}
               className="group flex items-center gap-4 rounded-xl border border-border bg-card p-6 text-left transition-all hover:border-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

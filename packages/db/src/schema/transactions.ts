@@ -1,7 +1,9 @@
 import {
-  pgTable, serial, text, timestamp, integer, boolean, numeric, date, unique,
+  pgTable, serial, text, timestamp, integer, boolean, numeric, date, unique, check, index,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import { CLEARED_VALUES, FLAG_COLORS } from "@znab/shared";
+import { oneOf } from "./checks";
 import { budgets } from "./budgets";
 import { accounts } from "./accounts";
 import { categories } from "./categories";
@@ -40,7 +42,15 @@ export const transactions = pgTable("transactions", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-}, (t) => [unique().on(t.ynabId, t.budgetId)]);
+}, (t) => [
+  unique().on(t.budgetId, t.ynabId),
+  // The register, and reconcile's cleared balance as of a date
+  index("transactions_account_id_date_idx").on(t.accountId, t.date),
+  // The month engine and the reports, which read a budget's money by date
+  index("transactions_budget_id_date_idx").on(t.budgetId, t.date),
+  check("transactions_cleared_check", oneOf(t.cleared, CLEARED_VALUES)),
+  check("transactions_flag_color_check", oneOf(t.flagColor, FLAG_COLORS)),
+]);
 
 export const subTransactions = pgTable("sub_transactions", {
   id: serial("id").primaryKey(),
@@ -56,7 +66,7 @@ export const subTransactions = pgTable("sub_transactions", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-}, (t) => [unique().on(t.ynabId, t.transactionId)]);
+}, (t) => [unique().on(t.transactionId, t.ynabId)]);
 
 export const transactionsRelations = relations(transactions, ({ one, many }) => ({
   budget: one(budgets, { fields: [transactions.budgetId], references: [budgets.id] }),

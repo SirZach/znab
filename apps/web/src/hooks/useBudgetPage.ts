@@ -1,4 +1,12 @@
-import { trpc } from "@/trpc";
+import type { inferRouterOutputs } from "@trpc/server";
+import type { GoalType } from "@znab/shared";
+import { invalidateBudgeting } from "@/lib/invalidate";
+import { trpc, type AppRouter } from "@/trpc";
+
+type MonthBudget = inferRouterOutputs<AppRouter>["budget"]["monthBudget"];
+export type BudgetGroup = MonthBudget["groups"][number];
+export type BudgetCategory = BudgetGroup["categories"][number];
+export type HiddenCategory = MonthBudget["hidden"][number];
 
 export function useBudgetPage({
   budgetId,
@@ -11,14 +19,7 @@ export function useBudgetPage({
 
   const { data, isLoading } = trpc.budget.monthBudget.useQuery({ budgetId, month });
 
-  // Budgeting in one month feeds every later month's carry-forward, so every
-  // cached month is stale after any of these, not just the one that was edited.
-  // The Quick Budget figures are derived from the same rows, so they go too.
-  const invalidateBudget = () =>
-    Promise.all([
-      utils.budget.monthBudget.invalidate(),
-      utils.budget.quickBudget.invalidate(),
-    ]);
+  const invalidateBudget = () => invalidateBudgeting(utils);
 
   const setMutation = trpc.budget.setBudgeted.useMutation({
     onSuccess: invalidateBudget,
@@ -39,13 +40,8 @@ export function useBudgetPage({
   const summary = data?.summary;
   const visibleGroups = (data?.groups ?? []).filter((g) => !g.isSystem && !g.deletedAt);
 
-  function setBudgeted(args: {
-    budgetId: number;
-    categoryId: number;
-    month: string;
-    budgeted: number;
-  }) {
-    setMutation.mutate(args);
+  function setBudgeted(categoryId: number, budgeted: number) {
+    setMutation.mutate({ budgetId, categoryId, month, budgeted });
   }
 
   function moveMoney(args: {
@@ -63,7 +59,7 @@ export function useBudgetPage({
   function setCategoryGoal(
     categoryId: number,
     goal: {
-      goalType: "TB" | "TBD" | "MF" | null;
+      goalType: GoalType | null;
       target?: number;
       targetMonth?: string;
     }

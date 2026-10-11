@@ -23,7 +23,7 @@ export const payees = pgTable("payees", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-}, (t) => [unique().on(t.ynabId, t.budgetId)]);
+}, (t) => [unique().on(t.budgetId, t.ynabId)]);
 
 export const payeesRelations = relations(payees, ({ one, many }) => ({
   budget: one(budgets, { fields: [payees.budgetId], references: [budgets.id] }),

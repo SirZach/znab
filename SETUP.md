@@ -1,10 +1,11 @@
-# ZNAB — Setup Guide
+# ZNAB Setup Guide
 
 ## Prerequisites
 
-- **Bun** ≥ 1.1 — [bun.sh](https://bun.sh) (`curl -fsSL https://bun.sh/install | bash`)
-- **Docker** — for running PostgreSQL locally
-- Seed data in `./seed-data/` (already present)
+- **Bun** ≥ 1.1: [bun.sh](https://bun.sh) (`curl -fsSL https://bun.sh/install | bash`)
+- **Docker**, for running PostgreSQL locally
+- YNAB 4 exports (`Budget.yfull`, `Budget-Fiona.yfull`, `Demo.yfull`) in
+  `./seed-data/`. The folder is gitignored, so copy them in yourself.
 
 ---
 
@@ -29,15 +30,14 @@ cp .env.example apps/api/.env
 cp .env.example packages/db/.env
 ```
 
-## 4. Generate and run database migrations
+## 4. Run database migrations
 
 ```bash
-# Generate SQL from the Drizzle schema
-bun db:generate
-
-# Apply migrations to the database
 bun db:migrate
 ```
+
+Migrations are committed in `packages/db/migrations`. Run `bun db:generate`
+only after changing the schema in `packages/db/src/schema/`.
 
 ## 5. Import seed data
 
@@ -47,7 +47,7 @@ bun import
 
 This seeds the two users (`zach` and `demo`), imports `Budget.yfull` and
 `Budget-Fiona.yfull` under the `zach` user, and creates a Demo budget under
-the `demo` user. The script is fully idempotent — safe to run again.
+the `demo` user. The script is fully idempotent, so it is safe to run again.
 
 Expected output:
 ```
@@ -111,7 +111,26 @@ Or both at once (output interleaved):
 bun dev
 ```
 
-Open http://localhost:5173 — you'll see the user picker.
+Open http://localhost:5173 to see the user picker.
+
+## 7. Tests and checks
+
+```bash
+bun run test    # bun test in apps/api and apps/web
+bun run check   # typecheck + Biome lint + tests; run before pushing
+```
+
+## Production
+
+```bash
+bun run build   # builds apps/web/dist
+bun start       # API on :3001 with SERVE_WEB=1, serving the built web app
+```
+
+On the host this runs as the systemd user service in `scripts/znab.service`
+(install steps are in the file). After a rebuild:
+`systemctl --user restart znab`. `scripts/restart-web.sh` (`bun run
+web:restart`) clears the Vite cache and restarts the web dev server.
 
 ---
 
@@ -136,24 +155,28 @@ znab/
 │   │       ├── index.ts      # Entry point (Bun HTTP server)
 │   │       ├── context.ts    # tRPC context (user resolution)
 │   │       ├── trpc.ts       # Router base + procedures
-│   │       ├── routers/      # budget, account, transaction
-│   │       └── scripts/
-│   │           └── import-yfull.ts
+│   │       ├── routers/      # one tRPC router per area (budget, account, transaction, ...)
+│   │       ├── lib/          # pure logic (budget math, reconcile, YNAB 4 import) + tests
+│   │       └── scripts/      # import-yfull.ts
 │   └── web/                  # React + Vite + TanStack Router
 │       └── src/
-│           ├── routes/       # File-based routes
+│           ├── routes/       # File-based routes (routeTree.gen.ts is generated and committed)
+│           ├── components/   # App components; ui/ is shadcn
+│           ├── hooks/        # tRPC query and mutation hooks
+│           ├── lib/          # pure helpers + tests
 │           ├── store/        # Zustand (user selection)
 │           ├── trpc.ts       # tRPC React client
 │           └── styles/       # Tailwind v4 globals
 ├── packages/
 │   ├── db/                   # Drizzle schema + migrations
 │   └── shared/               # Zod schemas + types (used by both)
-└── seed-data/                # YNAB 4 .yfull exports
+├── scripts/                  # systemd units, YNAB 4 sync, restart-web.sh
+└── seed-data/                # YNAB 4 .yfull exports (gitignored)
 ```
 
 ## Key conventions
 
-- All money stored as `NUMERIC(12,2)` in Postgres — never floats
+- All money stored as `NUMERIC(12,2)` in Postgres, never floats
 - Amounts: positive = inflow, negative = outflow
 - Soft-deletes via `deleted_at` timestamp (never hard-delete YNAB data)
 - Budget month in URLs: `MM/YYYY` (e.g. `?month=03/2026`)

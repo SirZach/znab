@@ -1,5 +1,5 @@
 import { CLEARED_VALUES, type ClearedValue } from "@znab/shared";
-import { cn } from "@/lib/utils";
+import { SegmentedControl } from "@/components/common/segmented-control";
 
 export type ClearedFilterValue = "all" | ClearedValue;
 
@@ -28,29 +28,19 @@ export function ClearedFilter({
   onChange: (value: ClearedFilterValue) => void;
 }) {
   return (
-    <div className="inline-flex items-center rounded border border-border overflow-hidden">
-      {CHOICES.map((choice) => {
-        const active = choice.value === value;
-        return (
-          <button
-            key={choice.value}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(choice.value)}
-            className={cn(
-              "px-2.5 py-1 text-xs border-r border-border last:border-r-0 transition-colors",
-              active
-                ? "bg-accent text-foreground font-medium"
-                : "text-muted-foreground hover:bg-accent/40"
-            )}
-          >
+    <SegmentedControl
+      variant="subtle"
+      options={CHOICES.map((choice) => ({
+        value: choice.value,
+        label: (
+          <>
             {choice.label}
-            <span className="ml-1.5 tabular-nums opacity-60">
-              {counts[choice.value]}
-            </span>
-          </button>
-        );
-      })}
-    </div>
+            <span className="ml-1.5 tabular-nums opacity-60">{counts[choice.value]}</span>
+          </>
+        ),
+      }))}
+      value={value}
+      onChange={onChange}
+    />
   );
 }

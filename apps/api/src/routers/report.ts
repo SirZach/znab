@@ -1,10 +1,15 @@
 import { z } from "zod";
 import { sql, eq, and, isNull } from "drizzle-orm";
-import { router, protectedProcedure } from "../trpc";
-import { budgets, accounts, transactions } from "@znab/db";
-import { assertBudgetAccess } from "../lib/authz";
-
-const TIMEFRAMES = ["all", "thisYear", "last12", "last4Years"] as const;
+import { router, budgetProcedure } from "../trpc";
+import { accounts, transactions } from "@znab/db";
+import { IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
+import {
+  fromCents,
+  REPORT_TIMEFRAMES,
+  type ReportTimeframe,
+  roundMoney,
+  toCents,
+} from "@znab/shared";
 
 type NetWorthPoint = {
   month: string; // "YYYY-MM"
@@ -33,15 +38,6 @@ type IncomeVsExpensePoint = {
   net: number;
 };
 
-/**
- * The two categories YNAB 4 files income under. They are not rows in the
- * category table, so a transaction points at them by ynab id alone, which is
- * why income has to be named here rather than joined to. Fixed ids out of the
- * export rather than anything a caller supplies, so they are written straight
- * into the statement.
- */
-const IS_INCOME = sql`category_ynab_id IN ('Category/__ImmediateIncome__', 'Category/__DeferredIncome__')`;
-
 export const reportRouter = router({
   // Who a budget paid, over a timeframe.
   //
@@ -49,46 +45,21 @@ export const reportRouter = router({
   // two totals agree by construction. A split's parts carry no payee of their
   // own, so they are attributed to the payee on the row the register shows,
   // which is the one the money was actually paid to.
-  spendingByPayee: protectedProcedure
+  spendingByPayee: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
-        timeframe: z.enum(TIMEFRAMES).default("last12"),
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("last12"),
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const cutoff = timeframeCutoff(input.timeframe);
       const since = cutoff ? `${cutoff}-01` : null;
 
       const rows = (await ctx.db.execute(sql`
         WITH spend AS (
-          SELECT t.payee_id, t.category_id, t.amount
-          FROM transactions t
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND t.category_id IS NOT NULL
-            AND t.payee_id IS NOT NULL
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
-          UNION ALL
-          SELECT t.payee_id, s.category_id, s.amount
-          FROM sub_transactions s
-          JOIN transactions t ON t.id = s.transaction_id
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND s.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND s.category_id IS NOT NULL
-            AND t.payee_id IS NOT NULL
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+          SELECT payee_id, category_id, amount
+          FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
+          WHERE category_id IS NOT NULL AND payee_id IS NOT NULL
         )
         SELECT p.id AS "payeeId",
                p.name AS "payee",
@@ -106,12 +77,12 @@ export const reportRouter = router({
       const spending: PayeeSpend[] = rows.map((row) => ({
         payeeId: row.payeeId,
         payee: row.payee,
-        spent: Math.round(-parseFloat(row.net) * 100) / 100,
+        spent: fromCents(-toCents(row.net)),
       }));
 
       return {
         spending,
-        total: Math.round(spending.reduce((sum, row) => sum + row.spent, 0) * 100) / 100,
+        total: roundMoney(spending.reduce((sum, row) => sum + row.spent, 0)),
       };
     }),
 
@@ -120,48 +91,20 @@ export const reportRouter = router({
   // Both sides are budget money only. A tracking account's interest is a gain
   // in net worth rather than income to spend, and thirteen such rows here are
   // worth 153,696.27, which would have swamped every real month.
-  incomeVsExpense: protectedProcedure
+  incomeVsExpense: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
-        timeframe: z.enum(TIMEFRAMES).default("last12"),
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("last12"),
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const cutoff = timeframeCutoff(input.timeframe);
       const since = cutoff ? `${cutoff}-01` : null;
 
       const rows = (await ctx.db.execute(sql`
         WITH moved AS (
-          SELECT t.date,
-                 t.amount,
-                 t.category_ynab_id,
-                 t.category_id
-          FROM transactions t
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
-          UNION ALL
-          SELECT t.date,
-                 s.amount,
-                 s.category_ynab_id,
-                 s.category_id
-          FROM sub_transactions s
-          JOIN transactions t ON t.id = s.transaction_id
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND s.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+          SELECT d AS date, amount, category_ynab_id, category_id
+          FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
         )
         SELECT to_char(date_trunc('month', moved.date), 'YYYY-MM') AS "month",
                COALESCE(SUM(moved.amount) FILTER (WHERE ${IS_INCOME}), 0) AS "income",
@@ -176,15 +119,15 @@ export const reportRouter = router({
       // A split parent counts on neither side: it carries no category of its
       // own, and its parts are already in the union above.
       const series: IncomeVsExpensePoint[] = rows.map((row) => {
-        const income = Math.round(parseFloat(row.income) * 100) / 100;
+        const income = roundMoney(row.income);
         // Categorised money nets out to a negative in any month that spent
         // more than it was refunded, and that net is the expense.
-        const expense = Math.round(-parseFloat(row.categorised) * 100) / 100;
+        const expense = fromCents(-toCents(row.categorised));
         return {
           month: row.month,
           income,
           expense,
-          net: Math.round((income - expense) * 100) / 100,
+          net: roundMoney(income - expense),
         };
       });
 
@@ -199,9 +142,9 @@ export const reportRouter = router({
       return {
         series,
         summary: {
-          income: Math.round(totals.income * 100) / 100,
-          expense: Math.round(totals.expense * 100) / 100,
-          net: Math.round((totals.income - totals.expense) * 100) / 100,
+          income: roundMoney(totals.income),
+          expense: roundMoney(totals.expense),
+          net: roundMoney(totals.income - totals.expense),
         },
       };
     }),
@@ -212,16 +155,13 @@ export const reportRouter = router({
   // a refund reduces what the category cost rather than being dropped, which
   // is what makes the figures here agree with the register. Categories that
   // come out net positive over the window are left out: they were not spent.
-  spendingByCategory: protectedProcedure
+  spendingByCategory: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
-        timeframe: z.enum(TIMEFRAMES).default("all"),
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertBudgetAccess(ctx, input.budgetId);
-
       const cutoff = timeframeCutoff(input.timeframe);
       const since = cutoff ? `${cutoff}-01` : null;
 
@@ -235,29 +175,9 @@ export const reportRouter = router({
       // that category look 5,668.73 cheaper than it was.
       const rows = (await ctx.db.execute(sql`
         WITH spend AS (
-          SELECT t.category_id, t.amount
-          FROM transactions t
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND t.category_id IS NOT NULL
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
-          UNION ALL
-          SELECT s.category_id, s.amount
-          FROM sub_transactions s
-          JOIN transactions t ON t.id = s.transaction_id
-          JOIN accounts a ON a.id = t.account_id
-          WHERE t.budget_id = ${input.budgetId}
-            AND t.deleted_at IS NULL
-            AND s.deleted_at IS NULL
-            AND t.is_transfer = false
-            AND s.category_id IS NOT NULL
-            AND a.on_budget = true
-            AND a.deleted_at IS NULL
-            ${since ? sql`AND t.date >= ${since}::date` : sql``}
+          SELECT category_id, amount
+          FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
+          WHERE category_id IS NOT NULL
         )
         SELECT c.id AS "categoryId",
                c.name AS "category",
@@ -281,32 +201,25 @@ export const reportRouter = router({
         categoryId: row.categoryId,
         category: row.category,
         group: row.group,
-        spent: Math.round(-parseFloat(row.net) * 100) / 100,
+        spent: fromCents(-toCents(row.net)),
       }));
 
       return {
         spending,
-        total: Math.round(spending.reduce((sum, row) => sum + row.spent, 0) * 100) / 100,
+        total: roundMoney(spending.reduce((sum, row) => sum + row.spent, 0)),
       };
     }),
 
   // Monthly net-worth time series across all accounts in a budget.
   // Each account's month-end balance is an asset if positive, a debt if
   // negative (YNAB's sign-based split). Net worth = assets - debts.
-  netWorth: protectedProcedure
+  netWorth: budgetProcedure
     .input(
       z.object({
-        budgetId: z.number().int().positive(),
-        timeframe: z.enum(TIMEFRAMES).default("all"),
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
       })
     )
     .query(async ({ ctx, input }) => {
-      // Verify budget belongs to user
-      const budget = await ctx.db.query.budgets.findFirst({
-        where: and(eq(budgets.id, input.budgetId), eq(budgets.userId, ctx.user.id)),
-      });
-      if (!budget) throw new Error("Budget not found");
-
       // Sum of transaction amounts per account per month. Only at most
       // (#accounts * #months) rows come back, so no need to pull raw rows.
       const rows = await ctx.db
@@ -335,7 +248,7 @@ export const reportRouter = router({
       let minMonth = rows[0]!.month;
       let maxMonth = rows[0]!.month;
       for (const row of rows) {
-        const cents = Math.round(parseFloat(row.delta) * 100);
+        const cents = toCents(row.delta);
         let monthMap = deltasByMonth.get(row.month);
         if (!monthMap) {
           monthMap = new Map();
@@ -367,9 +280,9 @@ export const reportRouter = router({
 
         series.push({
           month,
-          assets: assets / 100,
-          debts: debts / 100,
-          netWorth: (assets - debts) / 100,
+          assets: fromCents(assets),
+          debts: fromCents(debts),
+          netWorth: fromCents(assets - debts),
         });
       }
 
@@ -401,7 +314,7 @@ function monthRange(start: string, end: string): string[] {
 }
 
 /** First "YYYY-MM" month to include for a timeframe, or null for all dates. */
-function timeframeCutoff(timeframe: (typeof TIMEFRAMES)[number]): string | null {
+function timeframeCutoff(timeframe: ReportTimeframe): string | null {
   if (timeframe === "all") return null;
   const now = new Date();
   const year = now.getFullYear();

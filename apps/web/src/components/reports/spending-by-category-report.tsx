@@ -17,7 +17,7 @@ import {
   chartTooltipStyle,
   formatCompactCurrency,
 } from "@/lib/chart";
-import { useReportFilters } from "@/hooks/useReportFilters";
+import { NOTHING_SELECTED, useReportFilters } from "@/hooks/useReportFilters";
 import { MonthlySpendingReport } from "@/components/reports/monthly-spending-report";
 import { ReportFilters } from "@/components/reports/report-filters";
 import { ReportLayout } from "@/components/reports/report-layout";
@@ -42,12 +42,12 @@ export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
     navigate({ search: (prev) => ({ ...prev, category }) });
   const { data, isLoading } = trpc.report.spendingByCategory.useQuery(
     { budgetId, ...filters.query },
-    { enabled: categoryId === undefined }
+    { enabled: categoryId === undefined && !filters.nothingSelected }
   );
   const drilled = trpc.report.categorySpending.useQuery(
     // A category drilled into is the whole of its own category filter.
     { budgetId, categoryId: categoryId ?? 0, ...filters.query, categoryIds: undefined },
-    { enabled: categoryId !== undefined }
+    { enabled: categoryId !== undefined && !filters.nothingSelected }
   );
 
   if (categoryId !== undefined) {
@@ -60,6 +60,7 @@ export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
         onBack={() => setCategoryId(undefined)}
         color={CHART_COLORS.blue}
         filters={<ReportFilters budgetId={budgetId} filters={filters} accounts="budget" />}
+        nothingSelected={filters.nothingSelected}
         data={drilled.data}
         isLoading={drilled.isLoading}
         error={drilled.error}
@@ -82,7 +83,7 @@ export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
       }
       isLoading={isLoading}
       isEmpty={spending.length === 0}
-      emptyMessage="Nothing was spent in this timeframe."
+      emptyMessage={filters.nothingSelected ? NOTHING_SELECTED : "Nothing was spent in this timeframe."}
       messageClassName="h-60"
       footer={
         // Every category, since a chart makes the shape readable and the exact

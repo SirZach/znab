@@ -10,14 +10,15 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { toggleFilterId } from "@/lib/report-filters";
+import { toggleAll, toggleFilterId } from "@/lib/report-filters";
 import { cn } from "@/lib/utils";
 
 export type FilterOptionGroup = { heading: string; options: { id: number; label: string }[] };
 
 /**
  * Picks some of a report's accounts or categories. `selected` undefined means
- * all of them, which is what the trigger says rather than counting them.
+ * all of them, which is what the trigger says rather than counting them, and
+ * the All item turns every one off as well as on, so one can be picked alone.
  */
 export function FilterPicker({
   noun,
@@ -38,9 +39,11 @@ export function FilterPicker({
 
   const summary = !selected
     ? `All ${noun}`
-    : selected.length === 1
-      ? (options.find((o) => o.id === selected[0])?.label ?? `1 of ${noun}`)
-      : `${selected.length} ${noun}`;
+    : selected.length === 0
+      ? `No ${noun}`
+      : selected.length === 1
+        ? (options.find((o) => o.id === selected[0])?.label ?? `1 of ${noun}`)
+        : `${selected.length} ${noun}`;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -56,7 +59,7 @@ export function FilterPicker({
           <CommandList>
             <CommandEmpty>No {noun} found.</CommandEmpty>
             <CommandGroup>
-              <CommandItem value={`all ${noun}`} onSelect={() => onChange(undefined)}>
+              <CommandItem value={`all ${noun}`} onSelect={() => onChange(toggleAll(selected))}>
                 <Check className={cn(selected && "invisible")} />
                 All {noun}
               </CommandItem>

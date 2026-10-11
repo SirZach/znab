@@ -18,7 +18,7 @@ import {
   formatCompactCurrency,
   formatMonthTick,
 } from "@/lib/chart";
-import { useReportFilters } from "@/hooks/useReportFilters";
+import { NOTHING_SELECTED, useReportFilters } from "@/hooks/useReportFilters";
 import { ReportFilters } from "@/components/reports/report-filters";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
@@ -28,7 +28,10 @@ const DEBTS_COLOR = CHART_COLORS.red;
 
 export function NetWorthReport({ budgetId }: { budgetId: number }) {
   const filters = useReportFilters("all");
-  const { data, isLoading } = trpc.report.netWorth.useQuery({ budgetId, ...filters.query });
+  const { data, isLoading } = trpc.report.netWorth.useQuery(
+    { budgetId, ...filters.query },
+    { enabled: !filters.nothingSelected }
+  );
 
   // Debts plotted below zero so assets fill above, debts below, line on top.
   const chartData = (data?.series ?? []).map((p) => ({ ...p, debtsNeg: -p.debts }));
@@ -58,7 +61,7 @@ export function NetWorthReport({ budgetId }: { budgetId: number }) {
       }
       isLoading={isLoading}
       isEmpty={chartData.length === 0}
-      emptyMessage="No data for this budget."
+      emptyMessage={filters.nothingSelected ? NOTHING_SELECTED : "No data for this budget."}
     >
       <ResponsiveContainer width="100%" height={448}>
         <ComposedChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>

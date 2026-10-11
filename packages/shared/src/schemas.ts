@@ -131,11 +131,12 @@ export const allAccountsSearchSchema = accountRegisterSearchSchema.omit({ txn: t
 });
 
 // A report's filters and drill-in, so a filtered view, or a category's or
-// payee's own spending, can be linked to. Leaving a filter out means all.
+// payee's own spending, can be linked to. Leaving a filter out means all,
+// and an empty one means none.
 export const reportSearchSchema = z.object({
   timeframe: z.enum(REPORT_TIMEFRAMES).optional(),
-  accounts: z.array(z.number().int().positive()).min(1).optional(),
-  categories: z.array(z.number().int().positive()).min(1).optional(),
+  accounts: z.array(z.number().int().positive()).optional(),
+  categories: z.array(z.number().int().positive()).optional(),
   category: z.number().int().positive().optional(),
   payee: z.number().int().positive().optional(),
 });

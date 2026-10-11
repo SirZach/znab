@@ -31,7 +31,9 @@ export function AddRow({
   payeeTriggerRef: Ref<HTMLButtonElement>;
 }) {
   return (
-    <table className="w-full table-fixed text-sm border-t border-border bg-accent/20">
+    // Lighter than any state a register row can be in, hovered, selected or
+    // being edited, so where a new transaction goes is never mistaken for one.
+    <table className="w-full table-fixed text-sm border-t-2 border-primary/60 bg-slate-700">
       <RegisterColgroup />
       <tbody>
         <tr>

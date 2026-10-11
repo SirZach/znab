@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { calendarDays, colorCeiling, monthStarts } from "./spending-calendar";
+import { calendarDays, monthStarts, shadeFor } from "./spending-calendar";
 
 describe("calendarDays", () => {
   test("lays every day of a past year out by week and weekday, with what was spent", () => {
@@ -43,18 +43,25 @@ describe("monthStarts", () => {
   });
 });
 
-describe("colorCeiling", () => {
-  test("is the 95th percentile of spending days, so one huge day does not wash out the rest", () => {
-    const spent = Array.from({ length: 20 }, (_, i) => i + 1);
-    expect(colorCeiling([...spent, 10_000])).toBe(20);
+describe("shadeFor", () => {
+  // Lopsided like a real budget: mostly small days and a few big bills.
+  const shade = shadeFor([20, 40, 60, 80, 100, 150, 200, 300, 2_500, 12_000]);
+
+  test("leaves days with nothing spent, or only refunds, unshaded", () => {
+    expect(shade(0)).toBeNull();
+    expect(shade(-30)).toBeNull();
   });
 
-  test("ignores refund days and is at least one", () => {
-    expect(colorCeiling([-50, 0])).toBe(1);
-    expect(colorCeiling([0.4, 0.6])).toBe(1);
+  test("shades by rank, so everyday spending spreads across the gradient", () => {
+    expect(shade(20)).toBe(15);
+    expect(shade(100)).toBe(53);
+    expect(shade(300)).toBe(81);
+    expect(shade(12_000)).toBe(100);
+    // Between two days it takes the rank of the one below.
+    expect(shade(120)).toBe(53);
   });
 
-  test("with few spending days it is the largest of them", () => {
-    expect(colorCeiling([5, 30, 12])).toBe(30);
+  test("a single spending day is fully shaded", () => {
+    expect(shadeFor([45])(45)).toBe(100);
   });
 });

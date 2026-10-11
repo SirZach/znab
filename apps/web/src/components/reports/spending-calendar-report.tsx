@@ -12,6 +12,7 @@ import { type CalendarDay, calendarDays, monthStarts, shadeFor } from "@/lib/spe
 import { NOTHING_SELECTED, useReportFilters } from "@/hooks/useReportFilters";
 import { Button } from "@/components/ui/button";
 import { ReportFilters } from "@/components/reports/report-filters";
+import { longDate, SpendingCalendarDay } from "@/components/reports/spending-calendar-day";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
@@ -35,22 +36,21 @@ const EMPTY = "hsl(var(--muted))";
  */
 const shadeColor = (percent: number) => `color-mix(in oklab, ${CHART_COLORS.blue} ${percent}%, ${EMPTY})`;
 
-const longDate = (date: string) =>
-  new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-
 function localToday(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 /** The calendar itself: a cell per day, weeks across and weekdays down. */
-function CalendarChart({ days, ariaLabel }: { days: CalendarDay[]; ariaLabel: string }) {
+function CalendarChart({
+  days,
+  ariaLabel,
+  onSelectDay,
+}: {
+  days: CalendarDay[];
+  ariaLabel: string;
+  onSelectDay: (date: string) => void;
+}) {
   // The chart re-renders whenever its definition changes identity, so it is
   // built once per set of days rather than on every render of the page.
   const definition = useMemo(() => {
@@ -104,7 +104,16 @@ function CalendarChart({ days, ariaLabel }: { days: CalendarDay[]; ariaLabel: st
     );
   }, [days]);
 
-  return <Chart ariaLabel={ariaLabel} definition={definition} height={170} className="text-muted-foreground" />;
+  return (
+    <Chart
+      ariaLabel={ariaLabel}
+      definition={definition}
+      height={170}
+      className="text-muted-foreground"
+      // A click or Enter on a day; a click between days selects nothing.
+      onSelect={(point) => point && onSelectDay(point.datum.date)}
+    />
+  );
 }
 
 /**
@@ -120,7 +129,8 @@ export function SpendingCalendarReport({ budgetId }: { budgetId: number }) {
   const thisYear = Number(today.slice(0, 4));
   const year = search.year && search.year < thisYear ? search.year : thisYear;
   const setYear = (next: number) =>
-    navigate({ search: (prev) => ({ ...prev, year: next === thisYear ? undefined : next }) });
+    navigate({ search: (prev) => ({ ...prev, year: next === thisYear ? undefined : next, day: undefined }) });
+  const setDay = (day: string | undefined) => navigate({ search: (prev) => ({ ...prev, day }) });
 
   const { data, isLoading } = trpc.report.dailySpending.useQuery(
     { budgetId, year, accountIds: filters.accountIds, categoryIds: filters.categoryIds },
@@ -185,9 +195,26 @@ export function SpendingCalendarReport({ budgetId }: { budgetId: number }) {
       isEmpty={days.length === 0 || (data?.days.length ?? 0) === 0}
       emptyMessage={filters.nothingSelected ? NOTHING_SELECTED : "Nothing was spent in this year."}
       messageClassName="h-44"
+      footer={
+        // Only a day in the year on screen, so stepping years leaves no stray list.
+        search.day?.startsWith(String(data?.year ?? year)) && (
+          <SpendingCalendarDay
+            budgetId={budgetId}
+            date={search.day}
+            accountIds={filters.accountIds}
+            categoryIds={filters.categoryIds}
+            onClose={() => setDay(undefined)}
+          />
+        )
+      }
     >
-      <CalendarChart days={days} ariaLabel={`Spending each day of ${data?.year ?? year}`} />
+      <CalendarChart
+        days={days}
+        ariaLabel={`Spending each day of ${data?.year ?? year}`}
+        onSelectDay={setDay}
+      />
       <div className="mt-2 flex items-center justify-end gap-1 text-xs text-muted-foreground">
+        <span className="mr-auto">Click a day to see what was spent on it.</span>
         <span className="mr-1 inline-block size-3 rounded-sm" style={{ background: EMPTY }} />
         None
         <span

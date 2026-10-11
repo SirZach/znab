@@ -8,6 +8,8 @@ const payees = [
   { id: 2, name: "Costco" },
   { id: 3, name: "A Better Choice" },
   { id: 4, name: "Transfer : Betterment" },
+  // Imported names can carry stray spaces, which cmdk trims from its values.
+  { id: 5, name: " Briar Oaks Exxon" },
 ];
 
 async function typeInPicker(text: string) {
@@ -37,6 +39,11 @@ describe("PayeePicker", () => {
   test("a transfer matches on its account name, as if the Transfer prefix were not there", async () => {
     const { onPick } = await typeInPicker("bett{Enter}");
     expect(onPick).toHaveBeenCalledWith(payees[3]);
+  });
+
+  test("a payee whose name has surrounding spaces is still the closest match", async () => {
+    const { onPick } = await typeInPicker("briar{Tab}");
+    expect(onPick).toHaveBeenCalledWith(payees[4]);
   });
 
   test("an unknown name is only created by picking the create choice", async () => {

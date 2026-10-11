@@ -21,8 +21,12 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKS = Array.from({ length: 54 }, (_, i) => i);
 const EARLIEST_YEAR = 1900;
 
-/** A day with nothing spent, or only refunds. */
-const EMPTY = "var(--muted)";
+/**
+ * A day with nothing spent, or only refunds. The theme keeps --muted as bare
+ * HSL numbers, so it has to be wrapped to be a colour: on its own it is
+ * invalid, and every cell mixed from it renders black.
+ */
+const EMPTY = "hsl(var(--muted))";
 
 /**
  * The theme's chart colour at `percent` strength over the empty shade. Mixed

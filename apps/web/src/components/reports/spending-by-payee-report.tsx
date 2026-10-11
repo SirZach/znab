@@ -17,7 +17,7 @@ import {
   chartTooltipStyle,
   formatCompactCurrency,
 } from "@/lib/chart";
-import { useReportFilters } from "@/hooks/useReportFilters";
+import { NOTHING_SELECTED, useReportFilters } from "@/hooks/useReportFilters";
 import { MonthlySpendingReport } from "@/components/reports/monthly-spending-report";
 import { ReportFilters } from "@/components/reports/report-filters";
 import { ReportLayout } from "@/components/reports/report-layout";
@@ -41,11 +41,11 @@ export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
   const setPayeeId = (payee: number | undefined) => navigate({ search: (prev) => ({ ...prev, payee }) });
   const { data, isLoading } = trpc.report.spendingByPayee.useQuery(
     { budgetId, ...filters.query },
-    { enabled: payeeId === undefined }
+    { enabled: payeeId === undefined && !filters.nothingSelected }
   );
   const drilled = trpc.report.payeeSpending.useQuery(
     { budgetId, payeeId: payeeId ?? 0, ...filters.query },
-    { enabled: payeeId !== undefined }
+    { enabled: payeeId !== undefined && !filters.nothingSelected }
   );
 
   if (payeeId !== undefined) {
@@ -57,6 +57,7 @@ export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
         onBack={() => setPayeeId(undefined)}
         color={CHART_COLORS.purple}
         filters={filterBar}
+        nothingSelected={filters.nothingSelected}
         data={drilled.data}
         isLoading={drilled.isLoading}
         error={drilled.error}
@@ -79,7 +80,7 @@ export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
       }
       isLoading={isLoading}
       isEmpty={spending.length === 0}
-      emptyMessage="Nobody was paid in this timeframe."
+      emptyMessage={filters.nothingSelected ? NOTHING_SELECTED : "Nobody was paid in this timeframe."}
       messageClassName="h-60"
       footer={
         spending.length > 0 && (

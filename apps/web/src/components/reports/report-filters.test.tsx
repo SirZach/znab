@@ -45,6 +45,27 @@ describe("ReportFilters", () => {
     );
   });
 
+  test("All turns every account off, asking for nothing, so one can be picked alone", async () => {
+    const { inputsTo, router } = await renderRoute("/budgets/1/reports/spending", { fixtures });
+
+    await userEvent.click(await screen.findByText("All accounts"));
+    await userEvent.click(await screen.findByRole("option", { name: "All accounts" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ accounts: [] }));
+    expect(await screen.findByText(/Nothing is selected/)).toBeTruthy();
+    expect(inputsTo("report.spendingByCategory")).toEqual([{ budgetId: 1, timeframe: "last12" }]);
+
+    await userEvent.click(screen.getByRole("option", { name: "Visa" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ accounts: [2] }));
+    await waitFor(() =>
+      expect(inputsTo("report.spendingByCategory").at(-1)).toMatchObject({ accountIds: [2] })
+    );
+
+    await userEvent.click(screen.getByRole("option", { name: "All accounts" }));
+    await waitFor(() => expect(router.state.location.search).toEqual({}));
+  });
+
   test("categories leave out YNAB 4's own groups", async () => {
     await renderRoute("/budgets/1/reports/spending", { fixtures });
 

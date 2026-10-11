@@ -139,4 +139,8 @@ export const reportSearchSchema = z.object({
   categories: z.array(z.number().int().positive()).optional(),
   category: z.number().int().positive().optional(),
   payee: z.number().int().positive().optional(),
+  // Month over month and year over year: which period, and which one of them
+  // ("YYYY-MM" or "YYYY"); the one running now when left out.
+  period: z.enum(["month", "year"]).optional(),
+  anchor: z.string().regex(/^\d{4}(-(0[1-9]|1[0-2]))?$/).optional(),
 });

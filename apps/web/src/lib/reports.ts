@@ -1,5 +1,6 @@
-import { BarChart2, Landmark, Scale, Store, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, BarChart2, Landmark, Scale, Store, TrendingUp } from "lucide-react";
 import { AverageSpendingReport } from "@/components/reports/average-spending-report";
+import { SpendingComparisonReport } from "@/components/reports/spending-comparison-report";
 import { IncomeVsExpenseReport } from "@/components/reports/income-vs-expense-report";
 import { NetWorthReport } from "@/components/reports/net-worth-report";
 import { SpendingByCategoryReport } from "@/components/reports/spending-by-category-report";
@@ -27,6 +28,13 @@ export const REPORTS = [
     description: "See what a typical month costs in each category",
     icon: Scale,
     component: AverageSpendingReport,
+  },
+  {
+    id: "spending-comparison",
+    label: "Month over Month",
+    description: "Compare a month or year of spending with the one before",
+    icon: ArrowLeftRight,
+    component: SpendingComparisonReport,
   },
   {
     id: "income-vs-expenses",

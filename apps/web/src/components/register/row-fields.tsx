@@ -15,7 +15,7 @@ import { formatDateShort } from "@/lib/utils";
 import { MoneyInput } from "@/components/common/money-input";
 import { UnderlineInput } from "@/components/common/underline-input";
 import { FlagCell } from "@/components/register/flag-cell";
-import { PayeePicker } from "@/components/register/payee-picker";
+import { PayeePicker } from "@/components/common/payee-picker";
 import { offsetDays, parseDateEntry } from "@/lib/date-entry";
 import type { PayeeAutofillPatch, PayeeAutofillSource } from "@/lib/payee-autofill";
 import type { RegisterFields } from "@/lib/register-row";

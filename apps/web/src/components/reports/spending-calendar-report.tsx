@@ -3,12 +3,12 @@ import { getRouteApi } from "@tanstack/react-router";
 import { cell, defineChart } from "@tanstack/charts";
 import { Chart } from "@tanstack/charts/react/tooltip";
 import { tooltip } from "@tanstack/charts/tooltip";
-import { scaleBand, scaleThreshold } from "d3-scale";
+import { scaleBand } from "d3-scale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { trpc } from "@/trpc";
 import { formatCurrency } from "@/lib/utils";
 import { CHART_COLORS } from "@/lib/chart";
-import { type CalendarDay, calendarDays, colorCeiling, monthStarts } from "@/lib/spending-calendar";
+import { type CalendarDay, calendarDays, monthStarts, shadeFor } from "@/lib/spending-calendar";
 import { NOTHING_SELECTED, useReportFilters } from "@/hooks/useReportFilters";
 import { Button } from "@/components/ui/button";
 import { ReportFilters } from "@/components/reports/report-filters";
@@ -21,18 +21,15 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKS = Array.from({ length: 54 }, (_, i) => i);
 const EARLIEST_YEAR = 1900;
 
+/** A day with nothing spent, or only refunds. */
+const EMPTY = "var(--muted)";
+
 /**
- * Five steps from nothing spent to the busiest days. Stepped rather than
- * blended so each step can be a mix of the theme's own colour, which a
- * continuous scale cannot interpolate through.
+ * The theme's chart colour at `percent` strength over the empty shade. Mixed
+ * by the browser rather than interpolated in script, so it follows the
+ * theme's own variables.
  */
-const SHADES = [
-  "var(--muted)",
-  `color-mix(in oklab, ${CHART_COLORS.blue} 30%, var(--muted))`,
-  `color-mix(in oklab, ${CHART_COLORS.blue} 55%, var(--muted))`,
-  `color-mix(in oklab, ${CHART_COLORS.blue} 80%, var(--muted))`,
-  CHART_COLORS.blue,
-];
+const shadeColor = (percent: number) => `color-mix(in oklab, ${CHART_COLORS.blue} ${percent}%, ${EMPTY})`;
 
 const longDate = (date: string) =>
   new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", {
@@ -48,18 +45,22 @@ function localToday(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-/** The spend each shade begins at, for the legend: nothing, then up from each threshold. */
-function shadeLabels(ceiling: number): string[] {
-  const at = (share: number) => formatCurrency(ceiling * share);
-  return ["Nothing or refunded", `Up to ${at(0.25)}`, `${at(0.25)} to ${at(0.5)}`, `${at(0.5)} to ${at(0.75)}`, `Over ${at(0.75)}`];
-}
-
 /** The calendar itself: a cell per day, weeks across and weekdays down. */
-function CalendarChart({ days, ceiling, ariaLabel }: { days: CalendarDay[]; ceiling: number; ariaLabel: string }) {
+function CalendarChart({ days, ariaLabel }: { days: CalendarDay[]; ariaLabel: string }) {
   // The chart re-renders whenever its definition changes identity, so it is
   // built once per set of days rather than on every render of the page.
   const definition = useMemo(() => {
     const starts = monthStarts(days);
+    // A colour per day from its rank among the year's spending days (see
+    // shadeFor), handed to the chart as a scale of its own.
+    const shade = shadeFor(days.map((d) => d.spent));
+    const color = Object.assign(
+      (value: number) => {
+        const percent = shade(value);
+        return percent === null ? EMPTY : shadeColor(percent);
+      },
+      { copy: () => color }
+    );
     return defineChart(
       {
         marks: [
@@ -92,16 +93,12 @@ function CalendarChart({ days, ceiling, ariaLabel }: { days: CalendarDay[]; ceil
           },
         },
         color: {
-          // Anything above a cent is spending; refunds and nothing share the
-          // empty shade, since a calendar of spending has no below-zero colour.
-          scale: scaleThreshold<number, string>()
-            .domain([0.005, ceiling * 0.25, ceiling * 0.5, ceiling * 0.75])
-            .range(SHADES),
+          scale: color,
         },
       },
       { tooltip: { use: tooltip, format: (point) => `${longDate(point.datum.date)}: ${formatCurrency(point.datum.spent)}` } }
     );
-  }, [days, ceiling]);
+  }, [days]);
 
   return <Chart ariaLabel={ariaLabel} definition={definition} height={170} className="text-muted-foreground" />;
 }
@@ -129,7 +126,6 @@ export function SpendingCalendarReport({ budgetId }: { budgetId: number }) {
   // Laid out through the day the server counted to, so the cells are exactly
   // the days the totals cover, whatever the browser's own date is.
   const days = useMemo(() => (data ? calendarDays(data.year, data.days, data.through) : []), [data]);
-  const ceiling = useMemo(() => colorCeiling(days.map((d) => d.spent)), [days]);
   const daysInYear = data?.daysInYear ?? 0;
 
   return (
@@ -186,20 +182,18 @@ export function SpendingCalendarReport({ budgetId }: { budgetId: number }) {
       emptyMessage={filters.nothingSelected ? NOTHING_SELECTED : "Nothing was spent in this year."}
       messageClassName="h-44"
     >
-      <CalendarChart days={days} ceiling={ceiling} ariaLabel={`Spending each day of ${data?.year ?? year}`} />
+      <CalendarChart days={days} ariaLabel={`Spending each day of ${data?.year ?? year}`} />
       <div className="mt-2 flex items-center justify-end gap-1 text-xs text-muted-foreground">
-        Less
-        {shadeLabels(ceiling).map((label, i) => (
-          <span
-            key={label}
-            title={label}
-            aria-label={label}
-            role="img"
-            className="inline-block size-3 rounded-sm"
-            style={{ background: SHADES[i] }}
-          />
-        ))}
-        More
+        <span className="mr-1 inline-block size-3 rounded-sm" style={{ background: EMPTY }} />
+        None
+        <span
+          role="img"
+          aria-label="Shaded from the year's least to its most spent days, by rank"
+          title="Shaded by how each day ranks among the year's spending days"
+          className="ml-3 inline-block h-3 w-28 rounded-sm"
+          style={{ background: `linear-gradient(to right, ${shadeColor(15)}, ${shadeColor(100)})` }}
+        />
+        Less to more
       </div>
     </ReportLayout>
   );

@@ -41,12 +41,25 @@ export function monthStarts(days: readonly CalendarDay[]): { week: number; month
 }
 
 /**
- * The spend at which a day reads as fully coloured: the 95th percentile of the
- * days that spent anything, so the mortgage day does not leave every other day
- * looking empty. Days above it are simply as dark as the scale goes.
+ * How strongly a day is shaded, as a percentage of the theme's colour from 15
+ * to 100, or null for a day with nothing spent or only refunds. Shaded by the
+ * day's rank among the year's spending days rather than by its amount, since
+ * spending is lopsided: in this budget three quarters of days spend under a
+ * tenth of what the biggest do, so by amount nearly every day read alike.
  */
-export function colorCeiling(spent: readonly number[]): number {
-  const positive = spent.filter((s) => s > 0).sort((a, b) => a - b);
-  if (positive.length === 0) return 1;
-  return Math.max(1, positive[Math.min(positive.length - 1, Math.floor(positive.length * 0.95))]!);
+export function shadeFor(spent: readonly number[]): (value: number) => number | null {
+  const sorted = spent.filter((s) => s > 0).sort((a, b) => a - b);
+  return (value) => {
+    if (value <= 0 || sorted.length === 0) return null;
+    // The number of spending days at or below this one.
+    let lo = 0;
+    let hi = sorted.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sorted[mid]! <= value) lo = mid + 1;
+      else hi = mid;
+    }
+    const rank = sorted.length === 1 ? 1 : Math.max(0, lo - 1) / (sorted.length - 1);
+    return Math.round(15 + 85 * rank);
+  };
 }

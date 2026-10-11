@@ -35,7 +35,6 @@ export interface YnabAccount {
   sortableIndex: number;
   lastReconciledBalance: number | null;
   lastReconciledDate: string | null;
-  lastEnteredCheckNumber: number;
   // Left out of the JSON while unset, as YNAB 4 does with every optional field
   note?: string | null;
   isTombstone?: boolean;
@@ -81,7 +80,6 @@ export interface YnabSubCategory {
   name: string;
   type: string;
   masterCategoryId: string;
-  cachedBalance: number;
   sortableIndex: number;
   isTombstone?: boolean;
 }

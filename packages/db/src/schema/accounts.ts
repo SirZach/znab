@@ -19,7 +19,6 @@ export const accounts = pgTable("accounts", {
   sortOrder: integer("sort_order").notNull().default(0),
   lastReconciledBalance: numeric("last_reconciled_balance", { precision: 12, scale: 2 }),
   lastReconciledDate: date("last_reconciled_date"),
-  lastEnteredCheckNum: integer("last_entered_check_num"),
   note: text("note"),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

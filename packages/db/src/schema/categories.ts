@@ -42,7 +42,6 @@ export const categories = pgTable("categories", {
     .references(() => categoryGroups.id),
   name: text("name").notNull(),
   type: text("type").notNull().default("OUTFLOW"),
-  cachedBalance: numeric("cached_balance", { precision: 12, scale: 2 }).default("0"),
   sortOrder: integer("sort_order").notNull().default(0),
   // YNAB 4 category goals, all null when a category has no goal set.
   // null | "TB" (Target Category Balance) | "TBD" (Target Balance by Date) | "MF" (Monthly Funding)

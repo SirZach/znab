@@ -383,6 +383,11 @@ function AccountRegisterPage() {
             autofillForPayee={autofillForPayee}
             locks={addLocks}
             onSave={saveAdd}
+            onCancel={() => {
+              setAddFields(emptyFields());
+              setAddBlocked(null);
+              writes.resetCreateStatus();
+            }}
             isSaving={writes.isSaving}
             error={addBlocked ?? writes.createError}
             payeeTriggerRef={addPayeeRef}

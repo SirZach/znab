@@ -18,13 +18,17 @@
  * transactions in the largest budget carry one at all. Payee and category are
  * what a register is read for, so the width goes there and a long memo ends in
  * an ellipsis rather than pushing everything else about.
+ *
+ * Date is wider than its printed text needs because the add row puts an input
+ * and a calendar button in that cell, and at 9% the date was cut off. Payee
+ * gave up the width, having far more than names need.
  */
 export function RegisterColgroup() {
   return (
     <colgroup>
       <col className="w-[2%]" />
-      <col className="w-[9%]" />
-      <col className="w-[27%]" />
+      <col className="w-[13%]" />
+      <col className="w-[23%]" />
       <col className="w-[23%]" />
       <col className="w-[9%]" />
       <col className="w-[9%]" />

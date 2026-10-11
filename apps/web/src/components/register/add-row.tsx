@@ -15,6 +15,7 @@ export function AddRow({
   autofillForPayee,
   locks,
   onSave,
+  onCancel,
   isSaving,
   error,
   payeeTriggerRef,
@@ -26,6 +27,8 @@ export function AddRow({
   autofillForPayee: RegisterLookups["autofillForPayee"];
   locks: RegisterRowLocks;
   onSave: () => void;
+  /** Throws the half-entered row away and starts it over. */
+  onCancel: () => void;
   isSaving: boolean;
   error: string | null;
   payeeTriggerRef: Ref<HTMLButtonElement>;
@@ -48,11 +51,21 @@ export function AddRow({
             tabIndexBase={1}
             payeeTriggerRef={payeeTriggerRef}
           />
-          <td className="px-2 py-2" />
-          <td className="px-6 py-2 text-right">
-            <ActionButton className="text-xs px-2 py-1" onClick={onSave} disabled={isSaving}>
-              Save
-            </ActionButton>
+          {/* Spans the cleared column too, so both buttons fit on one line. */}
+          <td colSpan={2} className="px-2 py-2">
+            <div className="flex justify-end gap-1.5 whitespace-nowrap">
+              <ActionButton
+                variant="outline"
+                className="text-xs px-2 py-1"
+                onClick={onCancel}
+                disabled={isSaving}
+              >
+                Cancel
+              </ActionButton>
+              <ActionButton className="text-xs px-2 py-1" onClick={onSave} disabled={isSaving}>
+                Save
+              </ActionButton>
+            </div>
           </td>
         </tr>
 

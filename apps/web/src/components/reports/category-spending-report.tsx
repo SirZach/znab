@@ -1,7 +1,8 @@
 import { ChevronLeft } from "lucide-react";
 import {
-  BarChart,
+  ComposedChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -18,6 +19,7 @@ import {
   chartTooltipStyle,
   formatCompactCurrency,
   formatMonthTick,
+  linearTrend,
 } from "@/lib/chart";
 import { Button } from "@/components/ui/button";
 import { ReportLayout } from "@/components/reports/report-layout";
@@ -45,6 +47,9 @@ export function CategorySpendingReport({
 
   const series = data?.series ?? [];
   const months = series.length;
+  const trend = linearTrend(series.map((point) => point.spent));
+  const charted = series.map((point, i) => ({ ...point, trend: trend[i] }));
+  const trendPerMonth = months > 1 ? trend[1]! - trend[0]! : 0;
 
   return (
     <ReportLayout
@@ -66,6 +71,7 @@ export function CategorySpendingReport({
             label="Monthly average"
             value={formatCurrency(months > 0 ? (data?.total ?? 0) / months : 0)}
           />
+          <SummaryStat label="Trend" line value={`${trendPerMonth >= 0 ? "+" : ""}${formatCurrency(trendPerMonth)} / mo`} />
         </>
       }
       isLoading={isLoading}
@@ -77,7 +83,7 @@ export function CategorySpendingReport({
       }
     >
       <ResponsiveContainer width="100%" height={448}>
-        <BarChart data={series} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+        <ComposedChart data={charted} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
           <CartesianGrid {...chartGridProps} vertical={false} />
           <XAxis
             dataKey="month"
@@ -88,11 +94,20 @@ export function CategorySpendingReport({
           <YAxis tickFormatter={formatCompactCurrency} {...chartAxisProps} width={64} />
           <Tooltip
             labelFormatter={(label) => formatMonthTick(String(label))}
-            formatter={(value) => [formatCurrency(Number(value)), "Spent"]}
+            formatter={(value, name) => [formatCurrency(Number(value)), name]}
             contentStyle={chartTooltipStyle}
           />
           <Bar dataKey="spent" name="Spent" fill={CHART_COLORS.blue} radius={[2, 2, 0, 0]} />
-        </BarChart>
+          <Line
+            type="linear"
+            dataKey="trend"
+            name="Trend"
+            stroke={CHART_COLORS.line}
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            dot={false}
+          />
+        </ComposedChart>
       </ResponsiveContainer>
     </ReportLayout>
   );

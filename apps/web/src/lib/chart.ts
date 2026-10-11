@@ -30,6 +30,25 @@ export const chartTooltipStyle = {
   fontSize: 12,
 } as const;
 
+/**
+ * The least squares straight line through evenly spaced values, as the value
+ * it puts at each one: a trend line to draw over bars.
+ */
+export function linearTrend(values: number[]): number[] {
+  const n = values.length;
+  if (n < 2) return [...values];
+  const meanX = (n - 1) / 2;
+  const meanY = values.reduce((sum, y) => sum + y, 0) / n;
+  let sxy = 0;
+  let sxx = 0;
+  values.forEach((y, x) => {
+    sxy += (x - meanX) * (y - meanY);
+    sxx += (x - meanX) ** 2;
+  });
+  const slope = sxy / sxx;
+  return values.map((_, x) => meanY + slope * (x - meanX));
+}
+
 /** A dollar amount short enough for a chart axis: "$1.2K". */
 export function formatCompactCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {

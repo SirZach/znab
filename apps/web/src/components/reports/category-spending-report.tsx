@@ -37,7 +37,7 @@ export function CategorySpendingReport({
   onTimeframeChange: (timeframe: ReportTimeframe) => void;
   onBack: () => void;
 }) {
-  const { data, isLoading } = trpc.report.categorySpending.useQuery({
+  const { data, isLoading, error } = trpc.report.categorySpending.useQuery({
     budgetId,
     categoryId,
     timeframe,
@@ -69,8 +69,12 @@ export function CategorySpendingReport({
         </>
       }
       isLoading={isLoading}
-      isEmpty={series.every((point) => point.spent === 0)}
-      emptyMessage="Nothing was spent in this category in this timeframe."
+      // A failed load, such as a link to a category since deleted, says why
+      // rather than passing for a category that spent nothing.
+      isEmpty={error !== null || series.every((point) => point.spent === 0)}
+      emptyMessage={
+        error ? `Could not load this category: ${error.message}` : "Nothing was spent in this category in this timeframe."
+      }
     >
       <ResponsiveContainer width="100%" height={448}>
         <BarChart data={series} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>

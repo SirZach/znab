@@ -202,8 +202,8 @@ export function RegisterRowFields({
               // does not need, and landing on it would pop the menu open over
               // an answer they already have. What is worth landing on is the
               // amount: it is the one field that differs every time even for a
-              // payee used weekly, and selecting what autofill put there means
-              // typing replaces it and Enter accepts it.
+              // payee used weekly, so it is never prefilled and is what gets
+              // typed next.
               focusAfterPayee(patch.categoryId !== undefined ? outflowRef : categoryTriggerRef);
             }}
             onCreate={(name) => {

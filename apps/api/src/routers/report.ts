@@ -6,6 +6,7 @@ import { router, budgetProcedure } from "../trpc";
 import { accounts, transactions } from "@znab/db";
 import { assertFilterIdsInBudget } from "../lib/authz";
 import { comparisonPeriods } from "../lib/comparison-periods";
+import { dailyWindow } from "../lib/daily-window";
 import { localToday } from "../lib/date";
 import { andIdsIn, IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
 import {
@@ -401,6 +402,54 @@ export const reportRouter = router({
           previous: fromCents(sum("previousCents")),
           change: fromCents(sum("currentCents") - sum("previousCents")),
         },
+      };
+    }),
+
+  // A year of spending, day by day, for a calendar.
+  //
+  // Each day is the net of what was spent on it, on the same terms as
+  // Spending by Category, so a day of nothing but a refund reads negative.
+  // Only days with something on them are listed; the rest of the year is
+  // zero. The year still running is counted through today and no further
+  // (see dailyWindow), and `through` says which day that was, so the page
+  // draws exactly the days the totals cover rather than working out its own.
+  dailySpending: budgetProcedure
+    .input(
+      z.object({
+        year: z.number().int().min(1900).max(2099),
+        ...filterFields,
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
+      const { year, start, until, through, days: daysInYear } = dailyWindow(input.year, localToday());
+
+      const rows = (await ctx.db.execute(sql`
+        SELECT to_char(m.d, 'YYYY-MM-DD') AS "date", SUM(m.amount) AS "net"
+        FROM (${onBudgetMoneySource(input.budgetId, { since: start, accountIds: input.accountIds })}) m
+        JOIN categories c ON c.id = m.category_id
+        JOIN category_groups g ON g.id = c.group_id
+        WHERE g.type <> 'INFLOW' AND m.d < ${until}::date
+          ${andIdsIn(sql`c.id`, input.categoryIds)}
+        GROUP BY m.d
+        HAVING SUM(m.amount) <> 0
+        ORDER BY m.d
+      `)) as unknown as { date: string; net: string }[];
+
+      const days = rows.map((row) => ({ date: row.date, spent: fromCents(-toCents(row.net)) }));
+      const biggest = days.reduce<(typeof days)[number] | null>(
+        (top, day) => (day.spent > 0 && (!top || day.spent > top.spent) ? day : top),
+        null
+      );
+
+      return {
+        year,
+        through,
+        days,
+        total: fromCents(days.reduce((sum, day) => sum + toCents(day.spent), 0)),
+        daysInYear,
+        spendingDays: days.filter((day) => day.spent > 0).length,
+        biggest,
       };
     }),
 

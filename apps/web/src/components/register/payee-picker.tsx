@@ -57,25 +57,14 @@ export function PayeePicker<P extends Payee>({
   const name = query.trim();
   const exists = payees?.some((p) => p.name.toLowerCase() === name.toLowerCase());
 
-  const highlightedItem = () =>
-    listRef.current?.querySelector<HTMLElement>("[cmdk-item][data-selected=true]");
-
   // The highlighted payee, which is the closest match while a search is typed.
   // Found by id, since cmdk trims the names it keeps as values and imported
   // names can carry stray spaces.
   function closest() {
     if (!name) return undefined;
-    const id = highlightedItem()?.dataset.payeeId;
+    const id = listRef.current?.querySelector<HTMLElement>("[cmdk-item][data-selected=true]")
+      ?.dataset.payeeId;
     return payees?.find((p) => String(p.id) === id);
-  }
-
-  // cmdk scrolls the highlight into view before its items re-render, so after a
-  // keystroke re-sorts the list it scrolls to the previous highlight, now far
-  // down, and the new best match sits out of sight above. Put it back in view
-  // once cmdk has settled.
-  function search(text: string) {
-    setQuery(text);
-    requestAnimationFrame(() => highlightedItem()?.scrollIntoView({ block: "nearest" }));
   }
 
   function close() {
@@ -131,7 +120,7 @@ export function PayeePicker<P extends Payee>({
           <CommandInput
             placeholder="Search payees..."
             value={query}
-            onValueChange={search}
+            onValueChange={setQuery}
             onKeyDown={(e) => {
               if (e.key !== "Tab" || !name) return;
               e.preventDefault();

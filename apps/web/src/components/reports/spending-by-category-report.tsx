@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getRouteApi } from "@tanstack/react-router";
 import {
   BarChart,
   Bar,
@@ -30,22 +31,28 @@ import { SummaryStat } from "@/components/reports/summary-stat";
  */
 const CHARTED = 15;
 
+const reportRoute = getRouteApi("/budgets/$budgetId/reports/$reportId");
+
 export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
   const [timeframe, setTimeframe] = useState<ReportTimeframe>("last12");
-  const [categoryId, setCategoryId] = useState<number | null>(null);
-  const { data, isLoading } = trpc.report.spendingByCategory.useQuery({
-    budgetId,
-    timeframe,
-  });
+  // In the URL, so a category's own spending can be linked to and Back leaves it.
+  const { category: categoryId } = reportRoute.useSearch();
+  const navigate = reportRoute.useNavigate();
+  const setCategoryId = (category: number | undefined) =>
+    navigate({ search: (prev) => ({ ...prev, category }) });
+  const { data, isLoading } = trpc.report.spendingByCategory.useQuery(
+    { budgetId, timeframe },
+    { enabled: categoryId === undefined }
+  );
 
-  if (categoryId !== null) {
+  if (categoryId !== undefined) {
     return (
       <CategorySpendingReport
         budgetId={budgetId}
         categoryId={categoryId}
         timeframe={timeframe}
         onTimeframeChange={setTimeframe}
-        onBack={() => setCategoryId(null)}
+        onBack={() => setCategoryId(undefined)}
       />
     );
   }

@@ -1,5 +1,6 @@
-import { ArrowLeftRight, BarChart2, Landmark, Scale, Store, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, BarChart2, CalendarDays, Landmark, Scale, Store, TrendingUp } from "lucide-react";
 import { AverageSpendingReport } from "@/components/reports/average-spending-report";
+import { SpendingCalendarReport } from "@/components/reports/spending-calendar-report";
 import { SpendingComparisonReport } from "@/components/reports/spending-comparison-report";
 import { IncomeVsExpenseReport } from "@/components/reports/income-vs-expense-report";
 import { NetWorthReport } from "@/components/reports/net-worth-report";
@@ -35,6 +36,13 @@ export const REPORTS = [
     description: "Compare a month or year of spending with the one before",
     icon: ArrowLeftRight,
     component: SpendingComparisonReport,
+  },
+  {
+    id: "spending-calendar",
+    label: "Spending Calendar",
+    description: "See each day of a year's spending at a glance",
+    icon: CalendarDays,
+    component: SpendingCalendarReport,
   },
   {
     id: "income-vs-expenses",

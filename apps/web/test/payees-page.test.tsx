@@ -8,7 +8,6 @@ function payee(over: Record<string, unknown>) {
     targetAccountId: null,
     enabled: true,
     autofillCategoryId: null,
-    autofillAmount: null,
     autofillMemo: null,
     transactionCount: 0,
     lastUsed: null,
@@ -101,7 +100,7 @@ describe("payees page", () => {
     await user.click(screen.getByText("Unused").closest("tr")!);
     const panel = screen.getByRole("complementary");
     await user.selectOptions(within(panel).getByLabelText("Autofill category"), "100");
-    await user.type(within(panel).getByLabelText("Autofill amount"), "-20-5");
+    expect(within(panel).queryByLabelText("Autofill amount")).toBeNull();
     await user.type(within(panel).getByLabelText("Autofill memo"), " weekly ");
     await user.click(within(panel).getByRole("button", { name: "Save autofill" }));
 
@@ -110,7 +109,6 @@ describe("payees page", () => {
       budgetId: 1,
       id: 3,
       categoryId: 100,
-      amount: -25,
       memo: "weekly",
     });
 

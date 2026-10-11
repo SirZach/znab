@@ -1,5 +1,4 @@
 import type { PayeeRenameOperator } from "@znab/shared";
-import { parseAmountExpression } from "@/lib/utils";
 
 /**
  * How many rows are drawn at a time. A budget carries around a thousand payees,
@@ -22,33 +21,16 @@ export const TRANSFER_NOTE =
 /** The autofill fields of a payee as the manage list returns them. */
 export type PayeeAutofillFields = {
   autofillCategoryId: number | null;
-  /** A postgres NUMERIC, so a string. */
-  autofillAmount: string | null;
   autofillMemo: string | null;
 };
 
 /**
- * The amount this payee really autofills, or null. An imported YNAB 4 budget
- * stores "0.0000" rather than nothing, so a zero is an absent amount, and every
- * reader goes through this so the badge and its tooltip cannot disagree.
- */
-export function autofillAmount(payee: PayeeAutofillFields): number | null {
-  if (payee.autofillAmount === null) return null;
-  const amount = Number(payee.autofillAmount);
-  return amount === 0 ? null : amount;
-}
-
-/**
  * Whether the payee carries real entry defaults. An imported YNAB 4 budget
- * stores an empty memo and a zero amount rather than nothing, so a plain null
- * check would mark almost every payee as autofilled.
+ * stores an empty memo rather than nothing, so a plain null check would mark
+ * almost every payee as autofilled.
  */
 export function hasAutofill(payee: PayeeAutofillFields): boolean {
-  return (
-    payee.autofillCategoryId !== null ||
-    autofillAmount(payee) !== null ||
-    (payee.autofillMemo ?? "").trim() !== ""
-  );
+  return payee.autofillCategoryId !== null || (payee.autofillMemo ?? "").trim() !== "";
 }
 
 /** The payees whose name holds the search, ignoring case and edge spaces. */
@@ -93,7 +75,6 @@ export type AutofillDraft = {
   /** The saved category is hidden, so the field starts empty and saving clears it. */
   savedCategoryHidden: boolean;
   categoryId: number | "";
-  amount: string;
   memo: string;
 };
 
@@ -117,16 +98,6 @@ export function autofillDraft(
   return {
     savedCategoryHidden,
     categoryId: savedCategoryHidden ? "" : (payee.autofillCategoryId ?? ""),
-    // The amount arrives as a NUMERIC string ("-25.0000"), which is not what
-    // anyone wants to edit.
-    amount: payee.autofillAmount === null ? "" : String(Number(payee.autofillAmount)),
     memo: payee.autofillMemo ?? "",
   };
-}
-
-/** A typed autofill amount: blank is no amount, and invalid is unreadable text. */
-export function parseAutofillAmount(text: string): { value: number | null; invalid: boolean } {
-  const trimmed = text.trim();
-  const value = trimmed === "" ? null : parseAmountExpression(trimmed);
-  return { value, invalid: trimmed !== "" && value === null };
 }

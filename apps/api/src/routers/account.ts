@@ -12,6 +12,7 @@ import {
 } from "@znab/db";
 import {
   ACCOUNT_TYPES,
+  REGISTER_CLEARED_FILTERS,
   REGISTER_SORTS,
   SORT_DIRECTIONS,
   createAccountSchema,
@@ -105,8 +106,7 @@ type TotalsRow = {
   clearedBalance: string;
   unclearedBalance: string;
   count: number;
-  unclearedCount: number;
-  clearedCount: number;
+  unreconciledCount: number;
   reconciledCount: number;
 };
 
@@ -153,7 +153,7 @@ export const accountRouter = router({
         // Absent means every account in the budget, which is the All
         // Accounts register: one list to search rather than 27.
         accountId: z.number().int().positive().optional(),
-        cleared: z.enum(["all", "Uncleared", "Cleared", "Reconciled"]).default("all"),
+        cleared: z.enum(REGISTER_CLEARED_FILTERS).default("all"),
         q: z.string().optional(),
         sort: z.enum(REGISTER_SORTS).default("date"),
         dir: z.enum(SORT_DIRECTIONS).default("asc"),
@@ -172,7 +172,11 @@ export const accountRouter = router({
         : sql``;
 
       const clearedFilter =
-        input.cleared === "all" ? sql`TRUE` : sql`x.cleared = ${input.cleared}`;
+        input.cleared === "all"
+          ? sql`TRUE`
+          : input.cleared === "Unreconciled"
+            ? sql`x.cleared <> 'Reconciled'`
+            : sql`x.cleared = 'Reconciled'`;
       // The whole row, the way YNAB 4 searches one. Memo alone was next to
       // useless on this data: 120 of the 10,527 transactions in the largest
       // budget carry one, so search reached about one row in ninety and could
@@ -245,8 +249,7 @@ export const accountRouter = router({
           COUNT(*)::int AS count,
           -- What the filter control puts beside each choice. They come off the
           -- scan the balances above already pay for, rather than a query each.
-          COUNT(*) FILTER (WHERE cleared = 'Uncleared')::int AS "unclearedCount",
-          COUNT(*) FILTER (WHERE cleared = 'Cleared')::int AS "clearedCount",
+          COUNT(*) FILTER (WHERE cleared <> 'Reconciled')::int AS "unreconciledCount",
           COUNT(*) FILTER (WHERE cleared = 'Reconciled')::int AS "reconciledCount"
         FROM transactions
         WHERE budget_id = ${input.budgetId}
@@ -333,8 +336,7 @@ export const accountRouter = router({
         // filter keeps saying what each choice holds while one is in force.
         counts: {
           all: totals[0]?.count ?? 0,
-          Uncleared: totals[0]?.unclearedCount ?? 0,
-          Cleared: totals[0]?.clearedCount ?? 0,
+          Unreconciled: totals[0]?.unreconciledCount ?? 0,
           Reconciled: totals[0]?.reconciledCount ?? 0,
         },
         hasMore,

@@ -3,7 +3,7 @@ import { moneySchema } from "./money";
 import {
   ACCOUNT_TYPES,
   ASSIGNABLE_CLEARED_VALUES,
-  CLEARED_VALUES,
+  REGISTER_CLEARED_FILTERS,
   COMPARISON_ANCHOR,
   COMPARISON_PERIODS,
   FLAG_COLORS,
@@ -114,7 +114,8 @@ export const budgetSearchSchema = z.object({
 });
 
 export const accountRegisterSearchSchema = z.object({
-  cleared: z.enum(["all", ...CLEARED_VALUES]).default("all"),
+  // An old link may still name a filter that has since gone, so it falls back.
+  cleared: z.enum(REGISTER_CLEARED_FILTERS).default("all").catch("all"),
   q: z.string().optional(),
   // A register is a chronological ledger first, so date ascending is what it
   // falls back to and what it returns to.

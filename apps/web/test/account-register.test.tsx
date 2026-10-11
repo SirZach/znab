@@ -65,7 +65,7 @@ const fixtures = {
     unclearedBalance: -962,
     total: transactions.length,
     matches: transactions.length,
-    counts: { all: 3, Uncleared: 3, Cleared: 0, Reconciled: 0 },
+    counts: { all: 3, Unreconciled: 3, Reconciled: 0 },
     hasMore: false,
   },
   "category.list": [

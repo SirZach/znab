@@ -13,8 +13,12 @@ describe("allAccountsSearchSchema", () => {
 
   test("keeps what the URL asks for", () => {
     expect(
-      allAccountsSearchSchema.parse({ q: "rent", cleared: "Cleared", sort: "payee", dir: "asc", offset: 200 })
-    ).toEqual({ q: "rent", cleared: "Cleared", sort: "payee", dir: "asc", offset: 200 });
+      allAccountsSearchSchema.parse({ q: "rent", cleared: "Unreconciled", sort: "payee", dir: "asc", offset: 200 })
+    ).toEqual({ q: "rent", cleared: "Unreconciled", sort: "payee", dir: "asc", offset: 200 });
+  });
+
+  test("falls back to every row for a cleared filter it no longer offers", () => {
+    expect(allAccountsSearchSchema.parse({ cleared: "Cleared" }).cleared).toBe("all");
   });
 
   test("refuses a negative offset", () => {

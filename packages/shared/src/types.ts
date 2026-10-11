@@ -3,6 +3,11 @@
 export const CLEARED_VALUES = ["Uncleared", "Cleared", "Reconciled"] as const;
 export type ClearedValue = typeof CLEARED_VALUES[number];
 
+// What the register can be narrowed to. Unreconciled is Uncleared and Cleared
+// together: the rows the bank and the register may still disagree about.
+export const REGISTER_CLEARED_FILTERS = ["all", "Unreconciled", "Reconciled"] as const;
+export type RegisterClearedFilter = typeof REGISTER_CLEARED_FILTERS[number];
+
 /**
  * The statuses a client may put on a transaction itself. Reconciled is not one
  * of them: it means a statement was reconciled against, which only reconciling

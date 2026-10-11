@@ -1,6 +1,6 @@
 import { ClearedFilter } from "@/components/register/cleared-filter";
 import { RegisterSearch } from "@/components/register/register-search";
-import type { RegisterClearedFilter } from "@/hooks/useRegisterPages";
+import type { RegisterClearedFilter } from "@znab/shared";
 
 type Counts = Record<RegisterClearedFilter, number>;
 

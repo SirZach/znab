@@ -51,7 +51,7 @@ function localToday(): string {
 /** The spend each shade begins at, for the legend: nothing, then up from each threshold. */
 function shadeLabels(ceiling: number): string[] {
   const at = (share: number) => formatCurrency(ceiling * share);
-  return ["Nothing spent", `Up to ${at(0.25)}`, `${at(0.25)} to ${at(0.5)}`, `${at(0.5)} to ${at(0.75)}`, `Over ${at(0.75)}`];
+  return ["Nothing or refunded", `Up to ${at(0.25)}`, `${at(0.25)} to ${at(0.5)}`, `${at(0.5)} to ${at(0.75)}`, `Over ${at(0.75)}`];
 }
 
 /** The calendar itself: a cell per day, weeks across and weekdays down. */
@@ -147,7 +147,7 @@ export function SpendingCalendarReport({ budgetId }: { budgetId: number }) {
             >
               <ChevronLeft />
             </Button>
-            <span className="min-w-12 text-center text-sm font-medium">{year}</span>
+            <span className="min-w-12 text-center text-sm font-medium">{data?.year ?? year}</span>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -186,7 +186,7 @@ export function SpendingCalendarReport({ budgetId }: { budgetId: number }) {
       emptyMessage={filters.nothingSelected ? NOTHING_SELECTED : "Nothing was spent in this year."}
       messageClassName="h-44"
     >
-      <CalendarChart days={days} ceiling={ceiling} ariaLabel={`Spending each day of ${year}`} />
+      <CalendarChart days={days} ceiling={ceiling} ariaLabel={`Spending each day of ${data?.year ?? year}`} />
       <div className="mt-2 flex items-center justify-end gap-1 text-xs text-muted-foreground">
         Less
         {shadeLabels(ceiling).map((label, i) => (

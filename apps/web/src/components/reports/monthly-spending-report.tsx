@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ChevronLeft } from "lucide-react";
 import {
   ComposedChart,
@@ -9,7 +10,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { trpc } from "@/trpc";
 import type { ReportTimeframe } from "@znab/shared";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -25,26 +25,36 @@ import { Button } from "@/components/ui/button";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
-/** One category out of Spending by Category, month by month over the same timeframe. */
-export function CategorySpendingReport({
-  budgetId,
-  categoryId,
+/**
+ * One row of a spending report (a category, a payee) drilled into: its spend
+ * month by month over the report's timeframe, with a trend line over the bars.
+ */
+export function MonthlySpendingReport({
+  title,
+  subtitle,
+  subject,
+  backLabel,
+  onBack,
+  color,
   timeframe,
   onTimeframeChange,
-  onBack,
+  data,
+  isLoading,
+  error,
 }: {
-  budgetId: number;
-  categoryId: number;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  /** What was drilled into, for the messages: "category", "payee". */
+  subject: string;
+  backLabel: string;
+  onBack: () => void;
+  color: string;
   timeframe: ReportTimeframe;
   onTimeframeChange: (timeframe: ReportTimeframe) => void;
-  onBack: () => void;
+  data: { series: { month: string; spent: number }[]; total: number } | undefined;
+  isLoading: boolean;
+  error: { message: string } | null;
 }) {
-  const { data, isLoading, error } = trpc.report.categorySpending.useQuery({
-    budgetId,
-    categoryId,
-    timeframe,
-  });
-
   const series = data?.series ?? [];
   const months = series.length;
   const trend = linearTrend(series.map((point) => point.spent));
@@ -55,11 +65,11 @@ export function CategorySpendingReport({
     <ReportLayout
       title={
         <span className="flex items-center gap-2">
-          <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="All categories">
+          <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label={backLabel}>
             <ChevronLeft />
           </Button>
-          {data?.category ?? "Spending by Category"}
-          {data && <span className="text-base font-normal text-muted-foreground">{data.group}</span>}
+          {title}
+          {subtitle && <span className="text-base font-normal text-muted-foreground">{subtitle}</span>}
         </span>
       }
       timeframe={timeframe}
@@ -75,11 +85,13 @@ export function CategorySpendingReport({
         </>
       }
       isLoading={isLoading}
-      // A failed load, such as a link to a category since deleted, says why
-      // rather than passing for a category that spent nothing.
+      // A failed load, such as a link to one since deleted, says why rather
+      // than passing for one that spent nothing.
       isEmpty={error !== null || series.every((point) => point.spent === 0)}
       emptyMessage={
-        error ? `Could not load this category: ${error.message}` : "Nothing was spent in this category in this timeframe."
+        error
+          ? `Could not load this ${subject}: ${error.message}`
+          : `Nothing was spent on this ${subject} in this timeframe.`
       }
     >
       <ResponsiveContainer width="100%" height={448}>
@@ -97,7 +109,7 @@ export function CategorySpendingReport({
             formatter={(value, name) => [formatCurrency(Number(value)), name]}
             contentStyle={chartTooltipStyle}
           />
-          <Bar dataKey="spent" name="Spent" fill={CHART_COLORS.blue} radius={[2, 2, 0, 0]} />
+          <Bar dataKey="spent" name="Spent" fill={color} radius={[2, 2, 0, 0]} />
           <Line
             type="linear"
             dataKey="trend"

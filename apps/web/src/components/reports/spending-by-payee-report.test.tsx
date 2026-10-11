@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { renderWithTrpc } from "../../../test/trpc";
-import { SpendingByPayeeReport } from "./spending-by-payee-report";
+import { renderRoute } from "../../../test/router";
 
+const URL = "/budgets/1/reports/spending-by-payee";
 const nothing = { spending: [], total: 0 };
 const twoPayees = {
   spending: [
@@ -12,21 +12,26 @@ const twoPayees = {
   ],
   total: 1545.6,
 };
+const grocer = {
+  payee: "Grocer",
+  series: [
+    { month: "2025-03", spent: 100 },
+    { month: "2025-04", spent: 245.6 },
+  ],
+  total: 345.6,
+};
+const layout = { "budget.byId": { id: 1, name: "Household" }, "account.list": [] };
 
 describe("SpendingByPayeeReport", () => {
   test("says so when nobody was paid", async () => {
-    renderWithTrpc(<SpendingByPayeeReport budgetId={1} />, {
-      fixtures: { "report.spendingByPayee": nothing },
-    });
+    await renderRoute(URL, { fixtures: { ...layout, "report.spendingByPayee": nothing } });
 
     expect(await screen.findByText("Nobody was paid in this timeframe.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
 
   test("lists every payee with what was spent, and the total", async () => {
-    renderWithTrpc(<SpendingByPayeeReport budgetId={1} />, {
-      fixtures: { "report.spendingByPayee": twoPayees },
-    });
+    await renderRoute(URL, { fixtures: { ...layout, "report.spendingByPayee": twoPayees } });
 
     const table = await screen.findByRole("table");
     const rows = within(table).getAllByRole("row").slice(1);
@@ -35,8 +40,9 @@ describe("SpendingByPayeeReport", () => {
   });
 
   test("a timeframe button asks for that timeframe", async () => {
-    const { inputsTo } = renderWithTrpc(<SpendingByPayeeReport budgetId={1} />, {
+    const { inputsTo } = await renderRoute(URL, {
       fixtures: {
+        ...layout,
         "report.spendingByPayee": (input: { timeframe: string }) =>
           input.timeframe === "thisYear" ? twoPayees : nothing,
       },
@@ -52,5 +58,36 @@ describe("SpendingByPayeeReport", () => {
         { budgetId: 1, timeframe: "thisYear" },
       ])
     );
+  });
+
+  test("a payee opens its monthly spending in the same timeframe, in the URL, and back returns", async () => {
+    const { inputsTo, router } = await renderRoute(URL, {
+      fixtures: { ...layout, "report.spendingByPayee": twoPayees, "report.payeeSpending": grocer },
+    });
+
+    await userEvent.click(await screen.findByRole("button", { name: "This Year" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Grocer" }));
+
+    expect(await screen.findByRole("heading", { name: /Grocer/ })).toBeTruthy();
+    expect(screen.getByText("$172.80")).toBeTruthy();
+    expect(screen.getByText("+$145.60 / mo")).toBeTruthy();
+    expect(router.state.location.search).toEqual({ payee: 2 });
+    await waitFor(() =>
+      expect(inputsTo("report.payeeSpending")).toEqual([{ budgetId: 1, payeeId: 2, timeframe: "thisYear" }])
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "All payees" }));
+    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(router.state.location.search).toEqual({});
+  });
+
+  test("a link to a payee opens straight into it", async () => {
+    const { inputsTo } = await renderRoute(`${URL}?payee=2`, {
+      fixtures: { ...layout, "report.payeeSpending": grocer },
+    });
+
+    expect(await screen.findByRole("heading", { name: /Grocer/ })).toBeTruthy();
+    expect(inputsTo("report.payeeSpending")).toEqual([{ budgetId: 1, payeeId: 2, timeframe: "last12" }]);
+    expect(inputsTo("report.spendingByPayee")).toEqual([]);
   });
 });

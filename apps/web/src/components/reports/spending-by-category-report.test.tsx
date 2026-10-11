@@ -34,14 +34,14 @@ describe("SpendingByCategoryReport", () => {
     expect(screen.getByRole("heading", { name: /Groceries/ })).toBeTruthy();
     expect(screen.getByText("$22.50")).toBeTruthy();
     expect(screen.getByText("-$15.00 / mo")).toBeTruthy();
-    expect(router.state.location.search).toEqual({ category: 7 });
+    expect(router.state.location.search).toEqual({ timeframe: "thisYear", category: 7 });
     await waitFor(() =>
       expect(inputsTo("report.categorySpending")).toEqual([{ budgetId: 1, categoryId: 7, timeframe: "thisYear" }])
     );
 
     await userEvent.click(screen.getByRole("button", { name: "All categories" }));
     expect(await screen.findByRole("table")).toBeTruthy();
-    expect(router.state.location.search).toEqual({});
+    expect(router.state.location.search).toEqual({ timeframe: "thisYear" });
   });
 
   test("a link to a category opens straight into it", async () => {

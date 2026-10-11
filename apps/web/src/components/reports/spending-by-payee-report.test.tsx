@@ -71,14 +71,14 @@ describe("SpendingByPayeeReport", () => {
     expect(await screen.findByRole("heading", { name: /Grocer/ })).toBeTruthy();
     expect(screen.getByText("$172.80")).toBeTruthy();
     expect(screen.getByText("+$145.60 / mo")).toBeTruthy();
-    expect(router.state.location.search).toEqual({ payee: 2 });
+    expect(router.state.location.search).toEqual({ timeframe: "thisYear", payee: 2 });
     await waitFor(() =>
       expect(inputsTo("report.payeeSpending")).toEqual([{ budgetId: 1, payeeId: 2, timeframe: "thisYear" }])
     );
 
     await userEvent.click(screen.getByRole("button", { name: "All payees" }));
     expect(await screen.findByRole("table")).toBeTruthy();
-    expect(router.state.location.search).toEqual({});
+    expect(router.state.location.search).toEqual({ timeframe: "thisYear" });
   });
 
   test("a link to a payee opens straight into it", async () => {

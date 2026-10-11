@@ -53,6 +53,11 @@ describe("averageSpending", () => {
       const onCard = await caller.report.averageSpending({ budgetId, timeframe: "all", accountIds: [credit] });
       expect(onCard.months).toBe(months);
       expect(onCard.spending.map((s) => s.categoryId)).toEqual([fun.id]);
+
+      // Older than the timeframe, so Last 12 Months is the full twelve.
+      const last12 = await caller.report.averageSpending({ budgetId, timeframe: "last12" });
+      expect(last12.months).toBe(12);
+      expect(last12.firstMonth).toBe(monthsAgo(12).slice(0, 7));
     });
   });
 

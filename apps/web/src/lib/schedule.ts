@@ -1,4 +1,4 @@
-import { FREQUENCY_VALUES, type FrequencyValue } from "@znab/shared";
+import { FREQUENCY_VALUES, type FrequencyValue, isOneOff } from "@znab/shared";
 
 /**
  * How each frequency is written for a reader. YNAB 4's own vocabulary is
@@ -36,7 +36,7 @@ export function frequencyLabel(frequency: string): string {
 
 /** A schedule that happens once has nowhere to skip to, and the API refuses it. */
 export function canSkip(frequency: string): boolean {
-  return frequency !== "Once";
+  return !isOneOff(frequency);
 }
 
 /**

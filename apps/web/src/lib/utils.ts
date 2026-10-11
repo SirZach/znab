@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { roundMoney } from "@znab/shared";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -36,7 +37,7 @@ export function currentMonthParam(): string {
 
 /** Format a date string "YYYY-MM-DD" for display */
 export function formatDate(date: string): string {
-  return new Date(date + "T00:00:00").toLocaleDateString("en-US", {
+  return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -162,7 +163,7 @@ export function parseAmountExpression(input: string): number | null {
   // Trailing junk (`25+`, `12 34`) means we misread it, so reject it.
   if (result === null || pos !== src.length || !Number.isFinite(result)) return null;
 
-  return Math.round(result * 100) / 100;
+  return roundMoney(result);
 }
 
 /**
@@ -177,5 +178,5 @@ export function adjustAmount(value: number, op: "+" | "-", typed: string): numbe
   if (parsed === null) return null;
   const magnitude = Math.abs(parsed);
   const result = op === "+" ? value + magnitude : value - magnitude;
-  return Math.round(result * 100) / 100;
+  return roundMoney(result);
 }

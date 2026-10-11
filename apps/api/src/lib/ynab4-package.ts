@@ -8,8 +8,9 @@
  * kept so the importer can apply them.
  */
 
-import { readFile, readdir, stat } from "fs/promises";
-import path from "path";
+import { readFile, readdir, stat } from "node:fs/promises";
+import path from "node:path";
+import { SPLIT_CATEGORY_ID } from "@znab/shared";
 
 // ─── YNAB 4 entity shapes (the fields the importer reads) ─────────────────────
 
@@ -280,7 +281,10 @@ export function applyDiffs(
   const store = new Map<string, Map<string, Entity>>();
   const bucket = (type: string) => {
     let m = store.get(type);
-    if (!m) store.set(type, (m = new Map()));
+    if (!m) {
+      m = new Map();
+      store.set(type, m);
+    }
     return m;
   };
   let budgetMetaData = base.budgetMetaData;
@@ -375,7 +379,10 @@ export function applyDiffs(
       }
       const key = `${child.parentType}:${parentId}`;
       let byArray = childrenOf.get(key);
-      if (!byArray) childrenOf.set(key, (byArray = new Map()));
+      if (!byArray) {
+        byArray = new Map();
+        childrenOf.set(key, byArray);
+      }
       const list = byArray.get(child.arrayKey) ?? [];
       list.push(e);
       byArray.set(child.arrayKey, list);
@@ -499,6 +506,21 @@ export function staleSubTransactionIds(
       return live !== undefined && !live.has(row.ynabId);
     })
     .map((row) => row.id);
+}
+
+/**
+ * Live scheduled transactions YNAB 4 files as splits, described for a warning.
+ * znab has no table for scheduled split parts, so the import keeps only the
+ * parent row and entering it gives one uncategorised transaction.
+ */
+export function splitScheduleDescriptions(data: Pick<YfullFile, "payees" | "scheduledTransactions">): string[] {
+  const payeeNames = new Map(data.payees.map((p) => [p.entityId, p.name]));
+  return data.scheduledTransactions
+    .filter((st) => !st.isTombstone && st.categoryId === SPLIT_CATEGORY_ID)
+    .map((st) => {
+      const payee = (st.payeeId && payeeNames.get(st.payeeId)) || "(no payee)";
+      return `${payee} ${st.amount.toFixed(2)} ${st.frequency} from ${st.date}`;
+    });
 }
 
 /** Loads a budget from either a `.ynab4` package or a flat `.yfull` file. */

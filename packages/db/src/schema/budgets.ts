@@ -15,9 +15,6 @@ export const budgets = pgTable("budgets", {
     .notNull()
     .references(() => users.id),
   name: text("name").notNull(),
-  currency: text("currency").notNull().default("USD"),
-  dateLocale: text("date_locale").notNull().default("en_US"),
-  budgetType: text("budget_type").notNull().default("Personal"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import {
   BarChart,
@@ -10,7 +9,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { trpc } from "@/trpc";
-import type { ReportTimeframe } from "@znab/shared";
 import { formatCurrency } from "@/lib/utils";
 import {
   CHART_COLORS,
@@ -19,7 +17,9 @@ import {
   chartTooltipStyle,
   formatCompactCurrency,
 } from "@/lib/chart";
+import { useReportFilters } from "@/hooks/useReportFilters";
 import { MonthlySpendingReport } from "@/components/reports/monthly-spending-report";
+import { ReportFilters } from "@/components/reports/report-filters";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
@@ -33,17 +33,18 @@ const CHARTED = 15;
 const reportRoute = getRouteApi("/budgets/$budgetId/reports/$reportId");
 
 export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
-  const [timeframe, setTimeframe] = useState<ReportTimeframe>("last12");
+  const filters = useReportFilters("last12");
+  const filterBar = <ReportFilters budgetId={budgetId} filters={filters} accounts="budget" categories />;
   // In the URL, so a payee's own spending can be linked to and Back leaves it.
   const { payee: payeeId } = reportRoute.useSearch();
   const navigate = reportRoute.useNavigate();
   const setPayeeId = (payee: number | undefined) => navigate({ search: (prev) => ({ ...prev, payee }) });
   const { data, isLoading } = trpc.report.spendingByPayee.useQuery(
-    { budgetId, timeframe },
+    { budgetId, ...filters.query },
     { enabled: payeeId === undefined }
   );
   const drilled = trpc.report.payeeSpending.useQuery(
-    { budgetId, payeeId: payeeId ?? 0, timeframe },
+    { budgetId, payeeId: payeeId ?? 0, ...filters.query },
     { enabled: payeeId !== undefined }
   );
 
@@ -55,8 +56,7 @@ export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
         backLabel="All payees"
         onBack={() => setPayeeId(undefined)}
         color={CHART_COLORS.purple}
-        timeframe={timeframe}
-        onTimeframeChange={setTimeframe}
+        filters={filterBar}
         data={drilled.data}
         isLoading={drilled.isLoading}
         error={drilled.error}
@@ -70,8 +70,7 @@ export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
   return (
     <ReportLayout
       title="Spending by Payee"
-      timeframe={timeframe}
-      onTimeframeChange={setTimeframe}
+      filters={filterBar}
       stats={
         <>
           <SummaryStat label="Total of payees shown" value={formatCurrency(data?.total ?? 0)} />

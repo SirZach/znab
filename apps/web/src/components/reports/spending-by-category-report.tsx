@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import {
   BarChart,
@@ -10,7 +9,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { trpc } from "@/trpc";
-import type { ReportTimeframe } from "@znab/shared";
 import { formatCurrency } from "@/lib/utils";
 import {
   CHART_COLORS,
@@ -19,7 +17,9 @@ import {
   chartTooltipStyle,
   formatCompactCurrency,
 } from "@/lib/chart";
+import { useReportFilters } from "@/hooks/useReportFilters";
 import { MonthlySpendingReport } from "@/components/reports/monthly-spending-report";
+import { ReportFilters } from "@/components/reports/report-filters";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
@@ -34,18 +34,19 @@ const CHARTED = 15;
 const reportRoute = getRouteApi("/budgets/$budgetId/reports/$reportId");
 
 export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
-  const [timeframe, setTimeframe] = useState<ReportTimeframe>("last12");
+  const filters = useReportFilters("last12");
   // In the URL, so a category's own spending can be linked to and Back leaves it.
   const { category: categoryId } = reportRoute.useSearch();
   const navigate = reportRoute.useNavigate();
   const setCategoryId = (category: number | undefined) =>
     navigate({ search: (prev) => ({ ...prev, category }) });
   const { data, isLoading } = trpc.report.spendingByCategory.useQuery(
-    { budgetId, timeframe },
+    { budgetId, ...filters.query },
     { enabled: categoryId === undefined }
   );
   const drilled = trpc.report.categorySpending.useQuery(
-    { budgetId, categoryId: categoryId ?? 0, timeframe },
+    // A category drilled into is the whole of its own category filter.
+    { budgetId, categoryId: categoryId ?? 0, ...filters.query, categoryIds: undefined },
     { enabled: categoryId !== undefined }
   );
 
@@ -58,8 +59,7 @@ export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
         backLabel="All categories"
         onBack={() => setCategoryId(undefined)}
         color={CHART_COLORS.blue}
-        timeframe={timeframe}
-        onTimeframeChange={setTimeframe}
+        filters={<ReportFilters budgetId={budgetId} filters={filters} accounts="budget" />}
         data={drilled.data}
         isLoading={drilled.isLoading}
         error={drilled.error}
@@ -73,8 +73,7 @@ export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
   return (
     <ReportLayout
       title="Spending by Category"
-      timeframe={timeframe}
-      onTimeframeChange={setTimeframe}
+      filters={<ReportFilters budgetId={budgetId} filters={filters} accounts="budget" categories />}
       stats={
         <>
           <SummaryStat label="Total spent" value={formatCurrency(data?.total ?? 0)} />

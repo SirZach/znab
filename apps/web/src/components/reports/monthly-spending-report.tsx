@@ -10,7 +10,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import type { ReportTimeframe } from "@znab/shared";
 import { formatCurrency } from "@/lib/utils";
 import {
   CHART_COLORS,
@@ -36,8 +35,7 @@ export function MonthlySpendingReport({
   backLabel,
   onBack,
   color,
-  timeframe,
-  onTimeframeChange,
+  filters,
   data,
   isLoading,
   error,
@@ -49,8 +47,7 @@ export function MonthlySpendingReport({
   backLabel: string;
   onBack: () => void;
   color: string;
-  timeframe: ReportTimeframe;
-  onTimeframeChange: (timeframe: ReportTimeframe) => void;
+  filters: ReactNode;
   data: { series: { month: string; spent: number }[]; total: number } | undefined;
   isLoading: boolean;
   error: { message: string } | null;
@@ -72,8 +69,7 @@ export function MonthlySpendingReport({
           {subtitle && <span className="text-base font-normal text-muted-foreground">{subtitle}</span>}
         </span>
       }
-      timeframe={timeframe}
-      onTimeframeChange={onTimeframeChange}
+      filters={filters}
       stats={
         <>
           <SummaryStat label="Total spent" value={formatCurrency(data?.total ?? 0)} />

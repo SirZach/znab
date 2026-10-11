@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   ComposedChart,
   Area,
@@ -10,7 +9,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { trpc } from "@/trpc";
-import type { ReportTimeframe } from "@znab/shared";
 import { formatCurrency } from "@/lib/utils";
 import {
   CHART_COLORS,
@@ -20,6 +18,8 @@ import {
   formatCompactCurrency,
   formatMonthTick,
 } from "@/lib/chart";
+import { useReportFilters } from "@/hooks/useReportFilters";
+import { ReportFilters } from "@/components/reports/report-filters";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
@@ -27,8 +27,8 @@ const ASSETS_COLOR = CHART_COLORS.blue;
 const DEBTS_COLOR = CHART_COLORS.red;
 
 export function NetWorthReport({ budgetId }: { budgetId: number }) {
-  const [timeframe, setTimeframe] = useState<ReportTimeframe>("all");
-  const { data, isLoading } = trpc.report.netWorth.useQuery({ budgetId, timeframe });
+  const filters = useReportFilters("all");
+  const { data, isLoading } = trpc.report.netWorth.useQuery({ budgetId, ...filters.query });
 
   // Debts plotted below zero so assets fill above, debts below, line on top.
   const chartData = (data?.series ?? []).map((p) => ({ ...p, debtsNeg: -p.debts }));
@@ -36,8 +36,7 @@ export function NetWorthReport({ budgetId }: { budgetId: number }) {
   return (
     <ReportLayout
       title="Net Worth"
-      timeframe={timeframe}
-      onTimeframeChange={setTimeframe}
+      filters={<ReportFilters budgetId={budgetId} filters={filters} accounts="all" />}
       stats={
         <>
           <SummaryStat

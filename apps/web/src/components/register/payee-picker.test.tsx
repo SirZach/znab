@@ -6,6 +6,8 @@ import { PayeePicker } from "./payee-picker";
 const payees = [
   { id: 1, name: "Amazon" },
   { id: 2, name: "Costco" },
+  { id: 3, name: "A Better Choice" },
+  { id: 4, name: "Transfer : Betterment" },
 ];
 
 async function typeInPicker(text: string) {
@@ -30,6 +32,11 @@ describe("PayeePicker", () => {
     const { onPick, onCreate } = await typeInPicker("cost{Tab}");
     expect(onPick).toHaveBeenCalledWith(payees[1]);
     expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  test("a transfer matches on its account name, as if the Transfer prefix were not there", async () => {
+    const { onPick } = await typeInPicker("bett{Enter}");
+    expect(onPick).toHaveBeenCalledWith(payees[3]);
   });
 
   test("an unknown name is only created by picking the create choice", async () => {

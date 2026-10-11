@@ -100,6 +100,31 @@ describe("account.reconcile", () => {
   });
 });
 
+describe("account.transactions cleared filter", () => {
+  test("Unreconciled shows Uncleared and Cleared rows, and Reconciled the rest", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      await enter(caller, seed, 100, "2025-03-01", "Cleared");
+      await enter(caller, seed, -10, "2025-03-02", "Uncleared");
+      await enter(caller, seed, -20, "2025-03-03", "Cleared");
+      await caller.account.reconcile({
+        budgetId: seed.budgetId,
+        accountId: seed.accounts.checking.id,
+        statementBalance: 100,
+        statementDate: "2025-03-01",
+      });
+
+      const list = (cleared: "Unreconciled" | "Reconciled") =>
+        caller.account.transactions({ budgetId: seed.budgetId, accountId: seed.accounts.checking.id, cleared });
+      const unreconciled = await list("Unreconciled");
+      const reconciled = await list("Reconciled");
+
+      expect(unreconciled.transactions.map((t) => t.cleared).sort()).toEqual(["Cleared", "Uncleared"]);
+      expect(reconciled.transactions.map((t) => t.cleared)).toEqual(["Reconciled"]);
+      expect(unreconciled.counts).toEqual({ all: 3, Unreconciled: 2, Reconciled: 1 });
+    });
+  });
+});
+
 describe("account.create with a starting balance", () => {
   test("an on-budget cash account opens with a Cleared income row", async () => {
     await withCaller(async ({ tx, seed, caller }) => {

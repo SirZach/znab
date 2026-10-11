@@ -15,6 +15,7 @@ import { formatDateShort } from "@/lib/utils";
 import { MoneyInput } from "@/components/common/money-input";
 import { UnderlineInput } from "@/components/common/underline-input";
 import { FlagCell } from "@/components/register/flag-cell";
+import { PayeePicker } from "@/components/register/payee-picker";
 import { offsetDays, parseDateEntry } from "@/lib/date-entry";
 import type { PayeeAutofillPatch, PayeeAutofillSource } from "@/lib/payee-autofill";
 import type { RegisterFields } from "@/lib/register-row";
@@ -79,7 +80,6 @@ export function RegisterRowFields({
    * put a check number on every one of them.
    */
 }) {
-  const [payeeOpen, setPayeeOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
 
   const categoryTriggerRef = useRef<HTMLButtonElement>(null);
@@ -93,22 +93,12 @@ export function RegisterRowFields({
 
   const tab = (n: number) => (tabIndexBase === undefined ? undefined : tabIndexBase + n);
 
-  /**
-   * Lets a picker be typed at rather than opened first. The trigger is a button,
-   * so a letter would otherwise go nowhere and the reader would have to press
-   * Enter to open the list before typing the name they already know. This makes
-   * the first letter do both, which is the difference between four keystrokes
-   * for a payee and two.
-   */
-  function openOnType(
-    e: React.KeyboardEvent,
-    open: () => void,
-    seed?: (text: string) => void
-  ) {
-    if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey) return;
-    e.preventDefault();
-    seed?.(e.key);
-    open();
+  function focusAfterPayee(next: React.RefObject<HTMLElement | null>) {
+    setTimeout(() => {
+      const el = next.current ?? memoRef.current;
+      el?.focus();
+      if (el === outflowRef.current) outflowRef.current?.select();
+    }, 0);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -195,78 +185,32 @@ export function RegisterRowFields({
             {fields.payeeName || "—"}
           </span>
         ) : (
-          <Popover open={payeeOpen} onOpenChange={setPayeeOpen}>
-            <PopoverTrigger
-              onKeyDown={(e) =>
-                openOnType(
-                  e,
-                  () => setPayeeOpen(true),
-                  (text) => onChange({ payeeName: text, payeeId: null })
-                )
-              }
-              render={
-                <Button
-                  ref={payeeTriggerRef}
-                  tabIndex={tab(2)}
-                  variant="ghost"
-                  role="combobox"
-                  className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
-                />
-              }
-            >
-              {fields.payeeId
-                ? payees?.find((p) => p.id === fields.payeeId)?.name
-                : fields.payeeName || <span className="text-muted-foreground">Payee</span>}
-            </PopoverTrigger>
-            <PopoverContent className="w-64 p-0" align="start">
-              <Command>
-                <CommandInput
-                  placeholder="Search payees..."
-                  value={fields.payeeName}
-                  onValueChange={(val) => onChange({ payeeName: val, payeeId: null })}
-                />
-                <CommandList>
-                  <CommandEmpty>
-                    {fields.payeeName ? `Add "${fields.payeeName}"` : "No payees found."}
-                  </CommandEmpty>
-                  <CommandGroup>
-                    {payees?.map((p) => (
-                      <CommandItem
-                        key={p.id}
-                        value={p.name}
-                        onSelect={() => {
-                          setPayeeOpen(false);
+          <PayeePicker
+            payees={payees}
+            payeeId={fields.payeeId}
+            payeeName={fields.payeeName}
+            triggerRef={payeeTriggerRef}
+            tabIndex={tab(2)}
+            onPick={(p) => {
+              // YNAB 4 prefills the rest of the row from what this payee
+              // usually uses. A brand new payee skips this entirely, since
+              // there is nothing remembered yet.
+              const patch = autofill(p, fields);
+              onChange({ payeeId: p.id, payeeName: p.name, ...patch });
 
-                          // YNAB 4 prefills the rest of the row from what this
-                          // payee usually uses. Typing a brand new name skips
-                          // this entirely, since there is nothing remembered yet.
-                          const patch = autofill(p, fields);
-                          onChange({ payeeId: p.id, payeeName: p.name, ...patch });
-
-                          // Once the category is settled its picker is a stop the
-                          // user does not need, and landing on it would pop the
-                          // menu open over an answer they already have. What is
-                          // worth landing on is the amount: it is the one field
-                          // that differs every time even for a payee used
-                          // weekly, and selecting what autofill put there means
-                          // typing replaces it and Enter accepts it.
-                          const next =
-                            patch.categoryId !== undefined ? outflowRef : categoryTriggerRef;
-                          setTimeout(() => {
-                            const el = next.current ?? memoRef.current;
-                            el?.focus();
-                            if (el === outflowRef.current) outflowRef.current?.select();
-                          }, 0);
-                        }}
-                      >
-                        {p.name}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
+              // Once the category is settled its picker is a stop the user
+              // does not need, and landing on it would pop the menu open over
+              // an answer they already have. What is worth landing on is the
+              // amount: it is the one field that differs every time even for a
+              // payee used weekly, and selecting what autofill put there means
+              // typing replaces it and Enter accepts it.
+              focusAfterPayee(patch.categoryId !== undefined ? outflowRef : categoryTriggerRef);
+            }}
+            onCreate={(name) => {
+              onChange({ payeeId: null, payeeName: name });
+              focusAfterPayee(categoryTriggerRef);
+            }}
+          />
         )}
       </td>
 

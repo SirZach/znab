@@ -5,7 +5,6 @@ import type { PayeeAutofillSource, RegisterDraft } from "./payee-autofill";
 /** Small builders so each case reads as the scenario it describes. */
 const payee = (fields: Partial<PayeeAutofillSource> = {}): PayeeAutofillSource => ({
   autofillCategoryId: null,
-  autofillAmount: null,
   autofillMemo: null,
   ...fields,
 });
@@ -13,69 +12,21 @@ const payee = (fields: Partial<PayeeAutofillSource> = {}): PayeeAutofillSource =
 const emptyRow = (fields: Partial<RegisterDraft> = {}): RegisterDraft => ({
   categoryId: null,
   memo: "",
-  outflow: "",
-  inflow: "",
   ...fields,
 });
 
 const categories = [{ id: 1 }, { id: 2 }, { id: 3 }];
 
-describe("payeeAutofillPatch: the amount's sign decides which money field it fills", () => {
-  test("a negative autofill amount is an outflow, written without its sign", () => {
-    const patch = payeeAutofillPatch(payee({ autofillAmount: "-105.44" }), emptyRow(), categories);
-    expect(patch).toEqual({ outflow: "105.44" });
-  });
-
-  test("a positive autofill amount is an inflow", () => {
-    const patch = payeeAutofillPatch(payee({ autofillAmount: "3.20" }), emptyRow(), categories);
-    expect(patch).toEqual({ inflow: "3.20" });
-  });
-
-  test("amounts are padded to cents so the number input shows a clean value", () => {
-    expect(payeeAutofillPatch(payee({ autofillAmount: "-7" }), emptyRow(), categories)).toEqual({
-      outflow: "7.00",
-    });
-    expect(payeeAutofillPatch(payee({ autofillAmount: "12.5" }), emptyRow(), categories)).toEqual({
-      inflow: "12.50",
-    });
-  });
-});
-
-describe("payeeAutofillPatch: an amount it cannot use fills nothing", () => {
-  test("a payee with no remembered amount leaves both money fields alone", () => {
-    expect(payeeAutofillPatch(payee({ autofillAmount: null }), emptyRow(), categories)).toEqual({});
-  });
-
-  test("zero is not worth filling in", () => {
-    expect(payeeAutofillPatch(payee({ autofillAmount: "0" }), emptyRow(), categories)).toEqual({});
-    expect(payeeAutofillPatch(payee({ autofillAmount: "0.00" }), emptyRow(), categories)).toEqual({});
-  });
-
-  test("an unreadable amount is skipped rather than guessed at", () => {
-    expect(payeeAutofillPatch(payee({ autofillAmount: "" }), emptyRow(), categories)).toEqual({});
-    expect(payeeAutofillPatch(payee({ autofillAmount: "abc" }), emptyRow(), categories)).toEqual({});
+describe("payeeAutofillPatch: the amount is left for the user", () => {
+  test("a remembered amount is never filled in", () => {
+    // Shaped like the register's own row, empty money fields and all.
+    const rent = { ...payee({ autofillCategoryId: 3 }), autofillAmount: "-42.00" };
+    const row = { ...emptyRow(), outflow: "", inflow: "" };
+    expect(payeeAutofillPatch(rent, row, categories)).toEqual({ categoryId: 3 });
   });
 });
 
 describe("payeeAutofillPatch: autofill never overwrites what the user already entered", () => {
-  test("a half-typed outflow blocks the amount, including the empty inflow beside it", () => {
-    const patch = payeeAutofillPatch(
-      payee({ autofillAmount: "-105.44" }),
-      emptyRow({ outflow: "9" }),
-      categories
-    );
-    expect(patch).toEqual({});
-  });
-
-  test("a typed inflow blocks the amount too", () => {
-    const patch = payeeAutofillPatch(
-      payee({ autofillAmount: "-105.44" }),
-      emptyRow({ inflow: "9" }),
-      categories
-    );
-    expect(patch).toEqual({});
-  });
-
   test("a category the user picked stands", () => {
     const patch = payeeAutofillPatch(
       payee({ autofillCategoryId: 2 }),
@@ -96,11 +47,11 @@ describe("payeeAutofillPatch: autofill never overwrites what the user already en
 
   test("untouched fields still fill even when a neighbouring field is taken", () => {
     const patch = payeeAutofillPatch(
-      payee({ autofillCategoryId: 2, autofillAmount: "-105.44", autofillMemo: "monthly" }),
+      payee({ autofillCategoryId: 2, autofillMemo: "monthly" }),
       emptyRow({ memo: "split with Sam" }),
       categories
     );
-    expect(patch).toEqual({ categoryId: 2, outflow: "105.44" });
+    expect(patch).toEqual({ categoryId: 2 });
   });
 });
 
@@ -138,14 +89,14 @@ describe("payeeAutofillPatch: a category the picker cannot show is never set", (
   });
 });
 
-describe("payeeAutofillPatch: a fully configured payee fills the whole row at once", () => {
-  test("category, amount and memo all land on an empty row", () => {
+describe("payeeAutofillPatch: a fully configured payee fills the row at once", () => {
+  test("category and memo both land on an empty row", () => {
     const patch = payeeAutofillPatch(
-      payee({ autofillCategoryId: 3, autofillAmount: "-42.00", autofillMemo: "rent" }),
+      payee({ autofillCategoryId: 3, autofillMemo: "rent" }),
       emptyRow(),
       categories
     );
-    expect(patch).toEqual({ categoryId: 3, outflow: "42.00", memo: "rent" });
+    expect(patch).toEqual({ categoryId: 3, memo: "rent" });
   });
 
   test("a payee with no autofill at all changes nothing", () => {

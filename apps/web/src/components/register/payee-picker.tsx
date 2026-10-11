@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { defaultFilter } from "cmdk";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -52,12 +52,31 @@ export function PayeePicker<P extends Payee>({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  // The highlighted choice, which is the closest match while a search is typed.
-  const [highlighted, setHighlighted] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
 
   const name = query.trim();
   const exists = payees?.some((p) => p.name.toLowerCase() === name.toLowerCase());
-  const closest = name ? payees?.find((p) => p.name === highlighted) : undefined;
+
+  const highlightedItem = () =>
+    listRef.current?.querySelector<HTMLElement>("[cmdk-item][data-selected=true]");
+
+  // The highlighted payee, which is the closest match while a search is typed.
+  // Found by id, since cmdk trims the names it keeps as values and imported
+  // names can carry stray spaces.
+  function closest() {
+    if (!name) return undefined;
+    const id = highlightedItem()?.dataset.payeeId;
+    return payees?.find((p) => String(p.id) === id);
+  }
+
+  // cmdk scrolls the highlight into view before its items re-render, so after a
+  // keystroke re-sorts the list it scrolls to the previous highlight, now far
+  // down, and the new best match sits out of sight above. Put it back in view
+  // once cmdk has settled.
+  function search(text: string) {
+    setQuery(text);
+    requestAnimationFrame(() => highlightedItem()?.scrollIntoView({ block: "nearest" }));
+  }
 
   function close() {
     setOpen(false);
@@ -79,7 +98,8 @@ export function PayeePicker<P extends Payee>({
       open={open}
       onOpenChange={(next, details) => {
         if (next) return setOpen(true);
-        if (closest && details.reason !== "escape-key") pick(closest);
+        const payee = details.reason === "escape-key" ? undefined : closest();
+        if (payee) pick(payee);
         else close();
       }}
     >
@@ -107,22 +127,28 @@ export function PayeePicker<P extends Payee>({
           : payeeName || <span className="text-muted-foreground">Payee</span>}
       </PopoverTrigger>
       <PopoverContent className="w-64 p-0" align="start">
-        <Command value={highlighted} onValueChange={setHighlighted} filter={searchPayees}>
+        <Command ref={listRef} filter={searchPayees}>
           <CommandInput
             placeholder="Search payees..."
             value={query}
-            onValueChange={setQuery}
+            onValueChange={search}
             onKeyDown={(e) => {
               if (e.key !== "Tab" || !name) return;
               e.preventDefault();
-              if (closest) pick(closest);
+              const payee = closest();
+              if (payee) pick(payee);
             }}
           />
           <CommandList>
             <CommandEmpty>No payees found.</CommandEmpty>
             <CommandGroup>
               {payees?.map((p) => (
-                <CommandItem key={p.id} value={p.name} onSelect={() => pick(p)}>
+                <CommandItem
+                  key={p.id}
+                  value={p.name}
+                  data-payee-id={p.id}
+                  onSelect={() => pick(p)}
+                >
                   {p.name}
                 </CommandItem>
               ))}

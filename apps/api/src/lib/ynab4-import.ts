@@ -103,7 +103,6 @@ export function accountRows(data: YfullFile, ctx: ImportContext): NewAccount[] {
     sortOrder: rank.get(a.entityId)!,
     lastReconciledBalance: a.lastReconciledBalance != null ? toMoney(a.lastReconciledBalance) : null,
     lastReconciledDate: a.lastReconciledDate ?? null,
-    lastEnteredCheckNum: a.lastEnteredCheckNumber >= 0 ? a.lastEnteredCheckNumber : null,
     ...(ctx.mirror ? { note: a.note ?? null } : {}),
     deletedAt: deletedAt(ctx, a),
   }));
@@ -144,7 +143,6 @@ export function categoryRows(data: YfullFile, ctx: ImportContext, groups: IdMap)
       groupId,
       name: sc.name,
       type: sc.type ?? "OUTFLOW",
-      cachedBalance: toMoney(sc.cachedBalance),
       sortOrder: rank.get(sc.entityId) ?? 0,
       deletedAt: deletedAt(ctx, sc),
     }));

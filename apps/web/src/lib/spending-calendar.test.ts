@@ -13,6 +13,13 @@ describe("calendarDays", () => {
     expect(days.at(-1)).toMatchObject({ date: "2025-12-31", week: 52, weekday: 3 });
   });
 
+  test("a leap year starting on a Saturday reaches a 54th week column", () => {
+    const days = calendarDays(2028, [], "2030-01-01");
+    expect(days).toHaveLength(366);
+    expect(days[0]).toMatchObject({ week: 0, weekday: 6 });
+    expect(days.at(-1)).toMatchObject({ date: "2028-12-31", week: 53, weekday: 0 });
+  });
+
   test("stops at today in the year still running", () => {
     const days = calendarDays(2026, [], "2026-01-10");
     expect(days.map((d) => d.date).at(-1)).toBe("2026-01-10");
@@ -44,5 +51,10 @@ describe("colorCeiling", () => {
 
   test("ignores refund days and is at least one", () => {
     expect(colorCeiling([-50, 0])).toBe(1);
+    expect(colorCeiling([0.4, 0.6])).toBe(1);
+  });
+
+  test("with few spending days it is the largest of them", () => {
+    expect(colorCeiling([5, 30, 12])).toBe(30);
   });
 });

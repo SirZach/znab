@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { expectTrpcError, withCaller } from "./harness";
+import { expectTrpcError, localDay, withCaller } from "./harness";
 
 /**
  * 2025: groceries -40 then +10 on Mar 10, fun -25 on the card on Mar 10,
@@ -40,6 +40,41 @@ describe("dailySpending", () => {
       expect(onCard.days).toEqual([{ date: "2025-03-10", spent: 25 }]);
       const funOnly = await caller.report.dailySpending({ budgetId, year: 2025, categoryIds: [fun.id] });
       expect(funOnly.total).toBe(25);
+    });
+  });
+
+  test("the year still running stops at today, leaving future-dated spending out", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      const { budgetId } = seed;
+      const today = localDay();
+      const year = Number(today.slice(0, 4));
+      const enter = (amount: number, date: string) =>
+        caller.transaction.create({
+          budgetId,
+          accountId: seed.accounts.checking.id,
+          payeeId: seed.payees.grocer.id,
+          categoryId: seed.categories.groceries.id,
+          amount,
+          date,
+        });
+
+      await enter(-40, today);
+      // Tomorrow, unless today is the last day of the year.
+      const tomorrow = localDay(1);
+      if (tomorrow.startsWith(String(year))) await enter(-2000, tomorrow);
+
+      const report = await caller.report.dailySpending({ budgetId, year });
+      expect(report.through).toBe(today);
+      expect(report.days).toEqual([{ date: today, spent: 40 }]);
+      expect(report.total).toBe(40);
+      expect(report.biggest).toEqual({ date: today, spent: 40 });
+    });
+  });
+
+  test("a leap year has 366 days", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      const report = await caller.report.dailySpending({ budgetId: seed.budgetId, year: 2024 });
+      expect(report).toMatchObject({ daysInYear: 366, through: "2024-12-31" });
     });
   });
 

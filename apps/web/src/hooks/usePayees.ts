@@ -13,7 +13,6 @@ export type ManagedPayee = ReturnType<typeof usePayees>["payees"][number];
 export type AutofillInput = {
   id: number;
   categoryId: number | null;
-  amount: number | null;
   memo: string | null;
 };
 

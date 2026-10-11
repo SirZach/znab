@@ -10,7 +10,7 @@ import {
   scheduledTransactions,
   categories,
 } from "@znab/db";
-import { moneySchema, PAYEE_RENAME_OPERATORS, type PayeeRenameOperator } from "@znab/shared";
+import { PAYEE_RENAME_OPERATORS, type PayeeRenameOperator } from "@znab/shared";
 import { ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import { countOf } from "../lib/plural";
 import type { Tx } from "../lib/tx";
@@ -61,8 +61,8 @@ function assertNotTransfer(
 
 export const payeeRouter = router({
   // The register's payee picker: live, enabled payees only, plus the autofill
-  // defaults so choosing a payee can fill in category, amount and memo without
-  // a second round trip.
+  // defaults so choosing a payee can fill in category and memo without a
+  // second round trip.
   list: budgetProcedure
     .query(async ({ ctx, input }) => {
       return ctx.db.query.payees.findMany({
@@ -76,7 +76,6 @@ export const payeeRouter = router({
           id: true,
           name: true,
           autofillCategoryId: true,
-          autofillAmount: true,
           autofillMemo: true,
           targetAccountId: true,
         },
@@ -101,7 +100,6 @@ export const payeeRouter = router({
           enabled: payees.enabled,
           targetAccountId: payees.targetAccountId,
           autofillCategoryId: payees.autofillCategoryId,
-          autofillAmount: payees.autofillAmount,
           autofillMemo: payees.autofillMemo,
           transactionCount: count(transactions.id),
           lastUsed: sql<string | null>`max(${transactions.date})`,
@@ -392,15 +390,15 @@ export const payeeRouter = router({
       });
     }),
 
-  // The defaults a payee fills in on a new transaction. All three fields are
-  // sent together and each is nullable, so clearing one is an ordinary save
-  // rather than an operation of its own.
+  // The defaults a payee fills in on a new transaction. Both fields are sent
+  // together and each is nullable, so clearing one is an ordinary save rather
+  // than an operation of its own. The amount YNAB 4 remembered is still
+  // imported but never offered: it was only ever the payee's last amount.
   setAutofill: budgetProcedure
     .input(
       z.object({
         id: z.number().int().positive(),
         categoryId: z.number().int().positive().nullable(),
-        amount: moneySchema.nullable(),
         memo: z.string().max(500).nullable(),
       })
     )
@@ -428,8 +426,6 @@ export const payeeRouter = router({
           .update(payees)
           .set({
             autofillCategoryId: input.categoryId,
-            // Money crosses the drizzle boundary as a string.
-            autofillAmount: input.amount === null ? null : String(input.amount),
             autofillMemo: input.memo?.trim() || null,
             updatedAt: new Date(),
           })
@@ -437,7 +433,6 @@ export const payeeRouter = router({
           .returning({
             id: payees.id,
             autofillCategoryId: payees.autofillCategoryId,
-            autofillAmount: payees.autofillAmount,
             autofillMemo: payees.autofillMemo,
           });
 

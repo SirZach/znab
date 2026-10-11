@@ -1,8 +1,8 @@
 import { Lock, Tag, Wand2 } from "lucide-react";
 import { InlineName } from "@/components/common/inline-name";
 import type { ManagedPayee } from "@/hooks/usePayees";
-import { TRANSFER_NOTE, autofillAmount, hasAutofill, renameRulesTitle } from "@/lib/payees";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { TRANSFER_NOTE, hasAutofill, renameRulesTitle } from "@/lib/payees";
+import { cn, formatDate } from "@/lib/utils";
 
 /** One payee in the manage list. Clicking the row inspects it; clicking the name renames it. */
 export function PayeeRow({
@@ -27,7 +27,6 @@ export function PayeeRow({
   onCancelRename: () => void;
 }) {
   const isTransfer = payee.targetAccountId !== null;
-  const amount = autofillAmount(payee);
   return (
     <tr
       onClick={onInspect}
@@ -70,9 +69,7 @@ export function PayeeRow({
       <td className="px-2 py-2">
         <span className="flex items-center gap-1.5 text-muted-foreground">
           {hasAutofill(payee) && (
-            <span
-              title={amount === null ? "Has autofill defaults" : `Autofills ${formatCurrency(amount)}`}
-            >
+            <span title="Has autofill defaults">
               <Wand2 size={13} />
             </span>
           )}

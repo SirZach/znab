@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { sql, eq, and, isNull, type SQL } from "drizzle-orm";
+import { sql, eq, and, inArray, isNull, type SQL } from "drizzle-orm";
 import type { Context } from "../context";
 import { router, budgetProcedure } from "../trpc";
 import { accounts, transactions } from "@znab/db";
-import { IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
+import { assertFilterIdsInBudget } from "../lib/authz";
+import { andIdsIn, IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
 import {
   fromCents,
   REPORT_TIMEFRAMES,
@@ -12,6 +13,15 @@ import {
   roundMoney,
   toCents,
 } from "@znab/shared";
+
+/**
+ * The accounts and categories a report is narrowed to. Leaving one out means
+ * all of them; an empty list is refused rather than read as "none", which no
+ * screen would ask for.
+ */
+const idList = z.array(z.number().int().positive()).min(1).max(1000).optional();
+const filterFields = { accountIds: idList, categoryIds: idList };
+type ReportFilter = { accountIds?: number[]; categoryIds?: number[] };
 
 type NetWorthPoint = {
   month: string; // "YYYY-MM"
@@ -51,16 +61,18 @@ export const reportRouter = router({
     .input(
       z.object({
         timeframe: z.enum(REPORT_TIMEFRAMES).default("last12"),
+        ...filterFields,
       })
     )
     .query(async ({ ctx, input }) => {
+      await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
       const cutoff = timeframeCutoff(input.timeframe);
       const since = cutoff ? `${cutoff}-01` : null;
 
       const rows = (await ctx.db.execute(sql`
         WITH spend AS (
           SELECT payee_id, category_id, amount
-          FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
+          FROM (${onBudgetMoneySource(input.budgetId, { since, accountIds: input.accountIds })}) m
           WHERE category_id IS NOT NULL AND payee_id IS NOT NULL
         )
         SELECT p.id AS "payeeId",
@@ -70,10 +82,10 @@ export const reportRouter = router({
         JOIN payees p ON p.id = spend.payee_id
         JOIN categories c ON c.id = spend.category_id
         JOIN category_groups g ON g.id = c.group_id
-        WHERE g.type <> 'INFLOW'
+        WHERE g.type <> 'INFLOW' ${andIdsIn(sql`c.id`, input.categoryIds)}
         GROUP BY p.id, p.name
         HAVING SUM(spend.amount) < 0
-        ORDER BY SUM(spend.amount) ASC
+        ORDER BY SUM(spend.amount) ASC, p.name, p.id
       `)) as unknown as { payeeId: number; payee: string; net: string }[];
 
       const spending: PayeeSpend[] = rows.map((row) => ({
@@ -97,21 +109,25 @@ export const reportRouter = router({
     .input(
       z.object({
         timeframe: z.enum(REPORT_TIMEFRAMES).default("last12"),
+        ...filterFields,
       })
     )
     .query(async ({ ctx, input }) => {
+      await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
       const cutoff = timeframeCutoff(input.timeframe);
       const since = cutoff ? `${cutoff}-01` : null;
 
+      // A category filter narrows the expense side only: income is not a
+      // category row, so there is nothing of it to choose.
       const rows = (await ctx.db.execute(sql`
         WITH moved AS (
           SELECT d AS date, amount, category_ynab_id, category_id
-          FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
+          FROM (${onBudgetMoneySource(input.budgetId, { since, accountIds: input.accountIds })}) m
         )
         SELECT to_char(date_trunc('month', moved.date), 'YYYY-MM') AS "month",
                COALESCE(SUM(moved.amount) FILTER (WHERE ${IS_INCOME}), 0) AS "income",
                COALESCE(SUM(moved.amount) FILTER (
-                 WHERE moved.category_id IS NOT NULL
+                 WHERE moved.category_id IS NOT NULL ${andIdsIn(sql`moved.category_id`, input.categoryIds)}
                ), 0) AS "categorised"
         FROM moved
         GROUP BY date_trunc('month', moved.date)
@@ -161,9 +177,11 @@ export const reportRouter = router({
     .input(
       z.object({
         timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
+        ...filterFields,
       })
     )
     .query(async ({ ctx, input }) => {
+      await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
       const cutoff = timeframeCutoff(input.timeframe);
       const since = cutoff ? `${cutoff}-01` : null;
 
@@ -178,7 +196,7 @@ export const reportRouter = router({
       const rows = (await ctx.db.execute(sql`
         WITH spend AS (
           SELECT category_id, amount
-          FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
+          FROM (${onBudgetMoneySource(input.budgetId, { since, accountIds: input.accountIds })}) m
           WHERE category_id IS NOT NULL
         )
         SELECT c.id AS "categoryId",
@@ -188,10 +206,10 @@ export const reportRouter = router({
         FROM spend
         JOIN categories c ON c.id = spend.category_id
         JOIN category_groups g ON g.id = c.group_id
-        WHERE g.type <> 'INFLOW'
+        WHERE g.type <> 'INFLOW' ${andIdsIn(sql`c.id`, input.categoryIds)}
         GROUP BY c.id, c.name, g.name
         HAVING SUM(spend.amount) < 0
-        ORDER BY SUM(spend.amount) ASC
+        ORDER BY SUM(spend.amount) ASC, c.name, c.id
       `)) as unknown as {
         categoryId: number;
         category: string;
@@ -223,9 +241,11 @@ export const reportRouter = router({
       z.object({
         categoryId: z.number().int(),
         timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
+        ...filterFields,
       })
     )
     .query(async ({ ctx, input }) => {
+      await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
       const [category] = (await ctx.db.execute(sql`
         SELECT c.name AS "category", g.name AS "group"
         FROM categories c
@@ -236,7 +256,7 @@ export const reportRouter = router({
 
       return {
         ...category,
-        ...(await monthlySpend(ctx.db, input.budgetId, input.timeframe, sql`m.category_id = ${input.categoryId}`)),
+        ...(await monthlySpend(ctx.db, input.budgetId, input.timeframe, input, sql`m.category_id = ${input.categoryId}`)),
       };
     }),
 
@@ -247,9 +267,11 @@ export const reportRouter = router({
       z.object({
         payeeId: z.number().int(),
         timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
+        ...filterFields,
       })
     )
     .query(async ({ ctx, input }) => {
+      await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
       const [payee] = (await ctx.db.execute(sql`
         SELECT name AS "payee" FROM payees
         WHERE id = ${input.payeeId} AND budget_id = ${input.budgetId}
@@ -258,7 +280,7 @@ export const reportRouter = router({
 
       return {
         ...payee,
-        ...(await monthlySpend(ctx.db, input.budgetId, input.timeframe, sql`m.payee_id = ${input.payeeId}`)),
+        ...(await monthlySpend(ctx.db, input.budgetId, input.timeframe, input, sql`m.payee_id = ${input.payeeId}`)),
       };
     }),
 
@@ -269,9 +291,11 @@ export const reportRouter = router({
     .input(
       z.object({
         timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
+        ...filterFields,
       })
     )
     .query(async ({ ctx, input }) => {
+      await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
       // Sum of transaction amounts per account per month. Only at most
       // (#accounts * #months) rows come back, so no need to pull raw rows.
       const rows = await ctx.db
@@ -286,7 +310,8 @@ export const reportRouter = router({
           and(
             eq(transactions.budgetId, input.budgetId),
             isNull(transactions.deletedAt),
-            isNull(accounts.deletedAt)
+            isNull(accounts.deletedAt),
+            input.accountIds ? inArray(transactions.accountId, input.accountIds) : undefined
           )
         )
         .groupBy(transactions.accountId, sql`date_trunc('month', ${transactions.date})`);
@@ -357,17 +382,23 @@ export const reportRouter = router({
  * sum to the figure the report lists, and months with nothing in them are
  * filled with zero so a chart keeps its time axis.
  */
-async function monthlySpend(db: Context["db"], budgetId: number, timeframe: ReportTimeframe, filter: SQL) {
+async function monthlySpend(
+  db: Context["db"],
+  budgetId: number,
+  timeframe: ReportTimeframe,
+  { accountIds, categoryIds }: ReportFilter,
+  filter: SQL
+) {
   const cutoff = timeframeCutoff(timeframe);
   const since = cutoff ? `${cutoff}-01` : null;
 
   const rows = (await db.execute(sql`
     SELECT to_char(date_trunc('month', m.d), 'YYYY-MM') AS "month",
            SUM(m.amount) AS "net"
-    FROM (${onBudgetMoneySource(budgetId, { since })}) m
+    FROM (${onBudgetMoneySource(budgetId, { since, accountIds })}) m
     JOIN categories c ON c.id = m.category_id
     JOIN category_groups g ON g.id = c.group_id
-    WHERE g.type <> 'INFLOW' AND ${filter}
+    WHERE g.type <> 'INFLOW' AND ${filter} ${andIdsIn(sql`c.id`, categoryIds)}
     GROUP BY date_trunc('month', m.d)
     ORDER BY date_trunc('month', m.d)
   `)) as unknown as { month: string; net: string }[];

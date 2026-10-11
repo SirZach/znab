@@ -17,9 +17,14 @@ import { DEFERRED_INCOME, IMMEDIATE_INCOME } from "@znab/shared";
  * drops out of any category total by itself, while one out to a tracking
  * account carries a category and is spending, as YNAB 4 counts it (see
  * `transferCategoryId`).
+ *
+ * `since` and `accountIds` narrow it to a report's date range and accounts.
  */
-export function onBudgetMoneySource(budgetId: number, opts: { since?: string | null } = {}): SQL {
-  const since = opts.since ? sql`AND t.date >= ${opts.since}::date` : sql``;
+export function onBudgetMoneySource(
+  budgetId: number,
+  opts: { since?: string | null; accountIds?: number[] } = {}
+): SQL {
+  const narrow = sql`${opts.since ? sql`AND t.date >= ${opts.since}::date` : sql``} ${andIdsIn(sql`t.account_id`, opts.accountIds)}`;
   return sql`
     SELECT
       t.id AS transaction_id, NULL::int AS sub_transaction_id,
@@ -30,7 +35,7 @@ export function onBudgetMoneySource(budgetId: number, opts: { since?: string | n
     WHERE t.budget_id = ${budgetId}
       AND t.deleted_at IS NULL AND a.deleted_at IS NULL
       AND a.on_budget = true AND t.is_split = false
-      ${since}
+      ${narrow}
     UNION ALL
     SELECT
       t.id, s.id,
@@ -42,8 +47,17 @@ export function onBudgetMoneySource(budgetId: number, opts: { since?: string | n
     WHERE t.budget_id = ${budgetId}
       AND t.deleted_at IS NULL AND s.deleted_at IS NULL AND a.deleted_at IS NULL
       AND a.on_budget = true
-      ${since}
+      ${narrow}
   `;
+}
+
+/** `AND column IN (ids)`, or nothing when no ids are given, which means all of them. */
+export function andIdsIn(column: SQL, ids: number[] | undefined): SQL {
+  if (!ids?.length) return sql``;
+  return sql`AND ${column} IN (${sql.join(
+    ids.map((id) => sql`${id}`),
+    sql`, `
+  )})`;
 }
 
 /** True for a row filed under one of YNAB 4's two income categories. */

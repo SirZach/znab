@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { addIncome, withCaller } from "./harness";
+import { addIncome, expectTrpcError, withCaller } from "./harness";
 
 /**
  * March 2025, all on budget unless noted:
@@ -47,6 +47,59 @@ describe("reports agree with the budget page", () => {
       expect(ive.series).toEqual([{ month: "2025-03", income: 500, expense: 255, net: 245 }]);
       expect(ive.summary.income).toBe(month.summary.income);
       expect(ive.summary.expense).toBe(-activity);
+    });
+  });
+});
+
+describe("categorySpending", () => {
+  test("one category's net spend by month, empty months included, agreeing with spendingByCategory", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      const { budgetId } = seed;
+      const { groceries, fun } = seed.categories;
+      const enter = (categoryId: number, amount: number, date: string) =>
+        caller.transaction.create({
+          budgetId,
+          accountId: seed.accounts.checking.id,
+          payeeId: seed.payees.grocer.id,
+          categoryId,
+          amount,
+          date,
+        });
+
+      await enter(groceries.id, -40, "2025-03-10");
+      await enter(groceries.id, 10, "2025-03-12");
+      await enter(groceries.id, -15, "2025-05-02");
+      await enter(fun.id, -25, "2025-04-01");
+
+      const report = await caller.report.categorySpending({ budgetId, categoryId: groceries.id, timeframe: "all" });
+      expect(report.category).toBe(groceries.name);
+      expect(report.series.slice(0, 3)).toEqual([
+        { month: "2025-03", spent: 30 },
+        { month: "2025-04", spent: 0 },
+        { month: "2025-05", spent: 15 },
+      ]);
+      expect(report.total).toBe(45);
+
+      const byCategory = await caller.report.spendingByCategory({ budgetId, timeframe: "all" });
+      expect(byCategory.spending.find((s) => s.categoryId === groceries.id)?.spent).toBe(report.total);
+    });
+  });
+
+  test("refuses another user's budget and a category from another budget", async () => {
+    await withCaller(async ({ seed, caller, other, otherCaller }) => {
+      const categoryId = seed.categories.groceries.id;
+      await expectTrpcError(
+        otherCaller.report.categorySpending({ budgetId: seed.budgetId, categoryId, timeframe: "all" }),
+        "NOT_FOUND"
+      );
+      await expectTrpcError(
+        caller.report.categorySpending({
+          budgetId: seed.budgetId,
+          categoryId: other.categories.groceries.id,
+          timeframe: "all",
+        }),
+        "NOT_FOUND"
+      );
     });
   });
 });

@@ -18,6 +18,7 @@ import {
   chartTooltipStyle,
   formatCompactCurrency,
 } from "@/lib/chart";
+import { CategorySpendingReport } from "@/components/reports/category-spending-report";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
@@ -31,10 +32,23 @@ const CHARTED = 15;
 
 export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
   const [timeframe, setTimeframe] = useState<ReportTimeframe>("last12");
+  const [categoryId, setCategoryId] = useState<number | null>(null);
   const { data, isLoading } = trpc.report.spendingByCategory.useQuery({
     budgetId,
     timeframe,
   });
+
+  if (categoryId !== null) {
+    return (
+      <CategorySpendingReport
+        budgetId={budgetId}
+        categoryId={categoryId}
+        timeframe={timeframe}
+        onTimeframeChange={setTimeframe}
+        onBack={() => setCategoryId(null)}
+      />
+    );
+  }
 
   const spending = data?.spending ?? [];
   const charted = spending.slice(0, CHARTED);
@@ -69,7 +83,15 @@ export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
             <tbody>
               {spending.map((row) => (
                 <tr key={row.categoryId} className="border-t border-border">
-                  <td className="py-1.5">{row.category}</td>
+                  <td className="py-1.5">
+                    <button
+                      type="button"
+                      className="hover:underline"
+                      onClick={() => setCategoryId(row.categoryId)}
+                    >
+                      {row.category}
+                    </button>
+                  </td>
                   <td className="py-1.5 text-muted-foreground">{row.group}</td>
                   <td className="py-1.5 text-right tabular-nums">{formatCurrency(row.spent)}</td>
                 </tr>
@@ -88,7 +110,16 @@ export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
             formatter={(value) => [formatCurrency(Number(value)), "Spent"]}
             contentStyle={chartTooltipStyle}
           />
-          <Bar dataKey="spent" name="Spent" fill={CHART_COLORS.blue} radius={[0, 4, 4, 0]} />
+          <Bar
+            dataKey="spent"
+            name="Spent"
+            fill={CHART_COLORS.blue}
+            radius={[0, 4, 4, 0]}
+            cursor="pointer"
+            onClick={(bar: { payload?: { categoryId: number } }) => {
+              if (bar.payload) setCategoryId(bar.payload.categoryId);
+            }}
+          />
         </BarChart>
       </ResponsiveContainer>
     </ReportLayout>

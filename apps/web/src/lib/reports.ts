@@ -1,4 +1,5 @@
-import { BarChart2, Landmark, Store, TrendingUp } from "lucide-react";
+import { BarChart2, Landmark, Scale, Store, TrendingUp } from "lucide-react";
+import { AverageSpendingReport } from "@/components/reports/average-spending-report";
 import { IncomeVsExpenseReport } from "@/components/reports/income-vs-expense-report";
 import { NetWorthReport } from "@/components/reports/net-worth-report";
 import { SpendingByCategoryReport } from "@/components/reports/spending-by-category-report";
@@ -19,6 +20,13 @@ export const REPORTS = [
     description: "See who your money goes to",
     icon: Store,
     component: SpendingByPayeeReport,
+  },
+  {
+    id: "average-spending",
+    label: "Average Monthly Spending",
+    description: "See what a typical month costs in each category",
+    icon: Scale,
+    component: AverageSpendingReport,
   },
   {
     id: "income-vs-expenses",

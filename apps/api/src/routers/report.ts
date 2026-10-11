@@ -230,6 +230,83 @@ export const reportRouter = router({
       };
     }),
 
+  // What a typical month costs, by category, over a timeframe.
+  //
+  // Only complete months count: this month is still running, so including it
+  // would drag every average down by however much of the month is left. Last
+  // 12 Months is therefore the twelve months before this one. Nor do months
+  // before the budget had any money in it: a budget a year old is averaged
+  // over its year, not over the four the timeframe names. That first month is
+  // the budget's whatever the filters, since a filter narrows what is counted
+  // rather than how long it is spread over, so a category reads the same
+  // average however it is filtered. Each category's figure is its net, as in
+  // Spending by Category, and one that comes out net positive over the window
+  // was not spent and is left out.
+  averageSpending: budgetProcedure
+    .input(
+      z.object({
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("last12"),
+        ...filterFields,
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
+      const end = monthOf(new Date());
+      const start = completeMonthsStart(input.timeframe, end);
+      const [{ budgetFirst }] = (await ctx.db.execute(sql`
+        SELECT to_char(MIN(m.d), 'YYYY-MM') AS "budgetFirst"
+        FROM (${onBudgetMoneySource(input.budgetId)}) m
+        WHERE m.d < ${`${end}-01`}::date
+      `)) as unknown as [{ budgetFirst: string | null }];
+
+      const rows = (await ctx.db.execute(sql`
+        SELECT c.id AS "categoryId",
+               c.name AS "category",
+               g.name AS "group",
+               SUM(m.amount) AS "net"
+        FROM (${onBudgetMoneySource(input.budgetId, {
+          since: start ? `${start}-01` : null,
+          accountIds: input.accountIds,
+        })}) m
+        JOIN categories c ON c.id = m.category_id
+        JOIN category_groups g ON g.id = c.group_id
+        WHERE g.type <> 'INFLOW' AND m.d < ${`${end}-01`}::date
+          ${andIdsIn(sql`c.id`, input.categoryIds)}
+        GROUP BY c.id, c.name, g.name
+      `)) as unknown as {
+        categoryId: number;
+        category: string;
+        group: string;
+        net: string;
+      }[];
+
+      const first = budgetFirst && start && start > budgetFirst ? start : budgetFirst;
+      const months = first ? monthRange(first, end).length - 1 : 0;
+      // Each figure is rounded on its own, so the rows can sum a cent or two
+      // away from the headline, as Spending by Category's do.
+      const perMonth = (cents: number) => (months > 0 ? fromCents(Math.round(cents / months)) : 0);
+
+      const spent = rows
+        .map((row) => ({ ...row, cents: -toCents(row.net) }))
+        .filter((row) => row.cents > 0)
+        .sort((a, b) => b.cents - a.cents || a.category.localeCompare(b.category) || a.categoryId - b.categoryId);
+      const totalCents = spent.reduce((sum, row) => sum + row.cents, 0);
+
+      return {
+        months,
+        firstMonth: months > 0 ? first : null,
+        spending: spent.map((row) => ({
+          categoryId: row.categoryId,
+          category: row.category,
+          group: row.group,
+          total: fromCents(row.cents),
+          average: perMonth(row.cents),
+        })),
+        total: fromCents(totalCents),
+        average: perMonth(totalCents),
+      };
+    }),
+
   // One category from Spending by Category, by month, over the same timeframe.
   //
   // Each month is the category's net, as above, so a month whose refunds
@@ -444,6 +521,18 @@ function timeframeCutoff(timeframe: ReportTimeframe): string | null {
   if (timeframe === "thisYear") return `${year}-01`;
   const monthsBack = timeframe === "last12" ? 11 : 47;
   return monthOf(new Date(year, now.getMonth() - monthsBack, 1));
+}
+
+/**
+ * The first complete month a timeframe covers, counting back from `end`, the
+ * month still running, which is left out. Null for all dates.
+ */
+function completeMonthsStart(timeframe: ReportTimeframe, end: string): string | null {
+  if (timeframe === "all") return null;
+  const [year, month] = end.split("-").map(Number) as [number, number];
+  if (timeframe === "thisYear") return `${year}-01`;
+  const back = timeframe === "last12" ? 12 : 48;
+  return monthOf(new Date(year, month - 1 - back, 1));
 }
 
 /** The local "YYYY-MM" month a date falls in. */

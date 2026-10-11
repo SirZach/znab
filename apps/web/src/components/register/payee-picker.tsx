@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { defaultFilter } from "cmdk";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +16,12 @@ type Payee = { id: number; name: string };
 
 // The create choice's value in the list, which no payee name can collide with.
 const CREATE = "\u0000create";
+
+// Every transfer payee is named "Transfer : <account>", and with the account
+// name pushed back past that prefix a search for it ranked below any payee
+// that merely started the same way. Transfers are searched by account name.
+const searchPayees: typeof defaultFilter = (value, search, keywords) =>
+  defaultFilter(value.replace(/^Transfer : /, ""), search, keywords);
 
 /**
  * The register's payee picker. What is typed is a search, never a payee: it
@@ -100,7 +107,7 @@ export function PayeePicker<P extends Payee>({
           : payeeName || <span className="text-muted-foreground">Payee</span>}
       </PopoverTrigger>
       <PopoverContent className="w-64 p-0" align="start">
-        <Command value={highlighted} onValueChange={setHighlighted}>
+        <Command value={highlighted} onValueChange={setHighlighted} filter={searchPayees}>
           <CommandInput
             placeholder="Search payees..."
             value={query}

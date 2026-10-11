@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 import { cell, defineChart } from "@tanstack/charts";
 import { Chart } from "@tanstack/charts/react/tooltip";
@@ -18,6 +19,7 @@ const reportRoute = getRouteApi("/budgets/$budgetId/reports/$reportId");
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKS = Array.from({ length: 54 }, (_, i) => i);
+const EARLIEST_YEAR = 1900;
 
 /**
  * Five steps from nothing spent to the busiest days. Stepped rather than
@@ -46,54 +48,60 @@ function localToday(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+/** The spend each shade begins at, for the legend: nothing, then up from each threshold. */
+function shadeLabels(ceiling: number): string[] {
+  const at = (share: number) => formatCurrency(ceiling * share);
+  return ["Nothing spent", `Up to ${at(0.25)}`, `${at(0.25)} to ${at(0.5)}`, `${at(0.5)} to ${at(0.75)}`, `Over ${at(0.75)}`];
+}
+
 /** The calendar itself: a cell per day, weeks across and weekdays down. */
-function CalendarChart({ days, ariaLabel }: { days: CalendarDay[]; ariaLabel: string }) {
-  const ceiling = colorCeiling(days.map((d) => d.spent));
-  const starts = monthStarts(days);
-  const definition = defineChart(
-    {
-      marks: [
-        cell(days, {
-          key: "date",
-          x: "week",
-          y: (day) => WEEKDAYS[day.weekday],
-          color: "spent",
-          inset: 1.5,
-          radius: 2,
-        }),
-      ],
-      scales: {
-        x: {
-          scale: scaleBand<number>().domain(WEEKS).paddingInner(0).paddingOuter(0),
-          side: "top",
-          axis: {
-            line: false,
-            ticks: {
-              values: starts.map((s) => s.week),
-              format: (week) => starts.find((s) => s.week === week)?.month ?? "",
-              size: 0,
+function CalendarChart({ days, ceiling, ariaLabel }: { days: CalendarDay[]; ceiling: number; ariaLabel: string }) {
+  // The chart re-renders whenever its definition changes identity, so it is
+  // built once per set of days rather than on every render of the page.
+  const definition = useMemo(() => {
+    const starts = monthStarts(days);
+    return defineChart(
+      {
+        marks: [
+          cell(days, {
+            key: "date",
+            x: "week",
+            y: (day) => WEEKDAYS[day.weekday],
+            color: "spent",
+            inset: 1.5,
+            radius: 2,
+          }),
+        ],
+        scales: {
+          x: {
+            scale: scaleBand<number>().domain(WEEKS).paddingInner(0).paddingOuter(0),
+            side: "top",
+            axis: {
+              line: false,
+              ticks: {
+                values: starts.map((s) => s.week),
+                format: (week) => starts.find((s) => s.week === week)?.month ?? "",
+                size: 0,
+              },
+              tickLabels: { thin: false },
             },
-            tickLabels: { thin: false },
+          },
+          y: {
+            scale: scaleBand<string>().domain(WEEKDAYS).paddingInner(0).paddingOuter(0),
+            axis: { line: false, ticks: { values: ["Mon", "Wed", "Fri"], size: 0 } },
           },
         },
-        y: {
-          scale: scaleBand<string>().domain(WEEKDAYS).paddingInner(0).paddingOuter(0),
-          axis: { line: false, ticks: { values: ["Mon", "Wed", "Fri"], size: 0 } },
+        color: {
+          // Anything above a cent is spending; refunds and nothing share the
+          // empty shade, since a calendar of spending has no below-zero colour.
+          scale: scaleThreshold<number, string>()
+            .domain([0.005, ceiling * 0.25, ceiling * 0.5, ceiling * 0.75])
+            .range(SHADES),
         },
       },
-      color: {
-        // Anything above a cent is spending; refunds and nothing share the
-        // empty shade, since a calendar of spending has no below-zero colour.
-        scale: scaleThreshold<number, string>()
-          .domain([0.005, ceiling * 0.25, ceiling * 0.5, ceiling * 0.75])
-          .range(SHADES),
-      },
-    },
-    {
-      keyboard: true,
-      tooltip: { use: tooltip, format: (point) => `${longDate(point.datum.date)}: ${formatCurrency(point.datum.spent)}` },
-    }
-  );
+      { tooltip: { use: tooltip, format: (point) => `${longDate(point.datum.date)}: ${formatCurrency(point.datum.spent)}` } }
+    );
+  }, [days, ceiling]);
 
   return <Chart ariaLabel={ariaLabel} definition={definition} height={170} className="text-muted-foreground" />;
 }
@@ -118,7 +126,10 @@ export function SpendingCalendarReport({ budgetId }: { budgetId: number }) {
     { enabled: !filters.nothingSelected }
   );
 
-  const days = calendarDays(year, data?.days ?? [], today);
+  // Laid out through the day the server counted to, so the cells are exactly
+  // the days the totals cover, whatever the browser's own date is.
+  const days = useMemo(() => (data ? calendarDays(data.year, data.days, data.through) : []), [data]);
+  const ceiling = useMemo(() => colorCeiling(days.map((d) => d.spent)), [days]);
   const daysInYear = data?.daysInYear ?? 0;
 
   return (
@@ -127,7 +138,13 @@ export function SpendingCalendarReport({ budgetId }: { budgetId: number }) {
       filters={
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center">
-            <Button variant="ghost" size="icon-sm" aria-label="Previous year" onClick={() => setYear(year - 1)}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Previous year"
+              disabled={year <= EARLIEST_YEAR}
+              onClick={() => setYear(year - 1)}
+            >
               <ChevronLeft />
             </Button>
             <span className="min-w-12 text-center text-sm font-medium">{year}</span>
@@ -169,11 +186,18 @@ export function SpendingCalendarReport({ budgetId }: { budgetId: number }) {
       emptyMessage={filters.nothingSelected ? NOTHING_SELECTED : "Nothing was spent in this year."}
       messageClassName="h-44"
     >
-      <CalendarChart days={days} ariaLabel={`Spending each day of ${year}`} />
+      <CalendarChart days={days} ceiling={ceiling} ariaLabel={`Spending each day of ${year}`} />
       <div className="mt-2 flex items-center justify-end gap-1 text-xs text-muted-foreground">
         Less
-        {SHADES.map((shade) => (
-          <span key={shade} className="inline-block size-3 rounded-sm" style={{ background: shade }} />
+        {shadeLabels(ceiling).map((label, i) => (
+          <span
+            key={label}
+            title={label}
+            aria-label={label}
+            role="img"
+            className="inline-block size-3 rounded-sm"
+            style={{ background: SHADES[i] }}
+          />
         ))}
         More
       </div>

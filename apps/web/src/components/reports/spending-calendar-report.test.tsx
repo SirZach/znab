@@ -7,6 +7,7 @@ const URL = "/budgets/1/reports/spending-calendar";
 const layout = { "budget.byId": { id: 1, name: "Household" }, "account.list": [], "category.list": [] };
 const year2025 = {
   year: 2025,
+  through: "2025-12-31",
   days: [
     { date: "2025-03-10", spent: 55 },
     { date: "2025-07-04", spent: 60 },

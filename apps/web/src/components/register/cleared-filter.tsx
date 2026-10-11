@@ -1,12 +1,11 @@
-import { CLEARED_VALUES, type ClearedValue } from "@znab/shared";
+import type { RegisterClearedFilter } from "@znab/shared";
 import { SegmentedControl } from "@/components/common/segmented-control";
 
-export type ClearedFilterValue = "all" | ClearedValue;
-
 /** The choices in the order the register reads them: everything, then narrowing. */
-const CHOICES: { value: ClearedFilterValue; label: string }[] = [
+const CHOICES: { value: RegisterClearedFilter; label: string }[] = [
   { value: "all", label: "All" },
-  ...CLEARED_VALUES.map((value) => ({ value, label: value })),
+  { value: "Unreconciled", label: "Unreconciled" },
+  { value: "Reconciled", label: "Reconciled" },
 ];
 
 /**
@@ -23,9 +22,9 @@ export function ClearedFilter({
   counts,
   onChange,
 }: {
-  value: ClearedFilterValue;
-  counts: Record<ClearedFilterValue, number>;
-  onChange: (value: ClearedFilterValue) => void;
+  value: RegisterClearedFilter;
+  counts: Record<RegisterClearedFilter, number>;
+  onChange: (value: RegisterClearedFilter) => void;
 }) {
   return (
     <SegmentedControl

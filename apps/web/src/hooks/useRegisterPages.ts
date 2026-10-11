@@ -1,12 +1,10 @@
 import { useState } from "react";
-import type { RegisterSort, SortDirection } from "@znab/shared";
+import type { RegisterClearedFilter, RegisterSort, SortDirection } from "@znab/shared";
 import { trpc } from "@/trpc";
 import { focusOffset } from "@/lib/register-row";
 
 /** How many transactions the register loads at a time, newest first. */
 const PAGE_SIZE = 200;
-
-export type RegisterClearedFilter = "all" | "Uncleared" | "Cleared" | "Reconciled";
 
 /** One row of the register, read back off the hook rather than off the router. */
 export type RegisterTransaction = ReturnType<typeof useRegisterPages>["transactions"][number];
@@ -91,7 +89,7 @@ export function useRegisterPages({
     unclearedBalance: data?.unclearedBalance ?? 0,
     total: data?.total ?? 0,
     /** How many rows each choice of the cleared filter would show. */
-    counts: data?.counts ?? { all: 0, Uncleared: 0, Cleared: 0, Reconciled: 0 },
+    counts: data?.counts ?? { all: 0, Unreconciled: 0, Reconciled: 0 },
     /** How many rows the cleared filter and the search leave between them. */
     matches: data?.matches ?? 0,
     hasMore: pages.at(-1)?.data?.hasMore ?? false,

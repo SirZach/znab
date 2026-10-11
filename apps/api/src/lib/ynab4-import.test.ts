@@ -56,14 +56,13 @@ describe("sort order", () => {
     const rows = accountRows(
       data({
         accounts: [
-          { entityId: "b", sortableIndex: 2_000_000_000, accountType: "Savings", lastEnteredCheckNumber: -1 },
-          { entityId: "a", sortableIndex: -2_000_000_000, accountType: "Checking", lastEnteredCheckNumber: 101 },
+          { entityId: "b", sortableIndex: 2_000_000_000, accountType: "Savings" },
+          { entityId: "a", sortableIndex: -2_000_000_000, accountType: "Checking" },
         ],
       }),
       plain
     );
     expect(rows.map((r) => [r.ynabId, r.sortOrder])).toEqual([["b", 1], ["a", 0]]);
-    expect(rows.map((r) => r.lastEnteredCheckNum)).toEqual([null, 101]);
   });
 
   test("system groups rank after every user group", () => {
@@ -107,7 +106,7 @@ describe("sort order", () => {
 
 describe("mirror only fields", () => {
   const d = data({
-    accounts: [{ entityId: "acc1", sortableIndex: 0, lastEnteredCheckNumber: -1, note: "hi" }],
+    accounts: [{ entityId: "acc1", sortableIndex: 0, note: "hi" }],
     transactions: [
       { entityId: "t1", accountId: "acc1", amount: -5, date: "2025-01-01", flag: "Red" },
       { entityId: "t2", accountId: "acc1", amount: -5, date: "2025-01-01", flag: "Teal" },

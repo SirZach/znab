@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getRouteApi } from "@tanstack/react-router";
 import {
   BarChart,
   Bar,
@@ -18,6 +19,7 @@ import {
   chartTooltipStyle,
   formatCompactCurrency,
 } from "@/lib/chart";
+import { MonthlySpendingReport } from "@/components/reports/monthly-spending-report";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
@@ -28,9 +30,39 @@ import { SummaryStat } from "@/components/reports/summary-stat";
  */
 const CHARTED = 15;
 
+const reportRoute = getRouteApi("/budgets/$budgetId/reports/$reportId");
+
 export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
   const [timeframe, setTimeframe] = useState<ReportTimeframe>("last12");
-  const { data, isLoading } = trpc.report.spendingByPayee.useQuery({ budgetId, timeframe });
+  // In the URL, so a payee's own spending can be linked to and Back leaves it.
+  const { payee: payeeId } = reportRoute.useSearch();
+  const navigate = reportRoute.useNavigate();
+  const setPayeeId = (payee: number | undefined) => navigate({ search: (prev) => ({ ...prev, payee }) });
+  const { data, isLoading } = trpc.report.spendingByPayee.useQuery(
+    { budgetId, timeframe },
+    { enabled: payeeId === undefined }
+  );
+  const drilled = trpc.report.payeeSpending.useQuery(
+    { budgetId, payeeId: payeeId ?? 0, timeframe },
+    { enabled: payeeId !== undefined }
+  );
+
+  if (payeeId !== undefined) {
+    return (
+      <MonthlySpendingReport
+        title={drilled.data?.payee ?? "Spending by Payee"}
+        subject="payee"
+        backLabel="All payees"
+        onBack={() => setPayeeId(undefined)}
+        color={CHART_COLORS.purple}
+        timeframe={timeframe}
+        onTimeframeChange={setTimeframe}
+        data={drilled.data}
+        isLoading={drilled.isLoading}
+        error={drilled.error}
+      />
+    );
+  }
 
   const spending = data?.spending ?? [];
   const charted = spending.slice(0, CHARTED);
@@ -62,7 +94,11 @@ export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
             <tbody>
               {spending.map((row) => (
                 <tr key={row.payeeId} className="border-t border-border">
-                  <td className="py-1.5">{row.payee}</td>
+                  <td className="py-1.5">
+                    <button type="button" className="hover:underline" onClick={() => setPayeeId(row.payeeId)}>
+                      {row.payee}
+                    </button>
+                  </td>
                   <td className="py-1.5 text-right tabular-nums">{formatCurrency(row.spent)}</td>
                 </tr>
               ))}
@@ -80,7 +116,16 @@ export function SpendingByPayeeReport({ budgetId }: { budgetId: number }) {
             formatter={(value) => [formatCurrency(Number(value)), "Spent"]}
             contentStyle={chartTooltipStyle}
           />
-          <Bar dataKey="spent" name="Spent" fill={CHART_COLORS.purple} radius={[0, 4, 4, 0]} />
+          <Bar
+            dataKey="spent"
+            name="Spent"
+            fill={CHART_COLORS.purple}
+            radius={[0, 4, 4, 0]}
+            cursor="pointer"
+            onClick={(bar: { payload?: { payeeId: number } }) => {
+              if (bar.payload) setPayeeId(bar.payload.payeeId);
+            }}
+          />
         </BarChart>
       </ResponsiveContainer>
     </ReportLayout>

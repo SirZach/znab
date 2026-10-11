@@ -19,7 +19,7 @@ import {
   chartTooltipStyle,
   formatCompactCurrency,
 } from "@/lib/chart";
-import { CategorySpendingReport } from "@/components/reports/category-spending-report";
+import { MonthlySpendingReport } from "@/components/reports/monthly-spending-report";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
@@ -44,15 +44,25 @@ export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
     { budgetId, timeframe },
     { enabled: categoryId === undefined }
   );
+  const drilled = trpc.report.categorySpending.useQuery(
+    { budgetId, categoryId: categoryId ?? 0, timeframe },
+    { enabled: categoryId !== undefined }
+  );
 
   if (categoryId !== undefined) {
     return (
-      <CategorySpendingReport
-        budgetId={budgetId}
-        categoryId={categoryId}
+      <MonthlySpendingReport
+        title={drilled.data?.category ?? "Spending by Category"}
+        subtitle={drilled.data?.group}
+        subject="category"
+        backLabel="All categories"
+        onBack={() => setCategoryId(undefined)}
+        color={CHART_COLORS.blue}
         timeframe={timeframe}
         onTimeframeChange={setTimeframe}
-        onBack={() => setCategoryId(undefined)}
+        data={drilled.data}
+        isLoading={drilled.isLoading}
+        error={drilled.error}
       />
     );
   }

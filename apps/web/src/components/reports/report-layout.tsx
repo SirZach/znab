@@ -20,7 +20,7 @@ export function ReportLayout({
   children,
   footer,
 }: {
-  title: string;
+  title: ReactNode;
   timeframe: ReportTimeframe;
   onTimeframeChange: (timeframe: ReportTimeframe) => void;
   stats: ReactNode;

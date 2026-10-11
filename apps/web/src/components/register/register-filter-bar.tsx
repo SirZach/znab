@@ -38,12 +38,6 @@ export function RegisterFilterBar({
         total={counts.all}
         onSearch={onSearch}
       />
-      {cleared !== "all" && !q && (
-        <span className="text-xs text-muted-foreground">
-          Showing {counts[cleared]} of {counts.all}. The balances above are the whole account
-          either way.
-        </span>
-      )}
     </div>
   );
 }

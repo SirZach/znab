@@ -129,7 +129,8 @@ export const allAccountsSearchSchema = accountRegisterSearchSchema.omit({ txn: t
   offset: z.number().int().min(0).default(0),
 });
 
-// A report's drill-in, so a category's own spending can be linked to.
+// A report's drill-in, so a category's or payee's own spending can be linked to.
 export const reportSearchSchema = z.object({
   category: z.number().int().positive().optional(),
+  payee: z.number().int().positive().optional(),
 });

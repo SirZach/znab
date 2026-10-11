@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { sql, eq, and, isNull } from "drizzle-orm";
+import { sql, eq, and, isNull, type SQL } from "drizzle-orm";
+import type { Context } from "../context";
 import { router, budgetProcedure } from "../trpc";
 import { accounts, transactions } from "@znab/db";
 import { IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
@@ -233,33 +234,31 @@ export const reportRouter = router({
       `)) as unknown as { category: string; group: string }[];
       if (!category) throw new TRPCError({ code: "NOT_FOUND", message: "Category not found" });
 
-      const cutoff = timeframeCutoff(input.timeframe);
-      const since = cutoff ? `${cutoff}-01` : null;
-
-      const rows = (await ctx.db.execute(sql`
-        SELECT to_char(date_trunc('month', m.d), 'YYYY-MM') AS "month",
-               SUM(m.amount) AS "net"
-        FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
-        WHERE m.category_id = ${input.categoryId}
-        GROUP BY date_trunc('month', m.d)
-        ORDER BY date_trunc('month', m.d)
-      `)) as unknown as { month: string; net: string }[];
-
-      const netByMonth = new Map(rows.map((row) => [row.month, toCents(row.net)]));
-      const thisMonth = monthOf(new Date());
-      const first = cutoff ?? rows[0]?.month;
-      const last = rows.at(-1)?.month;
-      const series = first
-        ? monthRange(first, last && last > thisMonth ? last : thisMonth).map((month) => ({
-            month,
-            spent: fromCents(-(netByMonth.get(month) ?? 0)),
-          }))
-        : [];
-
       return {
         ...category,
-        series,
-        total: fromCents(-rows.reduce((sum, row) => sum + toCents(row.net), 0)),
+        ...(await monthlySpend(ctx.db, input.budgetId, input.timeframe, sql`m.category_id = ${input.categoryId}`)),
+      };
+    }),
+
+  // One payee from Spending by Payee, by month, over the same timeframe, on
+  // the same terms as categorySpending.
+  payeeSpending: budgetProcedure
+    .input(
+      z.object({
+        payeeId: z.number().int(),
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const [payee] = (await ctx.db.execute(sql`
+        SELECT name AS "payee" FROM payees
+        WHERE id = ${input.payeeId} AND budget_id = ${input.budgetId}
+      `)) as unknown as { payee: string }[];
+      if (!payee) throw new TRPCError({ code: "NOT_FOUND", message: "Payee not found" });
+
+      return {
+        ...payee,
+        ...(await monthlySpend(ctx.db, input.budgetId, input.timeframe, sql`m.payee_id = ${input.payeeId}`)),
       };
     }),
 
@@ -349,6 +348,46 @@ export const reportRouter = router({
       };
     }),
 });
+
+/**
+ * The spending `filter` picks out of a budget, as its net per month over a
+ * timeframe, on the terms the Spending by Category and by Payee reports count
+ * it: categorised money outside income groups. A month whose refunds
+ * outweighed its spending reads negative rather than vanishing, so the months
+ * sum to the figure the report lists, and months with nothing in them are
+ * filled with zero so a chart keeps its time axis.
+ */
+async function monthlySpend(db: Context["db"], budgetId: number, timeframe: ReportTimeframe, filter: SQL) {
+  const cutoff = timeframeCutoff(timeframe);
+  const since = cutoff ? `${cutoff}-01` : null;
+
+  const rows = (await db.execute(sql`
+    SELECT to_char(date_trunc('month', m.d), 'YYYY-MM') AS "month",
+           SUM(m.amount) AS "net"
+    FROM (${onBudgetMoneySource(budgetId, { since })}) m
+    JOIN categories c ON c.id = m.category_id
+    JOIN category_groups g ON g.id = c.group_id
+    WHERE g.type <> 'INFLOW' AND ${filter}
+    GROUP BY date_trunc('month', m.d)
+    ORDER BY date_trunc('month', m.d)
+  `)) as unknown as { month: string; net: string }[];
+
+  const netByMonth = new Map(rows.map((row) => [row.month, toCents(row.net)]));
+  const thisMonth = monthOf(new Date());
+  const first = cutoff ?? rows[0]?.month;
+  const last = rows.at(-1)?.month;
+  const series = first
+    ? monthRange(first, last && last > thisMonth ? last : thisMonth).map((month) => ({
+        month,
+        spent: fromCents(-(netByMonth.get(month) ?? 0)),
+      }))
+    : [];
+
+  return {
+    series,
+    total: fromCents(-rows.reduce((sum, row) => sum + toCents(row.net), 0)),
+  };
+}
 
 /** Inclusive list of "YYYY-MM" months from start to end. */
 function monthRange(start: string, end: string): string[] {

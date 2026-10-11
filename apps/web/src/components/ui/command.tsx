@@ -42,7 +42,7 @@ const CommandDialog = ({ children, ...props }: CommandDialogProps) => {
 const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
->(({ className, ...props }, ref) => (
+>(({ className, onValueChange, ...props }, ref) => (
   <div className="flex items-center border-b px-3" cmdk-input-wrapper="">
     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
     <CommandPrimitive.Input
@@ -51,6 +51,19 @@ const CommandInput = React.forwardRef<
         "flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}
+      // cmdk scrolls the highlight into view before its items re-render, so
+      // after a keystroke re-sorts the list it scrolls to the previous
+      // highlight, often far down, and the new best match sits out of sight.
+      // Put the real highlight back in view once cmdk has settled.
+      onValueChange={(search) => {
+        onValueChange?.(search)
+        const root = document.activeElement?.closest("[cmdk-root]")
+        requestAnimationFrame(() =>
+          root
+            ?.querySelector("[cmdk-item][data-selected=true]")
+            ?.scrollIntoView({ block: "nearest" })
+        )
+      }}
       {...props}
     />
   </div>

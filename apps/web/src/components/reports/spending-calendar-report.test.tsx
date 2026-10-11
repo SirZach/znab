@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderRoute } from "../../../test/router";
 
@@ -46,6 +46,41 @@ describe("SpendingCalendarReport", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Next year" }));
     await waitFor(() => expect(router.state.location.search).toEqual({}));
+  });
+
+  test("a selected day lists what was spent on it, and closing or changing year clears it", async () => {
+    const day = {
+      date: "2025-03-10",
+      transactions: [
+        { transactionId: 11, subTransactionId: null, accountId: 3, accountName: "Checking", payeeName: "Grocer", category: "Groceries", memo: "weekly", spent: 40 },
+        { transactionId: 12, subTransactionId: null, accountId: 4, accountName: "Visa", payeeName: null, category: "Fun", memo: null, spent: 25 },
+        { transactionId: 13, subTransactionId: null, accountId: 3, accountName: "Checking", payeeName: "Grocer", category: "Groceries", memo: "refund", spent: -10 },
+      ],
+      total: 55,
+    };
+    const { inputsTo, router } = await renderRoute(`${URL}?year=2025&day=2025-03-10`, {
+      fixtures: { ...layout, "report.dailySpending": year2025, "report.dayTransactions": day },
+    });
+
+    const section = await screen.findByRole("region", { name: "Spending on Mon, Mar 10, 2025" });
+    const rows = within(section).getAllByRole("row").slice(1);
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "GrocerGroceriesCheckingweekly$40.00",
+      "No payeeFunVisa$25.00",
+      "GrocerGroceriesCheckingrefund-$10.00",
+      "Total$55.00",
+    ]);
+    expect(within(section).getAllByRole("link", { name: "Grocer" })[0]?.getAttribute("href")).toContain(
+      "/budgets/1/accounts/3"
+    );
+    expect(inputsTo("report.dayTransactions")).toEqual([{ budgetId: 1, date: "2025-03-10" }]);
+
+    await userEvent.click(within(section).getByRole("button", { name: "Close day" }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ year: 2025 }));
+
+    await router.navigate({ to: ".", search: { year: 2025, day: "2025-03-10" } });
+    await userEvent.click(await screen.findByRole("button", { name: "Previous year" }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ year: 2024 }));
   });
 
   test("says so when nothing was spent", async () => {

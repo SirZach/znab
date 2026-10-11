@@ -147,4 +147,6 @@ export const reportSearchSchema = z.object({
   anchor: z.string().regex(COMPARISON_ANCHOR).optional(),
   // The spending calendar's year; this one when left out.
   year: z.number().int().min(1900).max(2099).optional(),
+  // The calendar day whose transactions are listed below it.
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });

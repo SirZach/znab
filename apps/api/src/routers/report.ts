@@ -7,6 +7,7 @@ import { accounts, transactions } from "@znab/db";
 import { assertFilterIdsInBudget } from "../lib/authz";
 import { comparisonPeriods } from "../lib/comparison-periods";
 import { dailyWindow } from "../lib/daily-window";
+import { isoDateSchema } from "../lib/input";
 import { localToday } from "../lib/date";
 import { andIdsIn, IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
 import {
@@ -450,6 +451,55 @@ export const reportRouter = router({
         daysInYear,
         spendingDays: days.filter((day) => day.spent > 0).length,
         biggest,
+      };
+    }),
+
+  // What made up one day of the spending calendar: every transaction, and
+  // every split part, on the terms dailySpending counts, so their total is the
+  // day's figure. Largest first; a refund shows as negative spending.
+  dayTransactions: budgetProcedure
+    .input(
+      z.object({
+        date: isoDateSchema,
+        ...filterFields,
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
+
+      const rows = (await ctx.db.execute(sql`
+        SELECT m.transaction_id AS "transactionId",
+               m.sub_transaction_id AS "subTransactionId",
+               m.account_id AS "accountId",
+               a.name AS "accountName",
+               p.name AS "payeeName",
+               c.name AS "category",
+               m.memo,
+               m.amount
+        FROM (${onBudgetMoneySource(input.budgetId, { since: input.date, accountIds: input.accountIds })}) m
+        JOIN categories c ON c.id = m.category_id
+        JOIN category_groups g ON g.id = c.group_id
+        JOIN accounts a ON a.id = m.account_id
+        LEFT JOIN payees p ON p.id = m.payee_id
+        WHERE g.type <> 'INFLOW' AND m.d = ${input.date}::date
+          ${andIdsIn(sql`c.id`, input.categoryIds)}
+        ORDER BY m.amount ASC, m.transaction_id, m.sub_transaction_id
+      `)) as unknown as {
+        transactionId: number;
+        subTransactionId: number | null;
+        accountId: number;
+        accountName: string;
+        payeeName: string | null;
+        category: string;
+        memo: string | null;
+        amount: string;
+      }[];
+
+      const transactions = rows.map(({ amount, ...row }) => ({ ...row, spent: fromCents(-toCents(amount)) }));
+      return {
+        date: input.date,
+        transactions,
+        total: fromCents(transactions.reduce((sum, t) => sum + toCents(t.spent), 0)),
       };
     }),
 

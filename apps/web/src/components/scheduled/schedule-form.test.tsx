@@ -88,6 +88,32 @@ describe("ScheduleForm", () => {
     });
   });
 
+  test("a partly typed payee takes the closest one rather than making a new one", async () => {
+    const { user, onSubmit } = renderForm();
+
+    await user.selectOptions(screen.getByLabelText("Account"), "10");
+    await user.type(screen.getByLabelText("Amount"), "1250");
+    await user.click(screen.getAllByRole("combobox").find((b) => b.textContent === "Payee")!);
+    await user.type(await screen.findByPlaceholderText("Search payees..."), "land{Enter}");
+    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ payeeId: 200 });
+    expect("payeeName" in onSubmit.mock.calls[0]![0]).toBe(false);
+  });
+
+  test("a new payee is only sent once the create choice is picked", async () => {
+    const { user, onSubmit } = renderForm();
+
+    await user.selectOptions(screen.getByLabelText("Account"), "10");
+    await user.type(screen.getByLabelText("Amount"), "40");
+    await user.click(screen.getAllByRole("combobox").find((b) => b.textContent === "Payee")!);
+    await user.type(await screen.findByPlaceholderText("Search payees..."), "New Gym");
+    await user.click(screen.getByRole("option", { name: 'Create payee "New Gym"' }));
+    await user.click(screen.getByRole("button", { name: "Add schedule" }));
+
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({ payeeId: null, payeeName: "New Gym" });
+  });
+
   test("editing starts from the stored schedule and sends it back unchanged", async () => {
     const { user, onSubmit } = renderForm({
       stacked: true,

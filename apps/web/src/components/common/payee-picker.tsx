@@ -11,6 +11,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 type Payee = { id: number; name: string };
 
@@ -24,9 +25,9 @@ const searchPayees: typeof defaultFilter = (value, search, keywords) =>
   defaultFilter(value.replace(/^Transfer : /, ""), search, keywords);
 
 /**
- * The register's payee picker. What is typed is a search, never a payee: it
- * only reaches the row as an existing payee or, through the create choice in
- * the list, a new one somebody asked for by name.
+ * The payee picker for the register and scheduled transactions. What is typed
+ * is a search, never a payee: it only reaches the row as an existing payee or,
+ * through the create choice in the list, a new one somebody asked for by name.
  *
  * Leaving the picker with a search in it takes the closest payee rather than
  * the text, since a half typed name is almost always one already in use. Tab
@@ -41,6 +42,8 @@ export function PayeePicker<P extends Payee>({
   onCreate,
   triggerRef,
   tabIndex,
+  variant = "ghost",
+  className,
 }: {
   payees: P[] | undefined;
   payeeId: number | null;
@@ -49,6 +52,9 @@ export function PayeePicker<P extends Payee>({
   onCreate: (name: string) => void;
   triggerRef?: React.Ref<HTMLButtonElement>;
   tabIndex?: number;
+  /** Ghost sits flush in a register row; outline matches a form's fields. */
+  variant?: "ghost" | "outline";
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -105,9 +111,13 @@ export function PayeePicker<P extends Payee>({
           <Button
             ref={triggerRef}
             tabIndex={tabIndex}
-            variant="ghost"
+            variant={variant}
             role="combobox"
-            className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
+            className={cn(
+              "w-full justify-start text-left text-sm font-normal h-auto text-foreground",
+              variant === "ghost" ? "py-0.5 px-1" : "py-1.5 px-2",
+              className
+            )}
           />
         }
       >

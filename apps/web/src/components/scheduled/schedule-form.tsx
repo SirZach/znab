@@ -8,10 +8,7 @@ import { MoneyInput } from "@/components/common/money-input";
 import { LabeledField } from "@/components/common/labeled-field";
 import { ScheduleCategoryPicker } from "@/components/scheduled/schedule-category-picker";
 import { ScheduleDatePicker } from "@/components/scheduled/schedule-date-picker";
-import {
-  SchedulePayeePicker,
-  type PickablePayee,
-} from "@/components/scheduled/schedule-payee-picker";
+import { PayeePicker } from "@/components/common/payee-picker";
 import type { CategoryOption } from "@/lib/category-options";
 import {
   CLEARED_AFTER_ADD,
@@ -45,7 +42,7 @@ export function ScheduleForm({
 }: {
   stacked?: boolean;
   accounts: Array<{ id: number; name: string }>;
-  payees: PickablePayee[] | undefined;
+  payees: { id: number; name: string }[] | undefined;
   categoryOptions: CategoryOption[];
   initial?: ScheduleDraftSource;
   submitLabel: string;
@@ -90,11 +87,13 @@ export function ScheduleForm({
         </LabeledField>
 
         <LabeledField label="Payee" as="div">
-          <SchedulePayeePicker
+          <PayeePicker
             payees={payees}
             payeeId={draft.payeeId}
             payeeName={draft.payeeName}
-            onChange={set}
+            onPick={(p) => set({ payeeId: p.id, payeeName: p.name })}
+            onCreate={(name) => set({ payeeId: null, payeeName: name })}
+            variant="outline"
             className={field}
           />
         </LabeledField>

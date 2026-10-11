@@ -1,17 +1,14 @@
 import type { ReactNode } from "react";
-import type { ReportTimeframe } from "@znab/shared";
 import { CenteredMessage } from "@/components/common/centered-message";
-import { TimeframeToggle } from "@/components/reports/timeframe-toggle";
 
 /**
- * The frame every report shares: title and timeframe, a row of headline
+ * The frame every report shares: title and filters, a row of headline
  * figures, and the chart card, which says so while loading or when there is
  * nothing to draw. `footer` sits under the card, for a table.
  */
 export function ReportLayout({
   title,
-  timeframe,
-  onTimeframeChange,
+  filters,
   stats,
   isLoading,
   isEmpty,
@@ -21,8 +18,8 @@ export function ReportLayout({
   footer,
 }: {
   title: ReactNode;
-  timeframe: ReportTimeframe;
-  onTimeframeChange: (timeframe: ReportTimeframe) => void;
+  /** The report's `ReportFilters`. */
+  filters: ReactNode;
   stats: ReactNode;
   isLoading: boolean;
   isEmpty: boolean;
@@ -37,7 +34,7 @@ export function ReportLayout({
     <div className="p-8 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-2xl font-bold">{title}</h2>
-        <TimeframeToggle value={timeframe} onChange={onTimeframeChange} />
+        {filters}
       </div>
 
       <div className="flex flex-wrap gap-10">{stats}</div>

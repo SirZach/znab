@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   ComposedChart,
   Bar,
@@ -10,7 +9,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { trpc } from "@/trpc";
-import type { ReportTimeframe } from "@znab/shared";
 import { formatCurrency } from "@/lib/utils";
 import {
   CHART_COLORS,
@@ -20,6 +18,8 @@ import {
   formatCompactCurrency,
   formatMonthTick,
 } from "@/lib/chart";
+import { NOTHING_SELECTED, useReportFilters } from "@/hooks/useReportFilters";
+import { ReportFilters } from "@/components/reports/report-filters";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
@@ -27,16 +27,18 @@ const INCOME_COLOR = CHART_COLORS.green;
 const EXPENSE_COLOR = CHART_COLORS.red;
 
 export function IncomeVsExpenseReport({ budgetId }: { budgetId: number }) {
-  const [timeframe, setTimeframe] = useState<ReportTimeframe>("last12");
-  const { data, isLoading } = trpc.report.incomeVsExpense.useQuery({ budgetId, timeframe });
+  const filters = useReportFilters("last12");
+  const { data, isLoading } = trpc.report.incomeVsExpense.useQuery(
+    { budgetId, ...filters.query },
+    { enabled: !filters.nothingSelected }
+  );
 
   const series = data?.series ?? [];
 
   return (
     <ReportLayout
       title="Income vs. Expenses"
-      timeframe={timeframe}
-      onTimeframeChange={setTimeframe}
+      filters={<ReportFilters budgetId={budgetId} filters={filters} accounts="budget" categories />}
       stats={
         <>
           <SummaryStat
@@ -54,7 +56,9 @@ export function IncomeVsExpenseReport({ budgetId }: { budgetId: number }) {
       }
       isLoading={isLoading}
       isEmpty={series.length === 0}
-      emptyMessage="Nothing came in or went out in this timeframe."
+      emptyMessage={
+        filters.nothingSelected ? NOTHING_SELECTED : "Nothing came in or went out in this timeframe."
+      }
     >
       <ResponsiveContainer width="100%" height={448}>
         <ComposedChart data={series} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>

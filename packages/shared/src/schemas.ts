@@ -7,6 +7,7 @@ import {
   FLAG_COLORS,
   FREQUENCY_VALUES,
   REGISTER_SORTS,
+  REPORT_TIMEFRAMES,
   SORT_DIRECTIONS,
 } from "./types";
 
@@ -129,8 +130,13 @@ export const allAccountsSearchSchema = accountRegisterSearchSchema.omit({ txn: t
   offset: z.number().int().min(0).default(0),
 });
 
-// A report's drill-in, so a category's or payee's own spending can be linked to.
+// A report's filters and drill-in, so a filtered view, or a category's or
+// payee's own spending, can be linked to. Leaving a filter out means all,
+// and an empty one means none.
 export const reportSearchSchema = z.object({
+  timeframe: z.enum(REPORT_TIMEFRAMES).optional(),
+  accounts: z.array(z.number().int().positive()).optional(),
+  categories: z.array(z.number().int().positive()).optional(),
   category: z.number().int().positive().optional(),
   payee: z.number().int().positive().optional(),
 });

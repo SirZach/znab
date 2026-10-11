@@ -27,6 +27,16 @@ describe("onBudgetMoneySource", () => {
   test("leaves the date open when since is null", () => {
     expect(render(onBudgetMoneySource(1, { since: null })).sql).not.toContain("t.date >=");
   });
+
+  test("narrows both halves of the union to the accounts given", () => {
+    const { sql, params } = render(onBudgetMoneySource(1, { accountIds: [4, 5] }));
+    expect(sql.match(/t\.account_id IN \(\$\d+, \$\d+\)/g)).toHaveLength(2);
+    expect(params).toEqual([1, 4, 5, 1, 4, 5]);
+  });
+
+  test("leaves the accounts open when none are given", () => {
+    expect(render(onBudgetMoneySource(1, { accountIds: undefined })).sql).not.toContain("account_id IN");
+  });
 });
 
 describe("classification fragments", () => {

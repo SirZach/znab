@@ -10,7 +10,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import type { ReportTimeframe } from "@znab/shared";
 import { formatCurrency } from "@/lib/utils";
 import {
   CHART_COLORS,
@@ -22,6 +21,7 @@ import {
   linearTrend,
 } from "@/lib/chart";
 import { Button } from "@/components/ui/button";
+import { NOTHING_SELECTED } from "@/hooks/useReportFilters";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
@@ -36,8 +36,8 @@ export function MonthlySpendingReport({
   backLabel,
   onBack,
   color,
-  timeframe,
-  onTimeframeChange,
+  filters,
+  nothingSelected = false,
   data,
   isLoading,
   error,
@@ -49,8 +49,9 @@ export function MonthlySpendingReport({
   backLabel: string;
   onBack: () => void;
   color: string;
-  timeframe: ReportTimeframe;
-  onTimeframeChange: (timeframe: ReportTimeframe) => void;
+  filters: ReactNode;
+  /** A filter has everything unticked, so nothing was asked for. */
+  nothingSelected?: boolean;
   data: { series: { month: string; spent: number }[]; total: number } | undefined;
   isLoading: boolean;
   error: { message: string } | null;
@@ -72,8 +73,7 @@ export function MonthlySpendingReport({
           {subtitle && <span className="text-base font-normal text-muted-foreground">{subtitle}</span>}
         </span>
       }
-      timeframe={timeframe}
-      onTimeframeChange={onTimeframeChange}
+      filters={filters}
       stats={
         <>
           <SummaryStat label="Total spent" value={formatCurrency(data?.total ?? 0)} />
@@ -89,9 +89,11 @@ export function MonthlySpendingReport({
       // than passing for one that spent nothing.
       isEmpty={error !== null || series.every((point) => point.spent === 0)}
       emptyMessage={
-        error
-          ? `Could not load this ${subject}: ${error.message}`
-          : `Nothing was spent on this ${subject} in this timeframe.`
+        nothingSelected
+          ? NOTHING_SELECTED
+          : error
+            ? `Could not load this ${subject}: ${error.message}`
+            : `Nothing was spent on this ${subject} in this timeframe.`
       }
     >
       <ResponsiveContainer width="100%" height={448}>

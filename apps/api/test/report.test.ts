@@ -103,3 +103,52 @@ describe("categorySpending", () => {
     });
   });
 });
+
+describe("payeeSpending", () => {
+  test("one payee's net spend by month across categories, agreeing with spendingByPayee", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      const { budgetId } = seed;
+      const { groceries, fun } = seed.categories;
+      const enter = (categoryId: number, amount: number, date: string) =>
+        caller.transaction.create({
+          budgetId,
+          accountId: seed.accounts.checking.id,
+          payeeId: seed.payees.grocer.id,
+          categoryId,
+          amount,
+          date,
+        });
+
+      await enter(groceries.id, -40, "2025-03-10");
+      await enter(groceries.id, 10, "2025-03-12");
+      await enter(fun.id, -25, "2025-05-02");
+
+      const payeeId = seed.payees.grocer.id;
+      const report = await caller.report.payeeSpending({ budgetId, payeeId, timeframe: "all" });
+      expect(report.payee).toBe("Corner Grocer");
+      expect(report.series.slice(0, 3)).toEqual([
+        { month: "2025-03", spent: 30 },
+        { month: "2025-04", spent: 0 },
+        { month: "2025-05", spent: 25 },
+      ]);
+      expect(report.total).toBe(55);
+
+      const byPayee = await caller.report.spendingByPayee({ budgetId, timeframe: "all" });
+      expect(byPayee.spending.find((s) => s.payeeId === payeeId)?.spent).toBe(report.total);
+    });
+  });
+
+  test("refuses another user's budget and a payee from another budget", async () => {
+    await withCaller(async ({ seed, caller, other, otherCaller }) => {
+      const budgetId = seed.budgetId;
+      await expectTrpcError(
+        otherCaller.report.payeeSpending({ budgetId, payeeId: seed.payees.grocer.id, timeframe: "all" }),
+        "NOT_FOUND"
+      );
+      await expectTrpcError(
+        caller.report.payeeSpending({ budgetId, payeeId: other.payees.grocer.id, timeframe: "all" }),
+        "NOT_FOUND"
+      );
+    });
+  });
+});

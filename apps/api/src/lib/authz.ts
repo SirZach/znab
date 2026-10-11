@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { accounts, budgets, categories, payees } from "@znab/db";
 import type { Context } from "../context";
@@ -84,5 +84,30 @@ export async function assertIdsInBudget(
       columns: { id: true },
     });
     if (!account) throw new TRPCError({ code: "NOT_FOUND", message: "Account not found" });
+  }
+}
+
+/**
+ * Throws unless every account and category a report is filtered by lives in
+ * `budgetId`. A filter only ever narrows, so a foreign id would match nothing
+ * rather than leak, but it is refused all the same, as every other
+ * client-supplied id is.
+ */
+export async function assertFilterIdsInBudget(
+  db: Pick<AuthedContext["db"], "select">,
+  budgetId: number,
+  filter: { accountIds?: number[]; categoryIds?: number[] }
+) {
+  const checks = [
+    { ids: filter.accountIds, table: accounts, message: "Account not found" },
+    { ids: filter.categoryIds, table: categories, message: "Category not found" },
+  ] as const;
+  for (const { ids, table, message } of checks) {
+    if (!ids?.length) continue;
+    const found = await db
+      .select({ id: table.id })
+      .from(table)
+      .where(and(eq(table.budgetId, budgetId), inArray(table.id, ids)));
+    if (found.length !== new Set(ids).size) throw new TRPCError({ code: "NOT_FOUND", message });
   }
 }

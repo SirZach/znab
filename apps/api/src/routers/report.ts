@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { sql, eq, and, isNull } from "drizzle-orm";
 import { router, budgetProcedure } from "../trpc";
 import { accounts, transactions } from "@znab/db";
@@ -210,6 +211,58 @@ export const reportRouter = router({
       };
     }),
 
+  // One category from Spending by Category, by month, over the same timeframe.
+  //
+  // Each month is the category's net, as above, so a month whose refunds
+  // outweighed its spending reads negative rather than vanishing, and the
+  // months sum to the figure Spending by Category shows for it. Months with
+  // nothing in them are filled with zero so the chart keeps its time axis.
+  categorySpending: budgetProcedure
+    .input(
+      z.object({
+        categoryId: z.number().int(),
+        timeframe: z.enum(REPORT_TIMEFRAMES).default("all"),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const [category] = (await ctx.db.execute(sql`
+        SELECT c.name AS "category", g.name AS "group"
+        FROM categories c
+        JOIN category_groups g ON g.id = c.group_id
+        WHERE c.id = ${input.categoryId} AND c.budget_id = ${input.budgetId}
+      `)) as unknown as { category: string; group: string }[];
+      if (!category) throw new TRPCError({ code: "NOT_FOUND", message: "Category not found" });
+
+      const cutoff = timeframeCutoff(input.timeframe);
+      const since = cutoff ? `${cutoff}-01` : null;
+
+      const rows = (await ctx.db.execute(sql`
+        SELECT to_char(date_trunc('month', m.d), 'YYYY-MM') AS "month",
+               SUM(m.amount) AS "net"
+        FROM (${onBudgetMoneySource(input.budgetId, { since })}) m
+        WHERE m.category_id = ${input.categoryId}
+        GROUP BY date_trunc('month', m.d)
+        ORDER BY date_trunc('month', m.d)
+      `)) as unknown as { month: string; net: string }[];
+
+      const netByMonth = new Map(rows.map((row) => [row.month, toCents(row.net)]));
+      const thisMonth = monthOf(new Date());
+      const first = cutoff ?? rows[0]?.month;
+      const last = rows.at(-1)?.month;
+      const series = first
+        ? monthRange(first, last && last > thisMonth ? last : thisMonth).map((month) => ({
+            month,
+            spent: fromCents(-(netByMonth.get(month) ?? 0)),
+          }))
+        : [];
+
+      return {
+        ...category,
+        series,
+        total: fromCents(-rows.reduce((sum, row) => sum + toCents(row.net), 0)),
+      };
+    }),
+
   // Monthly net-worth time series across all accounts in a budget.
   // Each account's month-end balance is an asset if positive, a debt if
   // negative (YNAB's sign-based split). Net worth = assets - debts.
@@ -320,6 +373,10 @@ function timeframeCutoff(timeframe: ReportTimeframe): string | null {
   const year = now.getFullYear();
   if (timeframe === "thisYear") return `${year}-01`;
   const monthsBack = timeframe === "last12" ? 11 : 47;
-  const cutoff = new Date(year, now.getMonth() - monthsBack, 1);
-  return `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}`;
+  return monthOf(new Date(year, now.getMonth() - monthsBack, 1));
+}
+
+/** The local "YYYY-MM" month a date falls in. */
+function monthOf(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }

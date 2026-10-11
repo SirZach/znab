@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { reportSearchSchema } from "@znab/shared";
 import { findReport } from "@/lib/reports";
 
 export const Route = createFileRoute("/budgets/$budgetId/reports/$reportId")({
+  validateSearch: reportSearchSchema,
   component: ReportPage,
 });
 

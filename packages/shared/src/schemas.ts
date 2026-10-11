@@ -145,4 +145,6 @@ export const reportSearchSchema = z.object({
   // ("YYYY-MM" or "YYYY"); the one running now when left out.
   period: z.enum(COMPARISON_PERIODS).optional(),
   anchor: z.string().regex(COMPARISON_ANCHOR).optional(),
+  // The spending calendar's year; this one when left out.
+  year: z.number().int().min(1900).max(2099).optional(),
 });

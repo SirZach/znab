@@ -4,7 +4,8 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { trpc } from "@/trpc";
 import { formatCurrency } from "@/lib/utils";
 import { CHART_COLORS, formatCompactCurrency } from "@/lib/chart";
-import { type ComparisonPeriod, currentAnchor, rangeLabel, stepAnchor } from "@/lib/comparison";
+import type { ComparisonPeriod } from "@znab/shared";
+import { currentAnchor, rangeLabel, stepAnchor } from "@/lib/comparison";
 import { NOTHING_SELECTED, useReportFilters } from "@/hooks/useReportFilters";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,9 +37,9 @@ const CHARTED = 15;
 /** "+$12.00" or "-$12.00", since which way it moved is the point. */
 const signed = (n: number) => `${n > 0 ? "+" : ""}${formatCurrency(n)}`;
 
-/** The change as a share of what it was, or "new" when there was nothing before. */
-function percentChange(current: number, previous: number): string {
-  if (previous === 0) return current === 0 ? "" : "new";
+/** The change as a share of what it was, or "new" when nothing was spent before. */
+export function percentChange(current: number, previous: number): string {
+  if (previous === 0) return current > 0 ? "new" : "";
   const pct = Math.round(((current - previous) / Math.abs(previous)) * 100);
   return `${pct > 0 ? "+" : ""}${pct}%`;
 }
@@ -54,7 +55,8 @@ export function SpendingComparisonReport({ budgetId }: { budgetId: number }) {
   const navigate = reportRoute.useNavigate();
   const period: ComparisonPeriod = search.period ?? "month";
   const now = currentAnchor(period);
-  const anchor = search.anchor && search.anchor.length === now.length ? search.anchor : now;
+  // An anchor for the other period, or one that has not begun, reads as now.
+  const anchor = search.anchor && search.anchor.length === now.length && search.anchor < now ? search.anchor : now;
   const setPeriod = (next: ComparisonPeriod) =>
     navigate({ search: (prev) => ({ ...prev, period: next, anchor: undefined }) });
   const setAnchor = (next: string) =>

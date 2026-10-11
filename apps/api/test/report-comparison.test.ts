@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { expectTrpcError, withCaller } from "./harness";
+import { expectTrpcError, localDay, withCaller } from "./harness";
 
 /**
  * Dec 2024: groceries -30.
@@ -64,11 +64,46 @@ describe("spendingComparison", () => {
     });
   });
 
-  test("this month is compared to date when no anchor is given", async () => {
+  test("this month is compared to date, leaving out the rest of last month", async () => {
     await withCaller(async ({ seed, caller }) => {
-      const report = await caller.report.spendingComparison({ budgetId: seed.budgetId, period: "month" });
-      expect(report.toDate).toBe(true);
-      expect(report.rows).toEqual([]);
+      const { budgetId } = seed;
+      const groceries = seed.categories.groceries.id;
+      const today = localDay();
+      const thisMonth = today.slice(0, 7);
+      const lastMonth = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1);
+      const last = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, "0")}`;
+      const enter = (amount: number, date: string) =>
+        caller.transaction.create({
+          budgetId,
+          accountId: seed.accounts.checking.id,
+          payeeId: seed.payees.grocer.id,
+          categoryId: groceries,
+          amount,
+          date,
+        });
+
+      await enter(-30, `${thisMonth}-01`);
+      await enter(-20, `${last}-01`);
+      // Past today's day of the month, so outside last month's to-date range,
+      // unless today is late enough in the month that no such day remains.
+      const lateDay = Number(today.slice(8, 10)) < 28;
+      if (lateDay) await enter(-500, `${last}-28`);
+
+      const report = await caller.report.spendingComparison({ budgetId, period: "month" });
+      expect(report.anchor).toBe(thisMonth);
+      expect(report.totals).toEqual({ current: 30, previous: 20, change: 10 });
+      if (lateDay) expect(report.toDate).toBe(true);
+    });
+  });
+
+  test("a period that has not begun is read as this one", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      const report = await caller.report.spendingComparison({
+        budgetId: seed.budgetId,
+        period: "month",
+        anchor: "2099-01",
+      });
+      expect(report.anchor).toBe(localDay().slice(0, 7));
     });
   });
 

@@ -234,10 +234,14 @@ export const reportRouter = router({
   //
   // Only complete months count: this month is still running, so including it
   // would drag every average down by however much of the month is left. Last
-  // 12 Months is therefore the twelve months before this one, and All Dates
-  // runs from the first month with spending in it. Each category's figure is
-  // its net, as in Spending by Category, and one that comes out net positive
-  // over the window was not spent and is left out.
+  // 12 Months is therefore the twelve months before this one. Nor do months
+  // before the budget had any money in it: a budget a year old is averaged
+  // over its year, not over the four the timeframe names. That first month is
+  // the budget's whatever the filters, since a filter narrows what is counted
+  // rather than how long it is spread over, so a category reads the same
+  // average however it is filtered. Each category's figure is its net, as in
+  // Spending by Category, and one that comes out net positive over the window
+  // was not spent and is left out.
   averageSpending: budgetProcedure
     .input(
       z.object({
@@ -249,13 +253,17 @@ export const reportRouter = router({
       await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
       const end = monthOf(new Date());
       const start = completeMonthsStart(input.timeframe, end);
+      const [{ budgetFirst }] = (await ctx.db.execute(sql`
+        SELECT to_char(MIN(m.d), 'YYYY-MM') AS "budgetFirst"
+        FROM (${onBudgetMoneySource(input.budgetId)}) m
+        WHERE m.d < ${`${end}-01`}::date
+      `)) as unknown as [{ budgetFirst: string | null }];
 
       const rows = (await ctx.db.execute(sql`
         SELECT c.id AS "categoryId",
                c.name AS "category",
                g.name AS "group",
-               SUM(m.amount) AS "net",
-               to_char(MIN(m.d), 'YYYY-MM') AS "firstMonth"
+               SUM(m.amount) AS "net"
         FROM (${onBudgetMoneySource(input.budgetId, {
           since: start ? `${start}-01` : null,
           accountIds: input.accountIds,
@@ -270,11 +278,12 @@ export const reportRouter = router({
         category: string;
         group: string;
         net: string;
-        firstMonth: string;
       }[];
 
-      const first = start ?? rows.map((row) => row.firstMonth).sort()[0];
+      const first = budgetFirst && start && start > budgetFirst ? start : budgetFirst;
       const months = first ? monthRange(first, end).length - 1 : 0;
+      // Each figure is rounded on its own, so the rows can sum a cent or two
+      // away from the headline, as Spending by Category's do.
       const perMonth = (cents: number) => (months > 0 ? fromCents(Math.round(cents / months)) : 0);
 
       const spent = rows
@@ -285,7 +294,7 @@ export const reportRouter = router({
 
       return {
         months,
-        firstMonth: months > 0 ? first! : null,
+        firstMonth: months > 0 ? first : null,
         spending: spent.map((row) => ({
           categoryId: row.categoryId,
           category: row.category,

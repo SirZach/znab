@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { trpc } from "@/trpc";
 import { formatCurrency } from "@/lib/utils";
@@ -41,8 +41,11 @@ export function AverageSpendingReport({ budgetId }: { budgetId: number }) {
     { enabled: !filters.nothingSelected }
   );
 
+  const navigate = useNavigate();
   const spending = data?.spending ?? [];
   const charted = spending.slice(0, CHARTED);
+  // The drill-in counts this month and the timeframe the way Spending by
+  // Category does, so its total can differ from the complete months here.
   const drillTo = (categoryId: number) => ({
     to: "/budgets/$budgetId/reports/$reportId" as const,
     params: { budgetId: String(budgetId), reportId: "spending" },
@@ -132,7 +135,15 @@ export function AverageSpendingReport({ budgetId }: { budgetId: number }) {
               />
             }
           />
-          <Bar dataKey="average" fill="var(--color-average)" radius={[0, 4, 4, 0]} />
+          <Bar
+            dataKey="average"
+            fill="var(--color-average)"
+            radius={[0, 4, 4, 0]}
+            cursor="pointer"
+            onClick={(bar: { payload?: { categoryId: number } }) => {
+              if (bar.payload) navigate(drillTo(bar.payload.categoryId));
+            }}
+          />
         </BarChart>
       </ChartContainer>
     </ReportLayout>

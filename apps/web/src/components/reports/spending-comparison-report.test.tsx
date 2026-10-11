@@ -3,6 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderRoute } from "../../../test/router";
 import { currentAnchor, stepAnchor } from "@/lib/comparison";
+import { percentChange } from "./spending-comparison-report";
 
 const URL = "/budgets/1/reports/spending-comparison";
 const layout = { "budget.byId": { id: 1, name: "Household" }, "account.list": [], "category.list": [] };
@@ -20,7 +21,34 @@ const march = {
   totals: { current: 270, previous: 75, change: 195 },
 };
 
+describe("percentChange", () => {
+  test("is a share of what it was, signed as it moved", () => {
+    expect(percentChange(70, 50)).toBe("+40%");
+    expect(percentChange(0, 25)).toBe("-100%");
+    expect(percentChange(-10, 40)).toBe("-125%");
+    expect(percentChange(30, -10)).toBe("+400%");
+  });
+
+  test("is new only for spending where there was none, and blank otherwise", () => {
+    expect(percentChange(20, 0)).toBe("new");
+    expect(percentChange(-10, 0)).toBe("");
+    expect(percentChange(0, 0)).toBe("");
+  });
+});
+
 describe("SpendingComparisonReport", () => {
+  test("an anchor for the other period, or one not begun, reads as now", async () => {
+    for (const search of ["?period=year&anchor=2026-03", "?anchor=2099-01"]) {
+      const { inputsTo, unmount } = await renderRoute(`${URL}${search}`, {
+        fixtures: { ...layout, "report.spendingComparison": march },
+      });
+      await waitFor(() => expect(inputsTo("report.spendingComparison").length).toBe(1));
+      const sent = inputsTo("report.spendingComparison")[0] as { period: "month" | "year"; anchor: string };
+      expect(sent.anchor).toBe(currentAnchor(sent.period));
+      unmount();
+    }
+  });
+
   test("compares each category across the two periods, with the change", async () => {
     await renderRoute(`${URL}?anchor=2026-03`, {
       fixtures: { ...layout, "report.spendingComparison": march },

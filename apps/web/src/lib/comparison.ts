@@ -1,5 +1,4 @@
-/** Month over month and year over year: the period, and how its anchor is written. */
-export type ComparisonPeriod = "month" | "year";
+import type { ComparisonPeriod } from "@znab/shared";
 
 /** This month as "YYYY-MM", or this year as "YYYY". */
 export function currentAnchor(period: ComparisonPeriod, now: Date = new Date()): string {

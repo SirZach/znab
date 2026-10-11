@@ -116,3 +116,12 @@ export type OverspendKind = "cash" | "confined" | null;
 /** The timeframes every report can be narrowed to. */
 export const REPORT_TIMEFRAMES = ["all", "thisYear", "last12", "last4Years"] as const;
 export type ReportTimeframe = typeof REPORT_TIMEFRAMES[number];
+
+/** Month over month or year over year. */
+export const COMPARISON_PERIODS = ["month", "year"] as const;
+export type ComparisonPeriod = typeof COMPARISON_PERIODS[number];
+/**
+ * Which month ("YYYY-MM") or year ("YYYY") a comparison is anchored on,
+ * bounded to years date arithmetic and Postgres agree on.
+ */
+export const COMPARISON_ANCHOR = /^(19|20)\d{2}(-(0[1-9]|1[0-2]))?$/;

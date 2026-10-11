@@ -4,6 +4,8 @@ import {
   ACCOUNT_TYPES,
   ASSIGNABLE_CLEARED_VALUES,
   CLEARED_VALUES,
+  COMPARISON_ANCHOR,
+  COMPARISON_PERIODS,
   FLAG_COLORS,
   FREQUENCY_VALUES,
   REGISTER_SORTS,
@@ -141,6 +143,6 @@ export const reportSearchSchema = z.object({
   payee: z.number().int().positive().optional(),
   // Month over month and year over year: which period, and which one of them
   // ("YYYY-MM" or "YYYY"); the one running now when left out.
-  period: z.enum(["month", "year"]).optional(),
-  anchor: z.string().regex(/^\d{4}(-(0[1-9]|1[0-2]))?$/).optional(),
+  period: z.enum(COMPARISON_PERIODS).optional(),
+  anchor: z.string().regex(COMPARISON_ANCHOR).optional(),
 });

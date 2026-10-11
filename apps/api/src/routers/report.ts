@@ -9,6 +9,8 @@ import { comparisonPeriods } from "../lib/comparison-periods";
 import { localToday } from "../lib/date";
 import { andIdsIn, IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
 import {
+  COMPARISON_ANCHOR,
+  COMPARISON_PERIODS,
   fromCents,
   REPORT_TIMEFRAMES,
   type ReportTimeframe,
@@ -317,20 +319,26 @@ export const reportRouter = router({
   // either side are left out.
   spendingComparison: budgetProcedure
     .input(
-      z.object({
-        period: z.enum(["month", "year"]).default("month"),
-        // "YYYY-MM" for a month, "YYYY" for a year; this one when left out.
-        anchor: z.string().regex(/^\d{4}(-(0[1-9]|1[0-2]))?$/).optional(),
-        ...filterFields,
-      })
+      z
+        .object({
+          period: z.enum(COMPARISON_PERIODS).default("month"),
+          // "YYYY-MM" for a month, "YYYY" for a year; this one when left out.
+          anchor: z.string().regex(COMPARISON_ANCHOR).optional(),
+          ...filterFields,
+        })
+        .superRefine((value, issues) => {
+          if (value.anchor && value.anchor.length !== (value.period === "month" ? 7 : 4)) {
+            issues.addIssue({ code: "custom", path: ["anchor"], message: "Anchor does not match the period" });
+          }
+        })
     )
     .query(async ({ ctx, input }) => {
       await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
       const today = localToday();
-      const anchor = input.anchor ?? (input.period === "month" ? today.slice(0, 7) : today.slice(0, 4));
-      if (anchor.length !== (input.period === "month" ? 7 : 4)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Anchor does not match the period" });
-      }
+      const thisPeriod = input.period === "month" ? today.slice(0, 7) : today.slice(0, 4);
+      // A period that has not begun has nothing to compare, so it is read as
+      // this one, which is also what a browser a day ahead of the server asks.
+      const anchor = input.anchor && input.anchor < thisPeriod ? input.anchor : thisPeriod;
       const { toDate, current, previous } = comparisonPeriods(input.period, anchor, today);
       const inRange = (range: { start: string; end: string }) =>
         sql`m.d >= ${range.start}::date AND m.d < ${range.end}::date`;

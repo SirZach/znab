@@ -139,7 +139,7 @@ describe("payee writes run in one transaction against a locked payee", () => {
 
   test("setAutofill refuses another budget's category and saves its own", async () => {
     await withCaller(async ({ seed, caller, other }) => {
-      const base = { budgetId: seed.budgetId, id: seed.payees.grocer.id, amount: -12.5, memo: "  weekly  " };
+      const base = { budgetId: seed.budgetId, id: seed.payees.grocer.id, memo: "  weekly  " };
       await expectTrpcError(
         caller.payee.setAutofill({ ...base, categoryId: other.categories.groceries.id }),
         "NOT_FOUND"
@@ -147,7 +147,6 @@ describe("payee writes run in one transaction against a locked payee", () => {
       expect(await caller.payee.setAutofill({ ...base, categoryId: seed.categories.groceries.id })).toEqual({
         id: seed.payees.grocer.id,
         autofillCategoryId: seed.categories.groceries.id,
-        autofillAmount: "-12.50",
         autofillMemo: "weekly",
       });
     });

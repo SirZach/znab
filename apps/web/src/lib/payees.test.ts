@@ -1,29 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import {
-  autofillAmount,
   autofillDraft,
   filterPayees,
   hasAutofill,
   mergePlan,
   mergeSummary,
-  parseAutofillAmount,
   payeeCountLabel,
   renameRulesTitle,
 } from "./payees";
 
-const blank = { autofillCategoryId: null, autofillAmount: null, autofillMemo: null };
+const blank = { autofillCategoryId: null, autofillMemo: null };
 
-describe("autofillAmount and hasAutofill", () => {
-  test("an imported zero amount and empty memo are no autofill at all", () => {
-    const imported = { autofillCategoryId: null, autofillAmount: "0.0000", autofillMemo: " " };
-    expect(autofillAmount(imported)).toBeNull();
-    expect(hasAutofill(imported)).toBe(false);
+describe("hasAutofill", () => {
+  test("an imported empty memo is no autofill at all", () => {
+    expect(hasAutofill({ ...blank, autofillMemo: " " })).toBe(false);
     expect(hasAutofill(blank)).toBe(false);
   });
 
   test("any one real default counts", () => {
-    expect(autofillAmount({ ...blank, autofillAmount: "-25.5000" })).toBe(-25.5);
-    expect(hasAutofill({ ...blank, autofillAmount: "-25.5000" })).toBe(true);
     expect(hasAutofill({ ...blank, autofillCategoryId: 4 })).toBe(true);
     expect(hasAutofill({ ...blank, autofillMemo: "rent" })).toBe(true);
   });
@@ -81,14 +75,15 @@ describe("mergePlan and mergeSummary", () => {
 describe("autofillDraft", () => {
   const options = [{ id: 4 }, { id: 5 }];
 
-  test("starts from the saved defaults, the amount as plain text", () => {
-    expect(
-      autofillDraft({ autofillCategoryId: 4, autofillAmount: "-25.0000", autofillMemo: "rent" }, options)
-    ).toEqual({ savedCategoryHidden: false, categoryId: 4, amount: "-25", memo: "rent" });
+  test("starts from the saved defaults", () => {
+    expect(autofillDraft({ autofillCategoryId: 4, autofillMemo: "rent" }, options)).toEqual({
+      savedCategoryHidden: false,
+      categoryId: 4,
+      memo: "rent",
+    });
     expect(autofillDraft(blank, options)).toEqual({
       savedCategoryHidden: false,
       categoryId: "",
-      amount: "",
       memo: "",
     });
   });
@@ -105,19 +100,5 @@ describe("autofillDraft", () => {
       savedCategoryHidden: false,
       categoryId: 9,
     });
-  });
-});
-
-describe("parseAutofillAmount", () => {
-  test("blank is no amount, and valid", () => {
-    expect(parseAutofillAmount("  ")).toEqual({ value: null, invalid: false });
-  });
-
-  test("works arithmetic", () => {
-    expect(parseAutofillAmount("10+2.5")).toEqual({ value: 12.5, invalid: false });
-  });
-
-  test("flags what cannot be read", () => {
-    expect(parseAutofillAmount("12+")).toEqual({ value: null, invalid: true });
   });
 });

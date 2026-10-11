@@ -1,15 +1,17 @@
 /**
- * YNAB 4 remembers what a payee usually costs and where it usually gets
- * budgeted, and prefills the row when you pick that payee. The decision lives
+ * YNAB 4 remembers where a payee usually gets budgeted and what memo it
+ * carries, and prefills the row when you pick that payee. The decision lives
  * here, pure and out of the register component, so it can be tested and so the
  * component only has to call setState with whatever comes back.
+ *
+ * The remembered amount is deliberately left out. It is only ever the last
+ * amount YNAB 4 saw for the payee, which for most payees says nothing about
+ * this one, and a prefilled figure is easy to save without reading.
  */
 
 /** The autofill fields of a payee, as `payee.list` returns them. */
 export type PayeeAutofillSource = {
   autofillCategoryId: number | null;
-  /** A postgres NUMERIC, so a string. Negative is outflow, positive is inflow. */
-  autofillAmount: string | null;
   autofillMemo: string | null;
 };
 
@@ -17,16 +19,12 @@ export type PayeeAutofillSource = {
 export type RegisterDraft = {
   categoryId: number | null;
   memo: string;
-  outflow: string;
-  inflow: string;
 };
 
 /** Only the fields autofill decided to fill. An absent key means leave it alone. */
 export type PayeeAutofillPatch = {
   categoryId?: number;
   memo?: string;
-  outflow?: string;
-  inflow?: string;
 };
 
 export function payeeAutofillPatch(
@@ -47,19 +45,6 @@ export function payeeAutofillPatch(
     selectableCategories.some((c) => c.id === categoryId)
   ) {
     patch.categoryId = categoryId;
-  }
-
-  // Both money fields have to be untouched. Filling one half of a partly typed
-  // amount would leave an outflow and an inflow set at once, which will not save.
-  const amount = payee.autofillAmount === null ? NaN : Number(payee.autofillAmount);
-  if (
-    draft.outflow === "" &&
-    draft.inflow === "" &&
-    Number.isFinite(amount) &&
-    amount !== 0
-  ) {
-    if (amount < 0) patch.outflow = Math.abs(amount).toFixed(2);
-    else patch.inflow = amount.toFixed(2);
   }
 
   // Most imported payees carry an empty memo rather than a null one.

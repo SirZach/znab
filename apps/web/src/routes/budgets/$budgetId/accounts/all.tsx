@@ -73,7 +73,7 @@ function AllAccountsRegister() {
         />
         <ClearedFilter
           value={cleared}
-          counts={data?.counts ?? { all: 0, Uncleared: 0, Cleared: 0, Reconciled: 0 }}
+          counts={data?.counts ?? { all: 0, Unreconciled: 0, Reconciled: 0 }}
           onChange={(next) => navigate({ search: (prev) => ({ ...prev, cleared: next, offset: 0 }) })}
         />
       </div>

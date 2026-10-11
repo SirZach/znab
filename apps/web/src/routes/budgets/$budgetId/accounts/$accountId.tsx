@@ -19,11 +19,7 @@ import { TransactionCells } from "@/components/register/transaction-cells";
 import { UpcomingPanel } from "@/components/register/upcoming-panel";
 import { useReconcile } from "@/hooks/useReconcile";
 import { useRegisterLookups } from "@/hooks/useRegisterLookups";
-import {
-  type RegisterClearedFilter,
-  type RegisterTransaction,
-  useRegisterPages,
-} from "@/hooks/useRegisterPages";
+import { type RegisterTransaction, useRegisterPages } from "@/hooks/useRegisterPages";
 import { useRegisterSelection } from "@/hooks/useRegisterSelection";
 import { useRegisterUpcoming } from "@/hooks/useRegisterUpcoming";
 import { useRegisterWrites } from "@/hooks/useRegisterWrites";
@@ -58,7 +54,7 @@ function AccountRegisterPage() {
 
   const pages = useRegisterPages({
     ...ids,
-    cleared: cleared as RegisterClearedFilter,
+    cleared,
     q,
     sort,
     dir,

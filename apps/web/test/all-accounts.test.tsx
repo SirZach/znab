@@ -11,7 +11,7 @@ const fixtures = {
     balance: 0,
     total: 0,
     matches: 0,
-    counts: { all: 0, Uncleared: 0, Cleared: 0, Reconciled: 0 },
+    counts: { all: 0, Unreconciled: 0, Reconciled: 0 },
     hasMore: false,
   },
 };
@@ -30,14 +30,14 @@ describe("All Accounts search params", () => {
 
   test("reads the filter, sort and page from the URL", async () => {
     const { inputsTo } = await renderRoute(
-      "/budgets/1/accounts/all?q=rent&cleared=Cleared&sort=payee&dir=asc&offset=200",
+      "/budgets/1/accounts/all?q=rent&cleared=Unreconciled&sort=payee&dir=asc&offset=200",
       { fixtures }
     );
 
     await waitFor(() => expect(inputsTo("account.transactions").length).toBeGreaterThan(0));
     expect(lastQuery(inputsTo)).toMatchObject({
       q: "rent",
-      cleared: "Cleared",
+      cleared: "Unreconciled",
       sort: "payee",
       dir: "asc",
       offset: 200,

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getRouteApi } from "@tanstack/react-router";
 import {
   BarChart,
   Bar,
@@ -18,6 +19,7 @@ import {
   chartTooltipStyle,
   formatCompactCurrency,
 } from "@/lib/chart";
+import { CategorySpendingReport } from "@/components/reports/category-spending-report";
 import { ReportLayout } from "@/components/reports/report-layout";
 import { SummaryStat } from "@/components/reports/summary-stat";
 
@@ -29,12 +31,31 @@ import { SummaryStat } from "@/components/reports/summary-stat";
  */
 const CHARTED = 15;
 
+const reportRoute = getRouteApi("/budgets/$budgetId/reports/$reportId");
+
 export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
   const [timeframe, setTimeframe] = useState<ReportTimeframe>("last12");
-  const { data, isLoading } = trpc.report.spendingByCategory.useQuery({
-    budgetId,
-    timeframe,
-  });
+  // In the URL, so a category's own spending can be linked to and Back leaves it.
+  const { category: categoryId } = reportRoute.useSearch();
+  const navigate = reportRoute.useNavigate();
+  const setCategoryId = (category: number | undefined) =>
+    navigate({ search: (prev) => ({ ...prev, category }) });
+  const { data, isLoading } = trpc.report.spendingByCategory.useQuery(
+    { budgetId, timeframe },
+    { enabled: categoryId === undefined }
+  );
+
+  if (categoryId !== undefined) {
+    return (
+      <CategorySpendingReport
+        budgetId={budgetId}
+        categoryId={categoryId}
+        timeframe={timeframe}
+        onTimeframeChange={setTimeframe}
+        onBack={() => setCategoryId(undefined)}
+      />
+    );
+  }
 
   const spending = data?.spending ?? [];
   const charted = spending.slice(0, CHARTED);
@@ -69,7 +90,15 @@ export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
             <tbody>
               {spending.map((row) => (
                 <tr key={row.categoryId} className="border-t border-border">
-                  <td className="py-1.5">{row.category}</td>
+                  <td className="py-1.5">
+                    <button
+                      type="button"
+                      className="hover:underline"
+                      onClick={() => setCategoryId(row.categoryId)}
+                    >
+                      {row.category}
+                    </button>
+                  </td>
                   <td className="py-1.5 text-muted-foreground">{row.group}</td>
                   <td className="py-1.5 text-right tabular-nums">{formatCurrency(row.spent)}</td>
                 </tr>
@@ -88,7 +117,16 @@ export function SpendingByCategoryReport({ budgetId }: { budgetId: number }) {
             formatter={(value) => [formatCurrency(Number(value)), "Spent"]}
             contentStyle={chartTooltipStyle}
           />
-          <Bar dataKey="spent" name="Spent" fill={CHART_COLORS.blue} radius={[0, 4, 4, 0]} />
+          <Bar
+            dataKey="spent"
+            name="Spent"
+            fill={CHART_COLORS.blue}
+            radius={[0, 4, 4, 0]}
+            cursor="pointer"
+            onClick={(bar: { payload?: { categoryId: number } }) => {
+              if (bar.payload) setCategoryId(bar.payload.categoryId);
+            }}
+          />
         </BarChart>
       </ResponsiveContainer>
     </ReportLayout>

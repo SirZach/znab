@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { formatCompactCurrency, formatMonthTick } from "./chart";
+import { formatCompactCurrency, formatMonthTick, linearTrend } from "./chart";
+
+describe("linearTrend", () => {
+  test("fits the least squares line through the values", () => {
+    expect(linearTrend([1, 2, 6])).toEqual([0.5, 3, 5.5]);
+  });
+
+  test("a single value or none is its own trend", () => {
+    expect(linearTrend([4])).toEqual([4]);
+    expect(linearTrend([])).toEqual([]);
+  });
+});
 
 describe("formatMonthTick", () => {
   test("reads a YYYY-MM month as a short month and two digit year", () => {

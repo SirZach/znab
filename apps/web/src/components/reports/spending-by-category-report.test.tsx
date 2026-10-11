@@ -33,6 +33,7 @@ describe("SpendingByCategoryReport", () => {
     expect(await screen.findByText("Monthly average")).toBeTruthy();
     expect(screen.getByRole("heading", { name: /Groceries/ })).toBeTruthy();
     expect(screen.getByText("$22.50")).toBeTruthy();
+    expect(screen.getByText("-$15.00 / mo")).toBeTruthy();
     expect(router.state.location.search).toEqual({ category: 7 });
     await waitFor(() =>
       expect(inputsTo("report.categorySpending")).toEqual([{ budgetId: 1, categoryId: 7, timeframe: "thisYear" }])

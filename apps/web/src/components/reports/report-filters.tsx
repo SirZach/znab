@@ -7,18 +7,21 @@ import { TimeframeToggle } from "@/components/reports/timeframe-toggle";
  * The filters every report shares: its timeframe, and which accounts and
  * categories it counts. `accounts` says which accounts a report can count at
  * all, since only budget accounts carry spending; leaving it or `categories`
- * out leaves that picker off.
+ * out leaves that picker off, and `timeframe={false}` leaves off the timeframe
+ * for a report that picks its own period.
  */
 export function ReportFilters({
   budgetId,
   filters,
   accounts,
   categories = false,
+  timeframe = true,
 }: {
   budgetId: number;
   filters: ReportFiltersState;
   accounts?: "budget" | "all";
   categories?: boolean;
+  timeframe?: boolean;
 }) {
   const accountList = trpc.account.list.useQuery({ budgetId }, { enabled: accounts !== undefined });
   const categoryList = trpc.category.list.useQuery({ budgetId }, { enabled: categories });
@@ -38,7 +41,7 @@ export function ReportFilters({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <TimeframeToggle value={filters.timeframe} onChange={filters.setTimeframe} />
+      {timeframe && <TimeframeToggle value={filters.timeframe} onChange={filters.setTimeframe} />}
       {accounts && accountGroups.length > 0 && (
         <FilterPicker
           noun="accounts"

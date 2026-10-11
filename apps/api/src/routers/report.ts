@@ -5,8 +5,12 @@ import type { Context } from "../context";
 import { router, budgetProcedure } from "../trpc";
 import { accounts, transactions } from "@znab/db";
 import { assertFilterIdsInBudget } from "../lib/authz";
+import { comparisonPeriods } from "../lib/comparison-periods";
+import { localToday } from "../lib/date";
 import { andIdsIn, IS_INCOME, onBudgetMoneySource } from "../lib/money-source";
 import {
+  COMPARISON_ANCHOR,
+  COMPARISON_PERIODS,
   fromCents,
   REPORT_TIMEFRAMES,
   type ReportTimeframe,
@@ -304,6 +308,99 @@ export const reportRouter = router({
         })),
         total: fromCents(totalCents),
         average: perMonth(totalCents),
+      };
+    }),
+
+  // A month or a year against the one before it, by category.
+  //
+  // Each side is a category's net, as in Spending by Category, so a side can
+  // read negative where refunds outweighed spending. A period still running
+  // is compared to date (see comparisonPeriods). Categories with nothing on
+  // either side are left out.
+  spendingComparison: budgetProcedure
+    .input(
+      z
+        .object({
+          period: z.enum(COMPARISON_PERIODS).default("month"),
+          // "YYYY-MM" for a month, "YYYY" for a year; this one when left out.
+          anchor: z.string().regex(COMPARISON_ANCHOR).optional(),
+          ...filterFields,
+        })
+        .superRefine((value, issues) => {
+          if (value.anchor && value.anchor.length !== (value.period === "month" ? 7 : 4)) {
+            issues.addIssue({ code: "custom", path: ["anchor"], message: "Anchor does not match the period" });
+          }
+        })
+    )
+    .query(async ({ ctx, input }) => {
+      await assertFilterIdsInBudget(ctx.db, input.budgetId, input);
+      const today = localToday();
+      const thisPeriod = input.period === "month" ? today.slice(0, 7) : today.slice(0, 4);
+      // A period that has not begun has nothing to compare, so it is read as
+      // this one, which is also what a browser a day ahead of the server asks.
+      const anchor = input.anchor && input.anchor < thisPeriod ? input.anchor : thisPeriod;
+      const { toDate, current, previous } = comparisonPeriods(input.period, anchor, today);
+      const inRange = (range: { start: string; end: string }) =>
+        sql`m.d >= ${range.start}::date AND m.d < ${range.end}::date`;
+
+      const rows = (await ctx.db.execute(sql`
+        SELECT c.id AS "categoryId",
+               c.name AS "category",
+               g.name AS "group",
+               COALESCE(SUM(m.amount) FILTER (WHERE ${inRange(current)}), 0) AS "current",
+               COALESCE(SUM(m.amount) FILTER (WHERE ${inRange(previous)}), 0) AS "previous"
+        FROM (${onBudgetMoneySource(input.budgetId, { since: previous.start, accountIds: input.accountIds })}) m
+        JOIN categories c ON c.id = m.category_id
+        JOIN category_groups g ON g.id = c.group_id
+        WHERE g.type <> 'INFLOW' AND m.d < ${current.end}::date
+          ${andIdsIn(sql`c.id`, input.categoryIds)}
+        GROUP BY c.id, c.name, g.name
+      `)) as unknown as {
+        categoryId: number;
+        category: string;
+        group: string;
+        current: string;
+        previous: string;
+      }[];
+
+      const compared = rows
+        .map((row) => ({
+          categoryId: row.categoryId,
+          category: row.category,
+          group: row.group,
+          currentCents: -toCents(row.current),
+          previousCents: -toCents(row.previous),
+        }))
+        .filter((row) => row.currentCents !== 0 || row.previousCents !== 0)
+        .sort(
+          (a, b) =>
+            b.currentCents - a.currentCents ||
+            b.previousCents - a.previousCents ||
+            a.category.localeCompare(b.category) ||
+            a.categoryId - b.categoryId
+        );
+      const sum = (key: "currentCents" | "previousCents") =>
+        compared.reduce((total, row) => total + row[key], 0);
+
+      return {
+        period: input.period,
+        anchor,
+        toDate,
+        current,
+        previous,
+        rows: compared.map((row) => ({
+          categoryId: row.categoryId,
+          category: row.category,
+          group: row.group,
+          current: fromCents(row.currentCents),
+          previous: fromCents(row.previousCents),
+          change: fromCents(row.currentCents - row.previousCents),
+        })),
+        totals: {
+          current: fromCents(sum("currentCents")),
+          previous: fromCents(sum("previousCents")),
+          change: fromCents(sum("currentCents") - sum("previousCents")),
+        },
       };
     }),
 

@@ -5,6 +5,7 @@ import { transactions, payees, accounts } from "@znab/db";
 import { createTransactionSchema, updateTransactionSchema } from "@znab/shared";
 import { TRPCError } from "@trpc/server";
 import { assertIdsInBudget, ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import { categoryColumns, categoryRowId } from "../lib/category-columns";
 import { findOrCreatePayee } from "../lib/find-or-create-payee";
 import { transferCategoryId } from "../lib/transfer";
 import { writeTransferPair } from "../lib/transfer-write";
@@ -78,7 +79,7 @@ export const transactionRouter = router({
       // The payee is read scoped below, since a transfer is declared through
       // it; the account and category get the same treatment here.
       await assertIdsInBudget(ctx.db, input.budgetId, {
-        categoryId: input.categoryId,
+        categoryId: categoryRowId(input.categoryId),
         accountId: input.accountId,
       });
 
@@ -131,7 +132,7 @@ export const transactionRouter = router({
             budgetId: input.budgetId,
             accountId: input.accountId,
             payeeId,
-            categoryId: input.categoryId,
+            ...categoryColumns(input.categoryId),
             amount: String(input.amount),
             date: input.date,
             cleared: input.cleared,
@@ -209,7 +210,7 @@ export const transactionRouter = router({
         // ordinary edit writes all three straight through.
         await assertIdsInBudget(tx, row.budgetId, {
           payeeId,
-          categoryId,
+          categoryId: categoryRowId(categoryId),
           accountId: rest.accountId,
         });
 
@@ -223,7 +224,7 @@ export const transactionRouter = router({
         // entered on the off-budget side lands on the on-budget one.
         const farAccountId = row.transferAccountId;
         let nearCategoryId = categoryId;
-        let farCategoryId: number | null | undefined;
+        let farCategoryId: typeof categoryId;
         if (row.isTransfer && categoryId !== undefined && farAccountId !== null) {
           const ends = await tx.query.accounts.findMany({
             where: and(
@@ -245,7 +246,7 @@ export const transactionRouter = router({
           .set({
             ...rest,
             ...(resolvedPayeeId !== undefined ? { payeeId: resolvedPayeeId } : {}),
-            ...(nearCategoryId !== undefined ? { categoryId: nearCategoryId } : {}),
+            ...(nearCategoryId !== undefined ? categoryColumns(nearCategoryId) : {}),
             ...(amount != null ? { amount: String(amount) } : {}),
             updatedAt: new Date(),
           })
@@ -268,7 +269,7 @@ export const transactionRouter = router({
             .set({
               ...(rest.date !== undefined ? { date: rest.date } : {}),
               ...(amount != null ? { amount: String(-amount) } : {}),
-              ...(farCategoryId !== undefined ? { categoryId: farCategoryId } : {}),
+              ...(farCategoryId !== undefined ? categoryColumns(farCategoryId) : {}),
               updatedAt: new Date(),
             })
             .where(counterpartWhere(ctx, row.budgetId, row.transferTransactionId));

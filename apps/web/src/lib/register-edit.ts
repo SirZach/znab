@@ -4,7 +4,12 @@
  * edited and the bulk panel can only answer these the same way.
  */
 
-import { FLAG_COLORS, type FlagColor, transferCarriesCategory } from "@znab/shared";
+import {
+  FLAG_COLORS,
+  type FlagColor,
+  isIncomeCategoryId,
+  transferCarriesCategory,
+} from "@znab/shared";
 import type { RegisterRowLocks } from "@/components/register/row-fields";
 import { amountToFields, fieldsToAmount, type RegisterFields } from "@/lib/register-row";
 import { formatDateISO } from "@/lib/utils";
@@ -61,6 +66,8 @@ export type EditableTransaction = {
   payeeId: number | null;
   payee: { name: string } | null;
   categoryId: number | null;
+  /** Where income is named, since it has no category row. */
+  categoryYnabId?: string | null;
   memo: string | null;
   flagColor: string | null;
   amount: string | number;
@@ -73,7 +80,8 @@ export const fieldsFrom = (txn: EditableTransaction): RegisterFields => ({
   date: new Date(`${txn.date}T00:00:00`),
   payeeId: txn.payeeId,
   payeeName: txn.payee?.name ?? "",
-  categoryId: txn.categoryId,
+  categoryId:
+    txn.categoryId ?? (isIncomeCategoryId(txn.categoryYnabId) ? txn.categoryYnabId : null),
   memo: txn.memo ?? "",
   flagColor: flagColorOf(txn.flagColor),
   ...amountToFields(txn.amount),

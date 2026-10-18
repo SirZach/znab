@@ -9,7 +9,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { fromCents, toCents } from "@znab/shared";
+import { fromCents, type TransactionCategoryId, toCents } from "@znab/shared";
+import type { RegisterCategoryOption } from "@/lib/category-options";
 import { formatCurrency, formatDateShort } from "@/lib/utils";
 import { ActionButton } from "@/components/common/action-button";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
@@ -52,8 +53,8 @@ export function RegisterBulkPanel({
   error,
 }: {
   rows: BulkRow[];
-  categoryOptions: Array<{ id: number; label: string }>;
-  onCategorise: (categoryId: number) => void;
+  categoryOptions: RegisterCategoryOption[];
+  onCategorise: (categoryId: TransactionCategoryId) => void;
   onSetCleared: (cleared: "Cleared" | "Uncleared") => void;
   onDelete: () => void;
   onClear: () => void;

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DEFERRED_INCOME } from "@znab/shared";
 import type { RegisterFields } from "./register-row";
 import {
   buildTransactionCreate,
@@ -62,6 +63,12 @@ describe("fieldsFrom", () => {
       outflow: "12.50",
       inflow: "",
     });
+  });
+
+  test("seeds income, which has no category row, from its ynab id", () => {
+    const base = { date: "2026-10-01", payeeId: null, payee: null, categoryId: null, memo: null, flagColor: null, amount: "2500" };
+    expect(fieldsFrom({ ...base, categoryYnabId: DEFERRED_INCOME }).categoryId).toBe(DEFERRED_INCOME);
+    expect(fieldsFrom({ ...base, categoryYnabId: "Category/abc" }).categoryId).toBeNull();
   });
 });
 

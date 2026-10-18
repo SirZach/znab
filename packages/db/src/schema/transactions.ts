@@ -45,6 +45,10 @@ export const transactions = pgTable("transactions", {
   index("transactions_account_id_date_idx").on(t.accountId, t.date),
   // The month engine and the reports, which read a budget's money by date
   index("transactions_budget_id_date_idx").on(t.budgetId, t.date),
+  // A payee's or category's rows: the payee and category drill-down reports,
+  // merge and delete, and the foreign key checks when a payee or category goes
+  index("transactions_payee_id_idx").on(t.payeeId),
+  index("transactions_category_id_idx").on(t.categoryId),
   check("transactions_cleared_check", oneOf(t.cleared, CLEARED_VALUES)),
   check("transactions_flag_color_check", oneOf(t.flagColor, FLAG_COLORS)),
 ]);

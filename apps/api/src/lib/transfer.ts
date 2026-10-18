@@ -10,11 +10,11 @@ import { transferCarriesCategory } from "@znab/shared";
 export type TransferSide = { onBudget: boolean };
 
 /** The category one side of a transfer carries (see `transferCarriesCategory`). */
-export function transferCategoryId(
+export function transferCategoryId<T>(
   side: TransferSide,
   other: TransferSide,
-  categoryId: number | null,
-): number | null {
+  categoryId: T | null,
+): T | null {
   return transferCarriesCategory(side, other) ? categoryId : null;
 }
 

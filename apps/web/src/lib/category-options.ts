@@ -1,5 +1,16 @@
+import { DEFERRED_INCOME, IMMEDIATE_INCOME, type TransactionCategoryId } from "@znab/shared";
+
 /** A category as a picker offers it, labelled with its group. */
 export type CategoryOption = { id: number; label: string };
+
+/** What the register's picker offers: the categories, and income ahead of them. */
+export type RegisterCategoryOption = { id: TransactionCategoryId; label: string };
+
+/** YNAB 4's two income categories, in the words its register uses. */
+export const INCOME_OPTIONS: readonly RegisterCategoryOption[] = [
+  { id: IMMEDIATE_INCOME, label: "Income for this month" },
+  { id: DEFERRED_INCOME, label: "Income for next month" },
+];
 
 type CategoryGroupLike = {
   name: string;

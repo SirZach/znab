@@ -2,6 +2,7 @@ import type { FlagColor } from "@znab/shared";
 import { ClearedCell } from "@/components/register/cleared-cell";
 import { FlagCell } from "@/components/register/flag-cell";
 import type { RegisterTransaction } from "@/hooks/useRegisterPages";
+import { INCOME_OPTIONS } from "@/lib/category-options";
 import { flagColorOf } from "@/lib/register-edit";
 import { formatCurrency, formatDateShort } from "@/lib/utils";
 
@@ -30,7 +31,10 @@ export function TransactionCells({
       <td className="px-4 py-2 text-muted-foreground truncate">
         {txn.isSplit
           ? "Split"
-          : txn.category?.name ?? txn.categoryYnabId?.split("/").pop() ?? "—"}
+          : (txn.category?.name ??
+            INCOME_OPTIONS.find((o) => o.id === txn.categoryYnabId)?.label ??
+            txn.categoryYnabId?.split("/").pop() ??
+            "—")}
       </td>
       {/* The whole memo on hover, since this is the column most likely to be
           cut and the least costly to cut. */}

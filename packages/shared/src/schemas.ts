@@ -8,6 +8,7 @@ import {
   COMPARISON_PERIODS,
   FLAG_COLORS,
   FREQUENCY_VALUES,
+  INCOME_CATEGORY_IDS,
   REGISTER_SORTS,
   REPORT_TIMEFRAMES,
   SORT_DIRECTIONS,
@@ -19,7 +20,8 @@ export const createTransactionSchema = z.object({
   accountId: z.number().int().positive(),
   payeeId: z.number().int().positive().nullable(),
   payeeName: z.string().min(1).optional(), // create payee on the fly
-  categoryId: z.number().int().positive().nullable(),
+  // A category row, or one of the two income categories by ynab id.
+  categoryId: z.union([z.number().int().positive(), z.enum(INCOME_CATEGORY_IDS)]).nullable(),
   amount: moneySchema, // positive = inflow, negative = outflow
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   // Not Reconciled: see ASSIGNABLE_CLEARED_VALUES. Reconciling an account is

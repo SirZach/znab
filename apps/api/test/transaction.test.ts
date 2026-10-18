@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { and, eq, isNull } from "drizzle-orm";
 import { payees, transactions } from "@znab/db";
+import { DEFERRED_INCOME, IMMEDIATE_INCOME } from "@znab/shared";
 import {
   countRows,
   expectTrpcError,
@@ -184,6 +185,29 @@ describe("transaction.create payees", () => {
       );
       expect(await countRows(tx, payees, seed.budgetId)).toBe(before);
       expect(await countRows(tx, transactions, seed.budgetId)).toBe(0);
+    });
+  });
+});
+
+describe("transaction income categories", () => {
+  test("income is filed by ynab id, and a real category takes it off again", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      const row = await caller.transaction.create({
+        budgetId: seed.budgetId,
+        accountId: seed.accounts.checking.id,
+        payeeId: null,
+        payeeName: "Gusto",
+        categoryId: DEFERRED_INCOME,
+        amount: 2500,
+        date: DATE,
+      });
+      expect(row).toMatchObject({ categoryId: null, categoryYnabId: DEFERRED_INCOME });
+
+      const moved = await caller.transaction.update({ id: row!.id, categoryId: seed.categories.fun.id });
+      expect(moved).toMatchObject({ categoryId: seed.categories.fun.id, categoryYnabId: null });
+
+      const back = await caller.transaction.update({ id: row!.id, categoryId: IMMEDIATE_INCOME });
+      expect(back).toMatchObject({ categoryId: null, categoryYnabId: IMMEDIATE_INCOME });
     });
   });
 });

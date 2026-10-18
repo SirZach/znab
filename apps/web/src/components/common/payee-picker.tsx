@@ -131,12 +131,6 @@ export function PayeePicker<P extends Payee>({
             placeholder="Search payees..."
             value={query}
             onValueChange={setQuery}
-            onKeyDown={(e) => {
-              if (e.key !== "Tab" || !name) return;
-              e.preventDefault();
-              const payee = closest();
-              if (payee) pick(payee);
-            }}
           />
           <CommandList>
             <CommandEmpty>No payees found.</CommandEmpty>
@@ -154,7 +148,7 @@ export function PayeePicker<P extends Payee>({
             </CommandGroup>
             {name && !exists && (
               <CommandGroup forceMount>
-                <CommandItem forceMount value={CREATE} onSelect={create}>
+                <CommandItem forceMount value={CREATE} onSelect={create} data-no-tab-pick>
                   <Plus className="h-3.5 w-3.5 opacity-60" />
                   Create payee "{name}"
                 </CommandItem>

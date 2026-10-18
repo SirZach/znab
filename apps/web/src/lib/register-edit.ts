@@ -40,9 +40,9 @@ export function isReconciled(txn: ReconcilableSide): boolean {
   return txn.cleared === "Reconciled" || txn.counterpartCleared === "Reconciled";
 }
 
-/** A blank add row, dated today. */
-export const emptyFields = (): RegisterFields => ({
-  date: new Date(),
+/** A blank add row, dated today unless the previous entry's date carries over. */
+export const emptyFields = (date: Date = new Date()): RegisterFields => ({
+  date,
   payeeId: null,
   payeeName: "",
   categoryId: null,

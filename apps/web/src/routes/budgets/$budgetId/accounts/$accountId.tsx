@@ -53,8 +53,8 @@ function AccountRegisterPage() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   /** The row a link opened the register on, to bring into view once it loads. */
   const focusRowRef = useRef<HTMLTableRowElement>(null);
-  /** The add row's payee control, so a saved row hands the keyboard straight back. */
-  const addPayeeRef = useRef<HTMLButtonElement>(null);
+  /** The add row's date field, so a saved row hands the keyboard straight back. */
+  const addDateRef = useRef<HTMLInputElement>(null);
 
   const pages = useRegisterPages({
     ...ids,
@@ -91,9 +91,12 @@ function AccountRegisterPage() {
       // Entering a run of transactions is the same few keystrokes over and
       // over, and the row let go of the keyboard the moment it was used, so
       // every transaction after the first began with reaching for the mouse.
-      // The date is already back to today, so the payee is the next thing
-      // anybody types.
-      setTimeout(() => addPayeeRef.current?.focus(), 0);
+      // Back to the date, selected, so the next row starts the way the first
+      // did and typing a date replaces today's.
+      setTimeout(() => {
+        addDateRef.current?.focus();
+        addDateRef.current?.select();
+      }, 0);
       // A page opened on an old row leaves the newest off, and the row just
       // entered is usually one of them.
       if (focusId !== undefined) {
@@ -394,7 +397,7 @@ function AccountRegisterPage() {
             }}
             isSaving={writes.isSaving}
             error={addBlocked ?? writes.createError}
-            payeeTriggerRef={addPayeeRef}
+            dateInputRef={addDateRef}
           />
         </div>
 

@@ -54,7 +54,7 @@ export function RegisterRowFields({
   onCancel,
   tabIndexBase,
   autoFocus,
-  payeeTriggerRef,
+  dateInputRef,
 }: {
   fields: RegisterFields;
   /** Only the keys that changed; the caller merges them into its draft. */
@@ -69,12 +69,12 @@ export function RegisterRowFields({
   tabIndexBase?: number;
   autoFocus?: boolean;
   /**
-   * The payee control, handed back so the register can return to it once a row
+   * The date field, handed back so the register can return to it once a row
    * has saved. Entering a run of transactions is the same few keystrokes over
    * and over, and the one thing that stopped it being continuous was that the
    * add row let go of the keyboard the moment it was used.
    */
-  payeeTriggerRef?: React.Ref<HTMLButtonElement>;
+  dateInputRef?: React.Ref<HTMLInputElement>;
   /**
    * The number this account is up to, offered as the check field's placeholder
    * rather than typed into it: most rows are not cheques, and prefilling would
@@ -86,7 +86,6 @@ export function RegisterRowFields({
   const categoryTriggerRef = useRef<HTMLButtonElement>(null);
   const memoRef = useRef<HTMLInputElement>(null);
   const outflowRef = useRef<HTMLInputElement>(null);
-  const dateRef = useRef<HTMLInputElement>(null);
   const [dateOpen, setDateOpen] = useState(false);
   // What is in the date field while it is being typed into. Null means nothing
   // is being typed, so the field shows the date the row actually holds.
@@ -122,7 +121,7 @@ export function RegisterRowFields({
         <div className="flex items-center gap-0.5">
           <UnderlineInput
             type="text"
-            ref={dateRef}
+            ref={dateInputRef}
             tabIndex={tab(1)}
             aria-label="Date"
             placeholder="Date"
@@ -190,7 +189,6 @@ export function RegisterRowFields({
             payees={payees}
             payeeId={fields.payeeId}
             payeeName={fields.payeeName}
-            triggerRef={payeeTriggerRef}
             tabIndex={tab(2)}
             onPick={(p) => {
               // YNAB 4 prefills the rest of the row from what this payee

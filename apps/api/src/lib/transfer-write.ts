@@ -5,6 +5,8 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { accounts, payees, transactions } from "@znab/db";
+import type { TransactionCategoryId } from "@znab/shared";
+import { categoryColumns } from "./category-columns";
 import { transferCategoryId, transferPayeeName, transferPayeeYnabId } from "./transfer";
 import type { Tx } from "./tx";
 
@@ -19,7 +21,7 @@ export type TransferEntry = {
   /** The near side's amount; the far side gets its negation. */
   amount: number;
   date: string;
-  categoryId: number | null;
+  categoryId: TransactionCategoryId | null;
   memo?: string | null;
   /** Per side: only the near row takes these. The far side has not seen the money yet. */
   near?: {
@@ -125,7 +127,7 @@ export async function insertTransferPair(tx: Tx, ends: TransferEnds, entry: Tran
       ynabId: nearYnabId,
       accountId: near.id,
       payeeId: ends.nearPayeeId,
-      categoryId: transferCategoryId(near, far, entry.categoryId),
+      ...categoryColumns(transferCategoryId(near, far, entry.categoryId)),
       amount: String(entry.amount),
       cleared: entry.near?.cleared ?? "Uncleared",
       accepted: entry.near?.accepted ?? true,
@@ -140,7 +142,7 @@ export async function insertTransferPair(tx: Tx, ends: TransferEnds, entry: Tran
     ynabId: farYnabId,
     accountId: far.id,
     payeeId: ends.farPayeeId,
-    categoryId: transferCategoryId(far, near, entry.categoryId),
+    ...categoryColumns(transferCategoryId(far, near, entry.categoryId)),
     amount: String(-entry.amount),
     cleared: "Uncleared",
     accepted: true,

@@ -9,6 +9,8 @@
  * this one, and a prefilled figure is easy to save without reading.
  */
 
+import type { TransactionCategoryId } from "@znab/shared";
+
 /** The autofill fields of a payee, as `payee.list` returns them. */
 export type PayeeAutofillSource = {
   autofillCategoryId: number | null;
@@ -17,7 +19,7 @@ export type PayeeAutofillSource = {
 
 /** What the add-transaction row already holds, so autofill never overwrites typing. */
 export type RegisterDraft = {
-  categoryId: number | null;
+  categoryId: TransactionCategoryId | null;
   memo: string;
 };
 
@@ -30,7 +32,7 @@ export type PayeeAutofillPatch = {
 export function payeeAutofillPatch(
   payee: PayeeAutofillSource,
   draft: RegisterDraft,
-  selectableCategories: readonly { id: number }[]
+  selectableCategories: readonly { id: TransactionCategoryId }[]
 ): PayeeAutofillPatch {
   const patch: PayeeAutofillPatch = {};
 

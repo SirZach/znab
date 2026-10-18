@@ -1,5 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { accountRegisterSearchSchema, type FlagColor } from "@znab/shared";
+import {
+  accountRegisterSearchSchema,
+  type FlagColor,
+  type TransactionCategoryId,
+} from "@znab/shared";
 import { useEffect, useRef, useState } from "react";
 import { CenteredMessage } from "@/components/common/centered-message";
 import { AddRow } from "@/components/register/add-row";
@@ -197,7 +201,7 @@ function AccountRegisterPage() {
 
   // A category is written to a reconciled row the way a flag is: it moves
   // budget activity, not what the account says it holds.
-  function categoriseSelected(categoryId: number) {
+  function categoriseSelected(categoryId: TransactionCategoryId) {
     const plan = planBulkCategorise(selectedRows, (row) => !lockRow(row).category);
     for (const row of plan.targets) {
       writes.updateTransaction(row, { ...fieldsFrom(row), categoryId });

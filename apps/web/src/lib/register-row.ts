@@ -6,7 +6,7 @@
  * answer them the same way.
  */
 
-import type { FlagColor } from "@znab/shared";
+import type { FlagColor, TransactionCategoryId } from "@znab/shared";
 
 import { parseAmountExpression } from "./utils";
 
@@ -18,7 +18,7 @@ export type RegisterFields = MoneyFields & {
   date: Date | undefined;
   payeeId: number | null;
   payeeName: string;
-  categoryId: number | null;
+  categoryId: TransactionCategoryId | null;
   memo: string;
   /** The flag, which is a colour and nothing else, or none. */
   flagColor: FlagColor | null;

@@ -18,6 +18,7 @@ import { FlagCell } from "@/components/register/flag-cell";
 import { PayeePicker } from "@/components/common/payee-picker";
 import { offsetDays, parseDateEntry } from "@/lib/date-entry";
 import type { PayeeAutofillPatch, PayeeAutofillSource } from "@/lib/payee-autofill";
+import type { RegisterCategoryOption } from "@/lib/category-options";
 import type { RegisterFields } from "@/lib/register-row";
 
 /** A payee as the picker needs it: enough to list it and to autofill from it. */
@@ -59,7 +60,7 @@ export function RegisterRowFields({
   /** Only the keys that changed; the caller merges them into its draft. */
   onChange: (patch: Partial<RegisterFields>) => void;
   payees: PickablePayee[] | undefined;
-  categoryOptions: Array<{ id: number; label: string }>;
+  categoryOptions: RegisterCategoryOption[];
   autofill: (payee: PayeeAutofillSource, draft: RegisterFields) => PayeeAutofillPatch;
   locks?: RegisterRowLocks;
   onSubmit: () => void;

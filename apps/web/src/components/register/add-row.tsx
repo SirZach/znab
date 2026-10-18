@@ -18,7 +18,7 @@ export function AddRow({
   onCancel,
   isSaving,
   error,
-  payeeTriggerRef,
+  dateInputRef,
 }: {
   fields: RegisterFields;
   onChange: (patch: Partial<RegisterFields>) => void;
@@ -31,7 +31,7 @@ export function AddRow({
   onCancel: () => void;
   isSaving: boolean;
   error: string | null;
-  payeeTriggerRef: Ref<HTMLButtonElement>;
+  dateInputRef: Ref<HTMLInputElement>;
 }) {
   return (
     // Lighter than any state a register row can be in, hovered, selected or
@@ -49,7 +49,7 @@ export function AddRow({
             locks={locks}
             onSubmit={onSave}
             tabIndexBase={1}
-            payeeTriggerRef={payeeTriggerRef}
+            dateInputRef={dateInputRef}
           />
           {/* Spans the cleared column too, so both buttons fit on one line. */}
           <td colSpan={2} className="px-2 py-2">

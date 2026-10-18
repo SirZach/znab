@@ -42,7 +42,7 @@ const CommandDialog = ({ children, ...props }: CommandDialogProps) => {
 const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
->(({ className, onValueChange, ...props }, ref) => (
+>(({ className, onValueChange, onKeyDown, ...props }, ref) => (
   <div className="flex items-center border-b px-3" cmdk-input-wrapper="">
     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
     <CommandPrimitive.Input
@@ -63,6 +63,18 @@ const CommandInput = React.forwardRef<
             ?.querySelector("[cmdk-item][data-selected=true]")
             ?.scrollIntoView({ block: "nearest" })
         )
+      }}
+      // Tab with a search typed takes the highlighted item, as Enter does, so
+      // every picker can be left with its closest match. An item marked
+      // data-no-tab-pick (a create choice, say) is only ever picked on purpose.
+      onKeyDown={(e) => {
+        onKeyDown?.(e)
+        if (e.defaultPrevented || e.key !== "Tab" || !e.currentTarget.value.trim()) return
+        e.preventDefault()
+        e.currentTarget
+          .closest("[cmdk-root]")
+          ?.querySelector("[cmdk-item][data-selected=true]:not([data-no-tab-pick])")
+          ?.dispatchEvent(new Event("cmdk-item-select"))
       }}
       {...props}
     />

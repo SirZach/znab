@@ -85,7 +85,6 @@ export function RegisterRowFields({
 
   const categoryTriggerRef = useRef<HTMLButtonElement>(null);
   const memoRef = useRef<HTMLInputElement>(null);
-  const outflowRef = useRef<HTMLInputElement>(null);
   const [dateOpen, setDateOpen] = useState(false);
   // What is in the date field while it is being typed into. Null means nothing
   // is being typed, so the field shows the date the row actually holds.
@@ -93,12 +92,9 @@ export function RegisterRowFields({
 
   const tab = (n: number) => (tabIndexBase === undefined ? undefined : tabIndexBase + n);
 
-  function focusAfterPayee(next: React.RefObject<HTMLElement | null>) {
-    setTimeout(() => {
-      const el = next.current ?? memoRef.current;
-      el?.focus();
-      if (el === outflowRef.current) outflowRef.current?.select();
-    }, 0);
+  // The category picker, or the memo when the category is locked.
+  function focusAfterPayee() {
+    setTimeout(() => (categoryTriggerRef.current ?? memoRef.current)?.focus(), 0);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -194,20 +190,16 @@ export function RegisterRowFields({
               // YNAB 4 prefills the rest of the row from what this payee
               // usually uses. A brand new payee skips this entirely, since
               // there is nothing remembered yet.
-              const patch = autofill(p, fields);
-              onChange({ payeeId: p.id, payeeName: p.name, ...patch });
+              onChange({ payeeId: p.id, payeeName: p.name, ...autofill(p, fields) });
 
-              // Once the category is settled its picker is a stop the user
-              // does not need, and landing on it would pop the menu open over
-              // an answer they already have. What is worth landing on is the
-              // amount: it is the one field that differs every time even for a
-              // payee used weekly, so it is never prefilled and is what gets
-              // typed next.
-              focusAfterPayee(patch.categoryId !== undefined ? outflowRef : categoryTriggerRef);
+              // A payee can file under more than one category, so a remembered
+              // one is only a suggestion: the picker opens on it, and Enter or
+              // Tab confirms it.
+              focusAfterPayee();
             }}
             onCreate={(name) => {
               onChange({ payeeId: null, payeeName: name });
-              focusAfterPayee(categoryTriggerRef);
+              focusAfterPayee();
             }}
           />
         )}
@@ -240,7 +232,11 @@ export function RegisterRowFields({
               )}
             </PopoverTrigger>
             <PopoverContent className="w-72 p-0" align="start">
-              <Command>
+              <Command
+                // Opens on the category the row already holds, so confirming
+                // it is a keystroke.
+                defaultValue={categoryOptions.find((c) => c.id === fields.categoryId)?.label}
+              >
                 <CommandInput placeholder="Search categories..." />
                 <CommandList>
                   <CommandEmpty>No categories found.</CommandEmpty>
@@ -292,7 +288,6 @@ export function RegisterRowFields({
           ) : (
             <MoneyInput
               variant="underline"
-              ref={i === 0 ? outflowRef : undefined}
               tabIndex={tab(5 + i)}
               aria-label={column.label}
               value={column.value}

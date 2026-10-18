@@ -55,6 +55,8 @@ function AccountRegisterPage() {
   const focusRowRef = useRef<HTMLTableRowElement>(null);
   /** The add row's date field, so a saved row hands the keyboard straight back. */
   const addDateRef = useRef<HTMLInputElement>(null);
+  /** The date of the last row entered here, which the next one starts on. */
+  const lastEnteredDate = useRef<Date | undefined>(undefined);
 
   const pages = useRegisterPages({
     ...ids,
@@ -86,13 +88,16 @@ function AccountRegisterPage() {
           }),
         0
       );
-      setAddFields(emptyFields());
+      // A run of entries is usually off the same receipt or statement, so the
+      // next row starts on the date of the one just entered.
+      lastEnteredDate.current = addFields.date;
+      setAddFields(emptyFields(addFields.date));
       setAddBlocked(null);
       // Entering a run of transactions is the same few keystrokes over and
       // over, and the row let go of the keyboard the moment it was used, so
       // every transaction after the first began with reaching for the mouse.
       // Back to the date, selected, so the next row starts the way the first
-      // did and typing a date replaces today's.
+      // did and typing a date replaces the carried one.
       setTimeout(() => {
         addDateRef.current?.focus();
         addDateRef.current?.select();
@@ -391,7 +396,7 @@ function AccountRegisterPage() {
             locks={addLocks}
             onSave={saveAdd}
             onCancel={() => {
-              setAddFields(emptyFields());
+              setAddFields(emptyFields(lastEnteredDate.current));
               setAddBlocked(null);
               writes.resetCreateStatus();
             }}

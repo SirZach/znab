@@ -4,6 +4,7 @@ import type { RegisterFields } from "./register-row";
 import {
   buildTransactionCreate,
   buildTransactionUpdate,
+  emptyFields,
   fieldsFrom,
   flagColorOf,
   isReconciled,
@@ -27,6 +28,14 @@ const fields = (over: Partial<RegisterFields> = {}): RegisterFields => ({
 });
 
 const txn = { id: 1, cleared: "Uncleared", isSplit: false, isTransfer: false };
+
+describe("emptyFields", () => {
+  test("is dated today unless given a date", () => {
+    expect(emptyFields().date?.toDateString()).toBe(new Date().toDateString());
+    const carried = new Date("2026-09-14T00:00:00");
+    expect(emptyFields(carried)).toMatchObject({ date: carried, payeeId: null, outflow: "" });
+  });
+});
 
 describe("isReconciled", () => {
   test("either side being reconciled counts", () => {

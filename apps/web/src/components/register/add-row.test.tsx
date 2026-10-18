@@ -1,7 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
-import { act, screen } from "@testing-library/react";
+import { useState } from "react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { emptyFields } from "@/lib/register-edit";
+import type { RegisterFields } from "@/lib/register-row";
 import { renderWithTrpc } from "../../../test/trpc";
 import { AddRow } from "./add-row";
 
@@ -61,5 +63,44 @@ describe("AddRow", () => {
     act(() => screen.getByText("Category").closest("button")?.focus());
     await userEvent.type(await screen.findByPlaceholderText("Search categories..."), "rest{Tab}");
     expect(onChange).toHaveBeenCalledWith({ categoryId: 2 });
+  });
+
+  test("a payee's remembered category waits in the open picker to be confirmed", async () => {
+    let latest: RegisterFields = emptyFields();
+    function Stateful() {
+      const [fields, setFields] = useState(emptyFields);
+      latest = fields;
+      return (
+        <AddRow
+          fields={fields}
+          onChange={(patch) => setFields((prev) => ({ ...prev, ...patch }))}
+          payeeList={[
+            { id: 7, name: "Costco", autofillCategoryId: 2, autofillMemo: null, targetAccountId: null },
+          ]}
+          categoryOptions={categoryOptions}
+          autofillForPayee={() => ({ categoryId: 2 })}
+          locks={{}}
+          onSave={() => {}}
+          onCancel={() => {}}
+          isSaving={false}
+          error={null}
+          dateInputRef={null}
+        />
+      );
+    }
+    renderWithTrpc(<Stateful />);
+
+    await userEvent.click(screen.getByText("Payee"));
+    await userEvent.type(await screen.findByPlaceholderText("Search payees..."), "cost{Enter}");
+
+    const search = await screen.findByPlaceholderText("Search categories...");
+    await waitFor(() => expect(document.activeElement).toBe(search));
+    expect(
+      screen.getByRole("option", { name: "Everyday: Restaurants" }).getAttribute("data-selected")
+    ).toBe("true");
+
+    await userEvent.keyboard("{Enter}");
+    expect(latest.categoryId).toBe(2);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Memo")));
   });
 });

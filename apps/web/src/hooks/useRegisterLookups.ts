@@ -1,5 +1,5 @@
 import { trpc } from "@/trpc";
-import { toCategoryOptions } from "@/lib/category-options";
+import { INCOME_OPTIONS, toCategoryOptions } from "@/lib/category-options";
 import { payeeAutofillPatch } from "@/lib/payee-autofill";
 import type { PayeeAutofillSource, RegisterDraft } from "@/lib/payee-autofill";
 import { transferKeepsCategory } from "@/lib/register-edit";
@@ -24,7 +24,7 @@ export function useRegisterLookups({
   // stand-in payee is not worth offering in its own register.
   const payeeList = allPayees?.filter((p) => p.targetAccountId !== accountId);
 
-  const categoryOptions = toCategoryOptions(categoryGroups);
+  const categoryOptions = [...INCOME_OPTIONS, ...toCategoryOptions(categoryGroups)];
 
   return {
     account,

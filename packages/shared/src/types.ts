@@ -86,6 +86,13 @@ export type PayeeRenameOperator = typeof PAYEE_RENAME_OPERATORS[number];
 export const IMMEDIATE_INCOME = "Category/__ImmediateIncome__";
 /** Income for next month: it lands in the month after the one it is dated. */
 export const DEFERRED_INCOME = "Category/__DeferredIncome__";
+/** Income has no category row: a transaction names it by ynab id instead. */
+export const INCOME_CATEGORY_IDS = [IMMEDIATE_INCOME, DEFERRED_INCOME] as const;
+export type IncomeCategoryId = (typeof INCOME_CATEGORY_IDS)[number];
+export const isIncomeCategoryId = (id: unknown): id is IncomeCategoryId =>
+  INCOME_CATEGORY_IDS.includes(id as IncomeCategoryId);
+/** What a register row can be filed under: a category row, or income. */
+export type TransactionCategoryId = number | IncomeCategoryId;
 /** The category a split parent carries; its parts carry the real ones. */
 export const SPLIT_CATEGORY_ID = "Category/__Split__";
 

@@ -20,7 +20,7 @@ function renderAddRow(props: { isSaving?: boolean; error?: string | null } = {})
       onCancel={onCancel}
       isSaving={props.isSaving ?? false}
       error={props.error ?? null}
-      payeeTriggerRef={null}
+      dateInputRef={null}
     />
   );
   return { onSave, onCancel };

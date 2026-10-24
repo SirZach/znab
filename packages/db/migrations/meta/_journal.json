@@ -78,6 +78,13 @@
       "when": 1791679072067,
       "tag": "0010_drop_unused_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792339286877,
+      "tag": "0011_payee_category_indexes",
+      "breakpoints": true
     }
   ]
 }

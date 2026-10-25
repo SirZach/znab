@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the newest znab backup restores, weekly
+
+[Timer]
+# Same zone as znab-backup.timer; an hour after Sunday's backup.
+OnCalendar=Sun *-*-* 04:00:00 America/Chicago
+Persistent=true
+
+[Install]
+WantedBy=timers.target

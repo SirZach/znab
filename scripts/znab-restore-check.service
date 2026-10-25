@@ -1,0 +1,25 @@
+# Runs scripts/restore-check.sh once; znab-restore-check.timer decides when.
+# Restores the newest nightly dump into a scratch database and compares it
+# with the live one.
+#
+# Install (after znab-backup, which writes the dumps this reads):
+#
+#   cp scripts/znab-restore-check.service scripts/znab-restore-check.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now znab-restore-check.timer
+#
+#   systemctl --user start znab-restore-check     # check now
+#   journalctl --user -u znab-restore-check -f
+
+[Unit]
+Description=Check the newest znab backup restores
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/workspace/znab
+# Optional: ZNAB_RESTORE_PUSH_URL, tolerances.
+EnvironmentFile=-%h/.config/znab/backup.env
+Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/workspace/znab/scripts/restore-check.sh
+MemoryMax=512M

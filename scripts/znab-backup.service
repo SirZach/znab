@@ -1,0 +1,27 @@
+# Runs scripts/backup.sh once; znab-backup.timer decides when.
+#
+# Install (offsite copy needs an rclone remote named "dropbox", see SETUP.md):
+#
+#   mkdir -p ~/.config/znab && cp scripts/backup.env.example ~/.config/znab/backup.env
+#   chmod 600 ~/.config/znab/backup.env    # then fill in the push URLs
+#   cp scripts/znab-backup.service scripts/znab-backup.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now znab-backup.timer
+#
+#   systemctl --user start znab-backup     # back up now
+#   journalctl --user -u znab-backup -f
+
+[Unit]
+Description=Back up the znab database and copy it offsite
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/workspace/znab
+# Optional: push URLs, ZNAB_BACKUP_REMOTE, retention counts.
+EnvironmentFile=-%h/.config/znab/backup.env
+Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/workspace/znab/scripts/backup.sh
+# Same tripwire as znab.service: this machine has 2GB.
+MemoryMax=512M

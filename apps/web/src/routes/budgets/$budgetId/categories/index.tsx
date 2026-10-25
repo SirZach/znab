@@ -6,15 +6,17 @@ import { ErrorList } from "@/components/common/error-list";
 import { PageHeader } from "@/components/common/page-header";
 import { AddNameRow } from "@/components/categories/add-name-row";
 import { CategoryGroupRows } from "@/components/categories/category-group-rows";
+import { ReassignCategoryDialog } from "@/components/categories/reassign-category-dialog";
 import { useCategories } from "@/hooks/useCategories";
 import { categoryCount, type DoomedCategory, movableGroups } from "@/lib/category-groups";
+import { toCategoryOptions } from "@/lib/category-options";
 
 export const Route = createFileRoute("/budgets/$budgetId/categories/")({
   component: CategoriesPage,
 });
 
 const DELETE_NOTE =
-  "A category can be deleted only while nothing has been budgeted to it and nothing spent from it; the rest are marked in use here and are hidden from the budget grid instead. A group can be deleted once it holds no categories.";
+  "Deleting a category that has been budgeted to or spent from moves its transactions, schedules and budgeted amounts to a category you pick, after showing whether To Be Budgeted changes; hiding it from the budget grid keeps it instead. A group can be deleted once it holds no categories.";
 
 function CategoriesPage() {
   const { budgetId } = Route.useParams();
@@ -59,10 +61,10 @@ function CategoriesPage() {
     setDoomed(next);
   }
 
-  function commitDelete() {
+  function commitDelete(reassignToId?: number, acceptTbbChange?: boolean) {
     if (!doomed) return;
     setDoomed(null);
-    if (doomed.kind === "category") remove(doomed.id);
+    if (doomed.kind === "category") remove(doomed.id, reassignToId, acceptTbbChange);
     else removeGroup(doomed.id);
   }
 
@@ -129,7 +131,16 @@ function CategoriesPage() {
 
       {/* Hiding a category can be undone from the grid; deleting one cannot.
           Mounted only while asking, so it closes at once rather than animating. */}
-      {doomed && (
+      {doomed?.kind === "category" && (doomed.used ?? 0) > 0 ? (
+        <ReassignCategoryDialog
+          budgetId={Number(budgetId)}
+          categoryId={doomed.id}
+          name={doomed.name}
+          options={toCategoryOptions(groups).filter((option) => option.id !== doomed.id)}
+          onCancel={() => setDoomed(null)}
+          onConfirm={commitDelete}
+        />
+      ) : doomed && (
         <ConfirmDialog
           open
           onOpenChange={(open) => !open && setDoomed(null)}
@@ -140,7 +151,7 @@ function CategoriesPage() {
               : `"${doomed.name}" has never been budgeted to or spent from, so nothing is lost, but it cannot be brought back from here.`
           }
           confirmLabel="Delete"
-          onConfirm={commitDelete}
+          onConfirm={() => commitDelete()}
         />
       )}
     </div>

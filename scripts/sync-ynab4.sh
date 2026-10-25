@@ -10,7 +10,11 @@
 # Goals, Master Budgets and the household split are kept.
 # Once znab takes over, stop it for good:
 #
+#   mkdir -p ~/.config/znab && touch ~/.config/znab/ynab4-retired
 #   systemctl --user disable --now ynab4-sync.timer
+#
+# The sentinel (ZNAB_YNAB4_RETIRED_FILE) makes this script and the importer
+# refuse to run unless YNAB_IMPORT_AFTER_CUTOVER=yes-overwrite-znab is set.
 #
 # The fingerprint of what was synced is saved only after an import succeeds, so
 # a failed import is retried on the next run instead of being skipped as
@@ -26,6 +30,12 @@ ZACH="${YNAB4_ZACH:-$ZACH}"
 FIONA="${YNAB4_FIONA:-Fiona Budget~F53B2AA3.ynab4}"
 STATE="$DEST/.last-imported"
 FOLDERS="$DEST/.data-folders"
+RETIRED="${ZNAB_YNAB4_RETIRED_FILE:-$HOME/.config/znab/ynab4-retired}"
+
+if [ -e "$RETIRED" ] && [ "${YNAB_IMPORT_AFTER_CUTOVER:-}" != "yes-overwrite-znab" ]; then
+  echo "==> YNAB 4 is retired ($RETIRED exists); not syncing or importing"
+  exit 0
+fi
 
 fingerprint() {
   find "$DEST" -mindepth 2 -type f -printf '%P %s %T@\n' | sort | sha1sum | cut -d' ' -f1

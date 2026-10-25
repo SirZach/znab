@@ -8,6 +8,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { requireUser } from "@/lib/require-user";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { BudgetSidebar } from "@/components/layout/budget-sidebar";
+import { AppLoader } from "@/components/layout/app-loader";
 
 export const Route = createFileRoute("/budgets/$budgetId")({
   beforeLoad: requireUser,
@@ -16,13 +17,16 @@ export const Route = createFileRoute("/budgets/$budgetId")({
 
 function BudgetLayout() {
   const { budgetId } = Route.useParams();
-  const { budget, onBudgetAccounts, trackingAccounts, closedAccounts, handleSignOut } =
+  const { budget, isLoading, onBudgetAccounts, trackingAccounts, closedAccounts, handleSignOut } =
     useBudgetLayout({ budgetId: Number(budgetId) });
   const isMobile = useIsMobile();
   const budgetName = budget?.name ?? "Budget";
 
   return (
     <SidebarProvider className="h-svh overflow-hidden">
+      {/* Covers the empty shell on a refresh until the sidebar has its data.
+          An overlay, so the page's own queries still start in parallel. */}
+      {isLoading && <AppLoader />}
       <BudgetSidebar
         budgetId={budgetId}
         budgetName={budgetName}

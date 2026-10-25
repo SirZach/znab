@@ -5,6 +5,7 @@ import {
   categoryGroupRows,
   categoryResolver,
   categoryRows,
+  cutoverBlock,
   groupRanks,
   type ImportContext,
   importTargets,
@@ -254,5 +255,27 @@ describe("importTargets", () => {
     ]);
     expect(mirrorRequested(env)).toBe(true);
     expect(mirrorRequested({})).toBe(false);
+  });
+});
+
+describe("cutoverBlock", () => {
+  const sentinel = (present: string[]) => (file: string) => present.includes(file);
+
+  test("allows the import until the sentinel exists", () => {
+    expect(cutoverBlock({ HOME: "/home/z" }, sentinel([]))).toBeNull();
+  });
+
+  test("refuses once ~/.config/znab/ynab4-retired exists, in any mode", () => {
+    const exists = sentinel(["/home/z/.config/znab/ynab4-retired"]);
+    expect(cutoverBlock({ HOME: "/home/z" }, exists)).toContain("/home/z/.config/znab/ynab4-retired exists");
+    expect(cutoverBlock({ HOME: "/home/z", YNAB_MIRROR: "1" }, exists)).not.toBeNull();
+    expect(cutoverBlock({ HOME: "/home/z", YNAB_IMPORT_AFTER_CUTOVER: "yes" }, exists)).not.toBeNull();
+  });
+
+  test("honours ZNAB_YNAB4_RETIRED_FILE and the explicit override", () => {
+    const exists = sentinel(["/etc/retired"]);
+    expect(cutoverBlock({ HOME: "/home/z" }, exists)).toBeNull();
+    expect(cutoverBlock({ ZNAB_YNAB4_RETIRED_FILE: "/etc/retired" }, exists)).toContain("YNAB_IMPORT_AFTER_CUTOVER=yes-overwrite-znab");
+    expect(cutoverBlock({ ZNAB_YNAB4_RETIRED_FILE: "/etc/retired", YNAB_IMPORT_AFTER_CUTOVER: "yes-overwrite-znab" }, exists)).toBeNull();
   });
 });

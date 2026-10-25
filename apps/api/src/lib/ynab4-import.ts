@@ -4,6 +4,8 @@
  * database; `scripts/import-yfull.ts` does the writing.
  */
 
+import { existsSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type {
   NewAccount,
@@ -377,3 +379,21 @@ export function importTargets(env: Env, users: { zach: number; demo: number }, r
 
 /** YNAB_MIRROR=1, which only the Dropbox sync sets: a plain run never deletes znab's work. */
 export const mirrorRequested = (env: Env): boolean => env.YNAB_MIRROR === "1";
+
+/** Set to this to import even though znab has taken over from YNAB 4. */
+export const IMPORT_AFTER_CUTOVER = "yes-overwrite-znab";
+
+/**
+ * Once znab is the source of truth, a sentinel file (ZNAB_YNAB4_RETIRED_FILE,
+ * default ~/.config/znab/ynab4-retired) marks YNAB 4 as retired and every
+ * import, mirror or not, would overwrite real work. Returns why the import
+ * must not run, or null when it may. scripts/sync-ynab4.sh checks the same file.
+ */
+export function cutoverBlock(env: Env, exists: (file: string) => boolean = existsSync): string | null {
+  const file = env.ZNAB_YNAB4_RETIRED_FILE || path.join(env.HOME || os.homedir(), ".config/znab/ynab4-retired");
+  if (!exists(file) || env.YNAB_IMPORT_AFTER_CUTOVER === IMPORT_AFTER_CUTOVER) return null;
+  return (
+    `YNAB 4 is retired (${file} exists): importing would overwrite edits made in znab. ` +
+    `To import anyway, set YNAB_IMPORT_AFTER_CUTOVER=${IMPORT_AFTER_CUTOVER}.`
+  );
+}

@@ -17,6 +17,7 @@
  * every edit made in znab is undone, including rows znab created and its own
  * sort order, so each budget ends up exactly as YNAB 4 has it.
  * Each budget is imported in its own transaction. Safe to run repeatedly.
+ * After cutover it refuses to run at all (see `cutoverBlock`).
  *
  * How each YNAB entity maps to a row lives in `lib/ynab4-import.ts`; this file
  * only writes. Importing it has no side effects: the CLI runs under
@@ -33,6 +34,7 @@ import {
   categoryGroupRows,
   categoryResolver,
   categoryRows,
+  cutoverBlock,
   type IdMap,
   type ImportContext,
   type ImportTarget,
@@ -457,6 +459,12 @@ const REPO_ROOT = path.resolve(import.meta.dir, "../../../..");
 /** Seeds the two users and imports every target budget. Returns the exit code. */
 export async function main(env: Record<string, string | undefined> = process.env): Promise<number> {
   console.log("ZNAB: YNAB 4 import\n");
+
+  const blocked = cutoverBlock(env);
+  if (blocked) {
+    console.error(`Refusing to import. ${blocked}`);
+    return 1;
+  }
 
   console.log("Seeding users...");
   await db.insert(schema.users).values([

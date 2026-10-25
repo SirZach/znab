@@ -56,6 +56,33 @@ async function liveTransactionCount(tx: Tx, accountId: number): Promise<number> 
   return Number(used!.value);
 }
 
+/**
+ * What the bank has agreed to as of a statement's closing date: every Cleared
+ * or Reconciled row up to and including it. Later transactions are real, but
+ * the statement says nothing about them. The reconcile panel shows this live
+ * and Finish decides on it, so the two cannot disagree.
+ */
+async function clearedBalanceThrough(
+  db: Pick<AuthedContext["db"], "select"> | Tx,
+  budgetId: number,
+  accountId: number,
+  date: string
+): Promise<number> {
+  const [cleared] = await db
+    .select({ balance: sql<string>`COALESCE(SUM(${transactions.amount}), 0)` })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.budgetId, budgetId),
+        eq(transactions.accountId, accountId),
+        inArray(transactions.cleared, ["Cleared", "Reconciled"]),
+        lte(transactions.date, date),
+        isNull(transactions.deletedAt)
+      )
+    );
+  return parseFloat(cleared?.balance ?? "0");
+}
+
 /** Reads one live account of the budget, locked for the rest of the transaction. */
 async function lockAccount(
   tx: Tx,
@@ -777,6 +804,20 @@ export const accountRouter = router({
   // `lastReconciledBalance` records what was asserted, not anything derived
   // from the rows: it is the claim the account was balanced against, and the
   // rows can move afterwards without making that claim untrue.
+  // The cleared balance a statement closing on `date` is measured against,
+  // worked out over the account's whole history rather than from whatever the
+  // register has loaded, so the reconcile panel always has a difference to show.
+  clearedBalanceAsOf: budgetProcedure
+    .input(z.object({ accountId: z.number().int().positive(), date: isoDateSchema }))
+    .query(async ({ ctx, input }) => ({
+      clearedBalance: await clearedBalanceThrough(
+        ctx.db,
+        input.budgetId,
+        input.accountId,
+        input.date
+      ),
+    })),
+
   reconcile: budgetProcedure
     .input(reconcileAccountSchema)
     .mutation(async ({ ctx, input }) => {
@@ -814,21 +855,12 @@ export const accountRouter = router({
           });
         }
 
-        // What the bank has agreed to as of the statement's closing date.
-        // Later transactions are real, but this statement says nothing about
-        // them, so they are none of its business.
-        const [cleared] = await tx
-          .select({ balance: sql<string>`COALESCE(SUM(${transactions.amount}), 0)` })
-          .from(transactions)
-          .where(
-            and(
-              eq(transactions.accountId, account.id),
-              inArray(transactions.cleared, ["Cleared", "Reconciled"]),
-              lte(transactions.date, input.statementDate),
-              isNull(transactions.deletedAt)
-            )
-          );
-        const clearedBalance = parseFloat(cleared?.balance ?? "0");
+        const clearedBalance = await clearedBalanceThrough(
+          tx,
+          account.budgetId,
+          account.id,
+          input.statementDate
+        );
         const difference = reconcileDifference({
           statementBalance: input.statementBalance,
           clearedBalance,

@@ -131,20 +131,86 @@ describe("register row editing", () => {
 });
 
 describe("reconciling", () => {
-  // Nothing has cleared since the statement, so the cleared balance today is
-  // the one the statement should show.
+  // The API dates the cleared balance back to the statement over the whole
+  // history, so the panel needs nothing from the loaded rows.
   const reconcileFixtures = {
     ...fixtures,
-    "account.transactions": { ...fixtures["account.transactions"], clearedBalance: 250 },
+    "account.clearedBalanceAsOf": { clearedBalance: 250 },
     "account.reconcile": { reconciledCount: 0, adjustmentAmount: null },
   };
 
-  async function openPanel() {
-    const rendered = await renderRoute("/budgets/1/accounts/10", { fixtures: reconcileFixtures });
+  async function openPanel(path = "/budgets/1/accounts/10") {
+    const rendered = await renderRoute(path, { fixtures: reconcileFixtures });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Reconcile" }));
     return { ...rendered, user, statement: screen.getByLabelText("Statement balance") };
   }
+
+  test("the statement date takes the keyboard as the panel opens", async () => {
+    const { user, inputsTo } = await openPanel();
+    const dateField = screen.getByLabelText("Statement date");
+
+    expect(document.activeElement).toBe(dateField);
+    // Selected, so typing replaces today's date rather than adding to it.
+    await user.keyboard("1/15/2026");
+    expect((dateField as HTMLInputElement).value).toBe("1/15/2026");
+    await waitFor(() =>
+      expect(inputsTo("account.clearedBalanceAsOf").at(-1)).toMatchObject({ date: "2026-01-15" })
+    );
+  });
+
+  test("the difference is not yet known until a statement balance is typed", async () => {
+    const { user, statement } = await openPanel();
+    const difference = () => screen.getByText("Difference").nextElementSibling?.textContent;
+
+    expect(difference()).toBe("Not yet known");
+    await user.type(statement, "1,000");
+    await waitFor(() => expect(difference()).toBe("$750.00"));
+    await user.clear(statement);
+    await user.type(statement, "0");
+    expect(difference()).toBe("-$250.00");
+    await user.clear(statement);
+    expect(difference()).toBe("Not yet known");
+  });
+
+  // A filtered register used to leave the difference unknown for good, since
+  // the rows it had loaded could not prove the estimate.
+  test("a cleared filter does not hide the difference", async () => {
+    const { user, statement, inputsTo } = await openPanel(
+      "/budgets/1/accounts/10?cleared=Unreconciled"
+    );
+
+    await user.type(statement, "250");
+    await waitFor(() =>
+      expect(screen.getByText("Difference").nextElementSibling?.textContent).toBe("$0.00")
+    );
+    expect(inputsTo("account.clearedBalanceAsOf")[0]).toEqual({
+      budgetId: 1,
+      accountId: 10,
+      date: formatDateISO(new Date()),
+    });
+  });
+
+  test("Finish says beside it what is left, not only in a tooltip", async () => {
+    const { user, statement } = await openPanel();
+    const finish = screen.getByRole("button", { name: "Finish" });
+    const reason = () => document.getElementById(finish.getAttribute("aria-describedby") ?? "");
+
+    expect(finish).toHaveProperty("disabled", true);
+    expect(reason()?.textContent).toBe("Enter a statement balance");
+
+    await user.type(statement, "373.45");
+    await waitFor(() => expect(reason()?.textContent).toBe("$123.45 left to clear"));
+    expect(finish).toHaveProperty("disabled", false);
+
+    await user.clear(statement);
+    await user.type(statement, "200");
+    expect(reason()?.textContent).toBe("Cleared is $50.00 over the statement");
+
+    await user.clear(statement);
+    await user.type(statement, "250");
+    expect(finish.getAttribute("aria-describedby")).toBeNull();
+  });
 
   test("a statement that agrees finishes without an adjustment", async () => {
     const { user, statement, inputsTo } = await openPanel();

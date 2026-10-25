@@ -18,6 +18,8 @@
     "start": "SERVE_WEB=1 bun run --filter api start",
     "db:generate": "bun run --filter @znab/db generate",
     "db:migrate": "bun run --filter @znab/db migrate",
+    "db:migrate:dev": "bash scripts/dev-env.sh bun run --filter @znab/db migrate",
+    "db:refresh-dev": "bash scripts/refresh-dev-db.sh",
     "db:studio": "bun run --filter @znab/db studio",
     "import": "bun run --filter api import",
     "ynab:reset": "FORCE=1 bash scripts/sync-ynab4.sh",

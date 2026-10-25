@@ -275,12 +275,7 @@ function AccountRegisterPage() {
           clickable: ticking them off is how a statement gets reconciled. */}
       {reconciling ? (
         <ReconcilePanel
-          clearedBalance={pages.clearedBalance}
-          rows={transactions}
-          hasMore={pages.hasMore}
-          clearedFilter={cleared}
-          isLoadingMore={pages.isLoadingMore}
-          onLoadOlder={pages.loadOlder}
+          {...ids}
           isBusy={reconcile.isReconciling}
           error={reconcile.error}
           onFinish={(input) => reconcile.reconcile(input, () => setReconciling(false))}

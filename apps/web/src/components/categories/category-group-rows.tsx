@@ -169,29 +169,19 @@ export function CategoryGroupRows({
             </td>
 
             <td className="w-10 px-6 py-2 text-right">
-              {/* An action that would be refused is not offered, the way the
-                  accounts screen decides its own. Only a category nothing
-                  points at can go; the rest are hidden from the budget grid
-                  instead. */}
-              {category.used > 0 ? (
-                <span
-                  className="text-xs text-muted-foreground"
-                  title={`Used by ${category.used} allocation${
-                    category.used === 1 ? "" : "s"
-                  } or transaction${
-                    category.used === 1 ? "" : "s"
-                  }, so it cannot be deleted. Hide it from the budget grid instead.`}
-                >
-                  in use
-                </span>
-              ) : (
-                <DeleteIconButton
-                  label={category.name}
-                  onClick={() =>
-                    onDelete({ kind: "category", id: category.id, name: category.name })
-                  }
-                />
-              )}
+              {/* A used category can go too: the confirm asks where its
+                  history moves to. */}
+              <DeleteIconButton
+                label={category.name}
+                onClick={() =>
+                  onDelete({
+                    kind: "category",
+                    id: category.id,
+                    name: category.name,
+                    used: category.used,
+                  })
+                }
+              />
             </td>
           </tr>
         );

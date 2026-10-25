@@ -59,8 +59,12 @@ export function useCategories({ budgetId }: { budgetId: number }) {
       ),
     rename: (categoryId: number, name: string) =>
       renameMutation.mutate({ budgetId, categoryId, name }),
-    remove: (categoryId: number) =>
-      deleteMutation.mutate({ budgetId, categoryId }),
+    /**
+     * A used category needs `reassignToId`, where its history moves to, and
+     * `acceptTbbChange` when that move changes To Be Budgeted.
+     */
+    remove: (categoryId: number, reassignToId?: number, acceptTbbChange?: boolean) =>
+      deleteMutation.mutate({ budgetId, categoryId, reassignToId, acceptTbbChange }),
     /** Lands at the end of the group it moves to. */
     move: (categoryId: number, groupId: number) =>
       moveMutation.mutate({ budgetId, categoryId, groupId }),

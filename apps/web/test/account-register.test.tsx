@@ -146,6 +146,19 @@ describe("reconciling", () => {
     return { ...rendered, user, statement: screen.getByLabelText("Statement balance") };
   }
 
+  test("the statement date takes the keyboard as the panel opens", async () => {
+    const { user, inputsTo } = await openPanel();
+    const dateField = screen.getByLabelText("Statement date");
+
+    expect(document.activeElement).toBe(dateField);
+    // Selected, so typing replaces today's date rather than adding to it.
+    await user.keyboard("1/15/2026");
+    expect((dateField as HTMLInputElement).value).toBe("1/15/2026");
+    await waitFor(() =>
+      expect(inputsTo("account.clearedBalanceAsOf").at(-1)).toMatchObject({ date: "2026-01-15" })
+    );
+  });
+
   test("the difference is not yet known until a statement balance is typed", async () => {
     const { user, statement } = await openPanel();
     const difference = () => screen.getByText("Difference").nextElementSibling?.textContent;

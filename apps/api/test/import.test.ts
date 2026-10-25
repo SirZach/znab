@@ -142,7 +142,8 @@ async function rowCounts(tx: Tx, budgetId: number) {
       (SELECT count(*) FROM transactions WHERE budget_id = ${budgetId})::int AS transactions,
       (SELECT count(*) FROM transactions WHERE budget_id = ${budgetId} AND deleted_at IS NOT NULL)::int AS deleted_transactions,
       (SELECT count(*) FROM sub_transactions s JOIN transactions t ON t.id = s.transaction_id WHERE t.budget_id = ${budgetId})::int AS sub_transactions,
-      (SELECT count(*) FROM scheduled_transactions WHERE budget_id = ${budgetId})::int AS scheduled_transactions
+      (SELECT count(*) FROM scheduled_transactions WHERE budget_id = ${budgetId})::int AS scheduled_transactions,
+      (SELECT count(*) FROM audit_log WHERE budget_id = ${budgetId})::int AS audit_log
   `)) as unknown as Record<string, number>[];
   return row!;
 }
@@ -187,6 +188,8 @@ describe("YNAB 4 import", () => {
         deleted_transactions: 1,
         sub_transactions: 2,
         scheduled_transactions: 1,
+        // YNAB's history arriving is not a change made in znab
+        audit_log: 0,
       });
       expect(total(first.stats)).toBeGreaterThan(0);
 

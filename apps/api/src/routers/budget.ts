@@ -180,7 +180,9 @@ export const budgetRouter = router({
     .mutation(async ({ ctx, input }) => {
       await assertIdsInBudget(ctx.db, input.budgetId, { categoryId: input.categoryId });
 
-      await upsertMonthlyBudget(ctx.db, input, { budgeted: String(input.budgeted) });
+      await ctx.db.transaction((tx) =>
+        upsertMonthlyBudget(tx, ctx.user.id, input, { budgeted: String(input.budgeted) })
+      );
     }),
 
   // The amounts behind the Quick Budget buttons for one category.
@@ -251,6 +253,7 @@ export const budgetRouter = router({
         for (const move of moves) {
           await upsertMonthlyBudget(
             tx,
+            ctx.user.id,
             { budgetId: input.budgetId, categoryId: move.categoryId, month: input.month },
             { budgeted: String(fromCents(move.cents)) }
           );
@@ -275,7 +278,9 @@ export const budgetRouter = router({
       // be recorded explicitly rather than cleared back to null.
       const handling = input.confined ? "Confined" : "AffectsBuffer";
 
-      await upsertMonthlyBudget(ctx.db, input, { overspendingHandling: handling });
+      await ctx.db.transaction((tx) =>
+        upsertMonthlyBudget(tx, ctx.user.id, input, { overspendingHandling: handling })
+      );
     }),
 
   // Set, change or clear a category's YNAB 4 goal. Clearing the type clears the

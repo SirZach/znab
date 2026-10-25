@@ -1,14 +1,16 @@
 import { z } from "zod";
-import { eq, and, inArray, isNull, ne } from "drizzle-orm";
+import { eq, and, inArray, isNull } from "drizzle-orm";
 import { router, protectedProcedure, budgetProcedure } from "../trpc";
 import { transactions, payees, accounts } from "@znab/db";
 import { createTransactionSchema, updateTransactionSchema } from "@znab/shared";
 import { TRPCError } from "@trpc/server";
+import { audit } from "../lib/audit";
 import { assertIdsInBudget, ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import { categoryColumns, categoryRowId } from "../lib/category-columns";
 import { findOrCreatePayee } from "../lib/find-or-create-payee";
 import { transferCategoryId } from "../lib/transfer";
 import { writeTransferPair } from "../lib/transfer-write";
+import type { Tx } from "../lib/tx";
 
 /**
  * Where the other half of a transfer lives. YNAB 4 pairs the two sides by ynab
@@ -28,21 +30,25 @@ function counterpartWhere(
   );
 }
 
-/** The other half's cleared status, when there is another half to find. */
-async function counterpartCleared(
-  // Narrowed the way `assertIdsInBudget` is, so the caller inside an open
-  // transaction does not have to reach outside it.
-  db: Pick<AuthedContext["db"], "select">,
+/**
+ * The other half of a transfer as stored, when there is another half to find:
+ * its cleared status is judged alongside the near side's, and the whole row is
+ * what the audit log records it was. Locked, like the near side, so that row
+ * cannot change between being read and being written.
+ */
+async function loadCounterpart(
+  tx: Tx,
   ctx: AuthedContext,
   row: { budgetId: number; isTransfer: boolean; transferTransactionId: string | null }
 ) {
   if (!row.isTransfer || !row.transferTransactionId) return null;
-  const [far] = await db
-    .select({ cleared: transactions.cleared })
+  const [far] = await tx
+    .select()
     .from(transactions)
     .where(counterpartWhere(ctx, row.budgetId, row.transferTransactionId))
-    .limit(1);
-  return far?.cleared ?? null;
+    .limit(1)
+    .for("update");
+  return far ?? null;
 }
 
 /**
@@ -112,6 +118,7 @@ export const transactionRouter = router({
         if (payee && payee.targetAccountId !== null) {
           return writeTransferPair(
             tx,
+            ctx.user.id,
             input.budgetId,
             input.accountId,
             { ...payee, targetAccountId: payee.targetAccountId },
@@ -142,6 +149,7 @@ export const transactionRouter = router({
           })
           .returning();
 
+        await audit(tx, ctx.user.id, "transaction", { after: [txn!] });
         return txn;
       });
     }),
@@ -162,15 +170,10 @@ export const transactionRouter = router({
         input;
 
       return ctx.db.transaction(async (tx) => {
+        // Locked, so the row the audit log records as "before" is the row the
+        // update below actually changes.
         const [row] = await tx
-          .select({
-            budgetId: transactions.budgetId,
-            accountId: transactions.accountId,
-            cleared: transactions.cleared,
-            isTransfer: transactions.isTransfer,
-            transferAccountId: transactions.transferAccountId,
-            transferTransactionId: transactions.transferTransactionId,
-          })
+          .select()
           .from(transactions)
           .where(
             and(
@@ -178,12 +181,14 @@ export const transactionRouter = router({
               inArray(transactions.budgetId, ownedBudgetIds(ctx))
             )
           )
-          .limit(1);
+          .limit(1)
+          .for("update");
         if (!row) throw new TRPCError({ code: "NOT_FOUND" });
 
+        const farBefore = await loadCounterpart(tx, ctx, row);
         assertReconciledAcknowledged(
           row.cleared,
-          await counterpartCleared(tx, ctx, row),
+          farBefore?.cleared ?? null,
           acknowledgeReconciled,
           "Editing"
         );
@@ -263,8 +268,9 @@ export const transactionRouter = router({
         // side clears and is filed in its own account. One genuinely
         // half-paired transfer survives in the imported data, so a counterpart
         // that cannot be found updates nothing rather than failing the edit.
-        if (row.isTransfer && row.transferTransactionId) {
-          await tx
+        let farAfter: (typeof row)[] = [];
+        if (farBefore) {
+          farAfter = await tx
             .update(transactions)
             .set({
               ...(rest.date !== undefined ? { date: rest.date } : {}),
@@ -272,9 +278,14 @@ export const transactionRouter = router({
               ...(farCategoryId !== undefined ? categoryColumns(farCategoryId) : {}),
               updatedAt: new Date(),
             })
-            .where(counterpartWhere(ctx, row.budgetId, row.transferTransactionId));
+            .where(counterpartWhere(ctx, row.budgetId, farBefore.ynabId))
+            .returning();
         }
 
+        await audit(tx, ctx.user.id, "transaction", {
+          before: farBefore ? [row, farBefore] : [row],
+          after: [updated!, ...farAfter],
+        });
         return updated!;
       });
     }),
@@ -292,12 +303,7 @@ export const transactionRouter = router({
         // than leaning on the rollback to put it back. The write below still
         // carries ownership scoping of its own.
         const [row] = await tx
-          .select({
-            budgetId: transactions.budgetId,
-            cleared: transactions.cleared,
-            isTransfer: transactions.isTransfer,
-            transferTransactionId: transactions.transferTransactionId,
-          })
+          .select()
           .from(transactions)
           .where(
             and(
@@ -305,17 +311,19 @@ export const transactionRouter = router({
               inArray(transactions.budgetId, ownedBudgetIds(ctx))
             )
           )
-          .limit(1);
+          .limit(1)
+          .for("update");
         if (!row) throw new TRPCError({ code: "NOT_FOUND" });
 
+        const farBefore = await loadCounterpart(tx, ctx, row);
         assertReconciledAcknowledged(
           row.cleared,
-          await counterpartCleared(tx, ctx, row),
+          farBefore?.cleared ?? null,
           input.acknowledgeReconciled,
           "Deleting"
         );
 
-        await tx
+        const deleted = await tx
           .update(transactions)
           .set({ deletedAt: new Date(), updatedAt: new Date() })
           .where(
@@ -323,16 +331,25 @@ export const transactionRouter = router({
               eq(transactions.id, input.id),
               inArray(transactions.budgetId, ownedBudgetIds(ctx))
             )
-          );
+          )
+          .returning();
 
         // Both halves go together, or the account left holding one shows money
         // arriving from nowhere. A counterpart already gone leaves nothing to do.
-        if (row.isTransfer && row.transferTransactionId) {
-          await tx
-            .update(transactions)
-            .set({ deletedAt: new Date(), updatedAt: new Date() })
-            .where(counterpartWhere(ctx, row.budgetId, row.transferTransactionId));
+        if (farBefore) {
+          deleted.push(
+            ...(await tx
+              .update(transactions)
+              .set({ deletedAt: new Date(), updatedAt: new Date() })
+              .where(counterpartWhere(ctx, row.budgetId, farBefore.ynabId))
+              .returning())
+          );
         }
+
+        await audit(tx, ctx.user.id, "transaction", {
+          before: farBefore ? [row, farBefore] : [row],
+          after: deleted,
+        });
       });
     }),
 
@@ -348,38 +365,30 @@ export const transactionRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const [updated] = await ctx.db
-        .update(transactions)
-        .set({ cleared: input.cleared, updatedAt: new Date() })
-        .where(
-          and(
-            eq(transactions.id, input.id),
-            ne(transactions.cleared, "Reconciled"),
-            inArray(transactions.budgetId, ownedBudgetIds(ctx))
-          )
-        )
-        .returning({ id: transactions.id });
-
-      if (!updated) {
-        // The update refuses a reconciled row in its own WHERE, so nothing
-        // matching means one of two things. Telling them apart takes a second
-        // look, scoped the same way.
-        const [row] = await ctx.db
-          .select({ id: transactions.id })
-          .from(transactions)
-          .where(
-            and(
-              eq(transactions.id, input.id),
-              inArray(transactions.budgetId, ownedBudgetIds(ctx))
-            )
-          )
-          .limit(1);
+      await ctx.db.transaction(async (tx) => {
+        const owned = and(
+          eq(transactions.id, input.id),
+          inArray(transactions.budgetId, ownedBudgetIds(ctx))
+        );
+        // Locked, so a reconcile racing this tick cannot reconcile the row
+        // between the check below and the write.
+        const [row] = await tx.select().from(transactions).where(owned).for("update");
         if (!row) throw new TRPCError({ code: "NOT_FOUND" });
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "This transaction was reconciled. Reconciling the account against a statement is what sets that, so it cannot be ticked back by hand.",
-        });
-      }
+        if (row.cleared === "Reconciled") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "This transaction was reconciled. Reconciling the account against a statement is what sets that, so it cannot be ticked back by hand.",
+          });
+        }
+
+        const [updated] = await tx
+          .update(transactions)
+          .set({ cleared: input.cleared, updatedAt: new Date() })
+          .where(owned)
+          .returning();
+
+        await audit(tx, ctx.user.id, "transaction", { before: [row], after: [updated!] });
+      });
     }),
 });

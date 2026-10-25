@@ -57,14 +57,14 @@ describe("CategoryGroupRows", () => {
     expect(onReorderGroups).toHaveBeenCalledWith([3, 1]);
   });
 
-  test("offers delete only where it would be allowed", async () => {
+  test("offers delete on every category, passing on how used it is, and on an empty group only", async () => {
     const { onDelete } = renderRows(bills);
 
-    expect(screen.queryByRole("button", { name: "Delete Rent" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete Bills" })).toBeNull();
-    expect(screen.getByText("in use")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Delete Power" }));
-    expect(onDelete).toHaveBeenCalledWith({ kind: "category", id: 12, name: "Power" });
+    expect(onDelete).toHaveBeenCalledWith({ kind: "category", id: 12, name: "Power", used: 0 });
+    await userEvent.click(screen.getByRole("button", { name: "Delete Rent" }));
+    expect(onDelete).toHaveBeenCalledWith({ kind: "category", id: 11, name: "Rent", used: 3 });
   });
 
   test("a system group is listed and locked", () => {

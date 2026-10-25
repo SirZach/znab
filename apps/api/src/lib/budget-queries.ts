@@ -28,7 +28,7 @@ export function categoryActivitySource(budgetId: number) {
 }
 
 /** The three raw series the month engine runs on, for a whole budget's history. */
-export function loadBudgetInputs(db: AuthedContext["db"], budgetId: number) {
+export function loadBudgetInputs(db: AuthedContext["db"] | Tx, budgetId: number) {
   return Promise.all([
     // Category spending and refunds per month.
     db.execute(sql`

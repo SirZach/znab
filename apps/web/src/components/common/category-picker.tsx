@@ -12,8 +12,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { CategoryOption } from "@/lib/category-options";
 import { cn } from "@/lib/utils";
 
-/** Picks the category a schedule files its money under. */
-export function ScheduleCategoryPicker({
+/** Picks a category from a searchable list: where a schedule files its money, or where a deleted category's history goes. */
+export function CategoryPicker({
   options,
   categoryId,
   onChange,

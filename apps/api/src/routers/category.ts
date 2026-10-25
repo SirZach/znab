@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { eq, and, count, isNull, inArray, sql } from "drizzle-orm";
+import { eq, and, count, isNull, inArray, sql, TransactionRollbackError } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, budgetProcedure } from "../trpc";
 import { categories, categoryGroups, payees } from "@znab/db";
 import { categoryNameSchema } from "@znab/shared";
 import { audit } from "../lib/audit";
+import { reassignWithImpact } from "../lib/category-reassign";
 import { ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import { countOf, pluralize } from "../lib/plural";
 import { assertExactly, reorderRows } from "../lib/reorder";
@@ -55,6 +56,7 @@ async function lockCategory(
       category: categories,
       groupName: categoryGroups.name,
       groupIsSystem: categoryGroups.isSystem,
+      groupInMasterBudgets: categoryGroups.inMasterBudgets,
     })
     .from(categories)
     .innerJoin(categoryGroups, eq(categoryGroups.id, categories.groupId))
@@ -77,7 +79,11 @@ async function lockCategory(
   // refiled or deleted outright.
   return {
     ...row.category,
-    group: { name: row.groupName, isSystem: row.groupIsSystem },
+    group: {
+      name: row.groupName,
+      isSystem: row.groupIsSystem,
+      inMasterBudgets: row.groupInMasterBudgets,
+    },
   };
 }
 
@@ -119,6 +125,38 @@ async function endOfGroup(tx: Tx, groupId: number): Promise<number> {
   return Number(top?.max ?? -1) + 1;
 }
 
+/** A category is never reassigned into itself. */
+function assertNotSelf(input: { categoryId: number; reassignToId?: number }) {
+  if (input.reassignToId === input.categoryId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A category cannot be reassigned to itself",
+    });
+  }
+}
+
+/**
+ * The category a deleted one's history moves to, locked: one of the user's
+ * own and on the budget. A hidden category is off the grid, so money moved
+ * there would vanish from view.
+ */
+async function lockReassignTarget(
+  tx: Tx,
+  ctx: AuthedContext,
+  categoryId: number,
+  budgetId: number
+) {
+  const target = await lockCategory(tx, ctx, categoryId, budgetId);
+  assertUserGroup(target.group);
+  if (target.deletedAt) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `"${target.name}" is hidden. Pick a category that is on the budget.`,
+    });
+  }
+  return target;
+}
+
 export const categoryRouter = router({
   // Category groups and their categories for a budget.
   //
@@ -129,8 +167,8 @@ export const categoryRouter = router({
   list: budgetProcedure
     .query(async ({ ctx, input }) => {
       // What points at each category, counted the way `remove` counts it, so a
-      // screen can say up front which categories it may offer to delete rather
-      // than offering them all and letting the refusal explain afterwards. One
+      // screen knows up front which deletes need a replacement category rather
+      // than sending one and letting the refusal explain afterwards. One
       // grouped pass over each table rather than four subqueries a category,
       // the way the payee screen totals its usage: the alternative reads the
       // 19,317 transactions once per category instead of once.
@@ -246,18 +284,59 @@ export const categoryRouter = router({
       });
     }),
 
-  // Deleting is only ever offered for a category nothing was ever filed under,
-  // so that one entered by mistake can be taken back. A category with history
-  // is hidden instead, which keeps every month it appears in intact — and that
-  // is the whole difference between the two: hiding is the soft delete, this
-  // takes the row away.
+  // What deleting `categoryId` into `reassignToId` would do to To Be
+  // Budgeted, found by doing it and rolling back. Merging an overspent
+  // category into one with money changes it from that month on, which the
+  // confirm has to say before the delete is allowed.
+  reassignPreview: budgetProcedure
+    .input(
+      z.object({
+        categoryId: z.number().int().positive(),
+        reassignToId: z.number().int().positive(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      assertNotSelf(input);
+      let preview: Awaited<ReturnType<typeof reassignWithImpact>> & {
+        crossesMasterBudgets: boolean;
+      } = { changes: [], throughMonth: "", crossesMasterBudgets: false };
+      try {
+        await ctx.db.transaction(async (tx) => {
+          const category = await lockCategory(tx, ctx, input.categoryId, input.budgetId);
+          assertUserGroup(category.group);
+          const target = await lockReassignTarget(tx, ctx, input.reassignToId, input.budgetId);
+          preview = {
+            ...(await reassignWithImpact(tx, ctx.user.id, input.budgetId, category.id, target.id)),
+            crossesMasterBudgets:
+              category.group.inMasterBudgets !== target.group.inMasterBudgets,
+          };
+          tx.rollback();
+        });
+      } catch (error) {
+        if (!(error instanceof TransactionRollbackError)) throw error;
+      }
+      return preview;
+    }),
+
+  // Deleting a category. One nothing was ever filed under simply goes. One with
+  // history needs somewhere for it to go, the way YNAB 4 asks for a category to
+  // move a deleted one's transactions to: its transactions, split parts,
+  // scheduled transactions and budgeted amounts all move to `reassignToId` in
+  // the same transaction. Total budgeted is unchanged, but To Be Budgeted can
+  // move (see reassignPreview), so a delete that changes it is refused unless
+  // `acceptTbbChange` says the user saw that. Without a target a used category
+  // is refused, and hiding it stays the soft option.
   remove: budgetProcedure
     .input(
       z.object({
         categoryId: z.number().int().positive(),
+        reassignToId: z.number().int().positive().optional(),
+        acceptTbbChange: z.boolean().default(false),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      assertNotSelf(input);
+
       return ctx.db.transaction(async (tx) => {
         const category = await lockCategory(tx, ctx, input.categoryId, input.budgetId);
         assertUserGroup(category.group);
@@ -277,23 +356,43 @@ export const categoryRouter = router({
         `)) as unknown as { used: string }[];
         const used = Number(refs?.used ?? 0);
 
-        if (used > 0) {
+        if (used > 0 && input.reassignToId === undefined) {
           throw new TRPCError({
             code: "CONFLICT",
             message: `"${category.name}" is still used by ${countOf(used, "allocation")} or ${pluralize(
               used,
               "transaction"
-            )}. Hide it instead, which keeps its history in every month it belongs to.`,
+            )}. Pick a category to move them to, or hide it instead, which keeps its history in every month it belongs to.`,
           });
         }
 
+        const target =
+          input.reassignToId === undefined
+            ? null
+            : await lockReassignTarget(tx, ctx, input.reassignToId, input.budgetId);
+        if (target) {
+          const { changes } = await reassignWithImpact(
+            tx,
+            ctx.user.id,
+            input.budgetId,
+            category.id,
+            target.id
+          );
+          if (changes.length > 0 && !input.acceptTbbChange) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `Moving "${category.name}" into "${target.name}" changes To Be Budgeted from ${changes[0]!.month}. Confirm the change to delete it.`,
+            });
+          }
+        }
+
         // A payee's autofill is that payee's own configuration rather than
-        // history the way an allocation is — the same line payee.delete draws
-        // around its rename rules — so it is cleared rather than standing in
-        // the way of a category that was never used.
+        // history the way an allocation is, the same line payee.delete draws
+        // around its rename rules. It follows the reassignment when there is
+        // one and is cleared when there is not.
         await tx
           .update(payees)
-          .set({ autofillCategoryId: null, updatedAt: new Date() })
+          .set({ autofillCategoryId: target?.id ?? null, updatedAt: new Date() })
           .where(
             and(
               eq(payees.autofillCategoryId, category.id),
@@ -312,7 +411,7 @@ export const categoryRouter = router({
           .returning();
 
         await audit(tx, ctx.user.id, "category", { before: removed });
-        return { id: category.id };
+        return { id: category.id, reassignedTo: target?.id ?? null };
       });
     }),
 

@@ -1,7 +1,13 @@
 type Group = { id: number; isSystem: boolean; categories: readonly unknown[] };
 
 /** What the delete confirm is asking about. */
-export type DoomedCategory = { kind: "category" | "group"; id: number; name: string };
+export type DoomedCategory = {
+  kind: "category" | "group";
+  id: number;
+  name: string;
+  /** What points at a category; above zero, deleting it needs a replacement. */
+  used?: number;
+};
 
 /**
  * Reordering and moving only ever concern the groups a person keeps, so the

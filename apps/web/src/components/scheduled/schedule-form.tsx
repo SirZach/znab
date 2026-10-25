@@ -6,7 +6,7 @@ import { FieldInput } from "@/components/common/field-input";
 import { FieldSelect } from "@/components/common/field-select";
 import { MoneyInput } from "@/components/common/money-input";
 import { LabeledField } from "@/components/common/labeled-field";
-import { ScheduleCategoryPicker } from "@/components/scheduled/schedule-category-picker";
+import { CategoryPicker } from "@/components/common/category-picker";
 import { ScheduleDatePicker } from "@/components/scheduled/schedule-date-picker";
 import { PayeePicker } from "@/components/common/payee-picker";
 import type { CategoryOption } from "@/lib/category-options";
@@ -99,7 +99,7 @@ export function ScheduleForm({
         </LabeledField>
 
         <LabeledField label="Category" as="div">
-          <ScheduleCategoryPicker
+          <CategoryPicker
             options={categoryOptions}
             categoryId={draft.categoryId}
             onChange={(categoryId) => set({ categoryId })}

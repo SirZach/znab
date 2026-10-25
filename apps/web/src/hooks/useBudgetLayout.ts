@@ -9,8 +9,8 @@ export function useBudgetLayout({ budgetId }: { budgetId: number }) {
   const clearUser = useUserStore((s) => s.clearUser);
   const navigate = useNavigate();
 
-  const { data: budget } = trpc.budget.byId.useQuery({ budgetId });
-  const { data: accounts } = trpc.account.list.useQuery({ budgetId });
+  const { data: budget, isLoading: budgetLoading } = trpc.budget.byId.useQuery({ budgetId });
+  const { data: accounts, isLoading: accountsLoading } = trpc.account.list.useQuery({ budgetId });
 
   const { onBudgetAccounts, trackingAccounts, closedAccounts } = groupAccounts(
     accounts ?? []
@@ -24,6 +24,7 @@ export function useBudgetLayout({ budgetId }: { budgetId: number }) {
 
   return {
     budget,
+    isLoading: budgetLoading || accountsLoading,
     onBudgetAccounts,
     trackingAccounts,
     closedAccounts,

@@ -13,10 +13,37 @@
         color-scheme: dark;
         background-color: hsl(222.2 84% 4.9%);
       }
+      /* App loader: painted from this file before the bundle runs, and reused
+         by the AppLoader component while the first data loads. */
+      .app-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: hsl(222.2 84% 4.9%);
+      }
+      .app-loader img {
+        width: 64px;
+        height: 64px;
+        animation: app-loader-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes app-loader-pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.55; transform: scale(0.92); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .app-loader img { animation: none; }
+      }
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="app-loader" role="status" aria-label="Loading ZNAB">
+        <img src="/favicon.svg" alt="" width="64" height="64" />
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

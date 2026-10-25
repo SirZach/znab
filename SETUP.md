@@ -143,6 +143,31 @@ it all on main: DB backup, pull, install, build, migrate, restart, health
 check. `scripts/restart-web.sh` (`bun run
 web:restart`) clears the Vite cache and restarts the web dev server.
 
+### Backups
+
+`scripts/backup.sh` (`bun run backup`) dumps the DB to
+`~/.local/share/znab/backups/znab-daily-*.dump`, keeps 14 daily, 8 weekly and
+12 monthly, and `rclone sync`s those to `dropbox:znab-backups` (unencrypted).
+Pre-deploy dumps are kept to the newest 10, local only.
+`scripts/restore-check.sh` (`bun run backup:check`) restores the newest dump
+into a scratch DB and compares row counts. Both report to Uptime Kuma push
+monitors when the URLs are set.
+
+```bash
+mkdir -p ~/.config/znab && cp scripts/backup.env.example ~/.config/znab/backup.env
+chmod 600 ~/.config/znab/backup.env    # fill in the push URLs
+# set the timezone in both .timer files first
+cp scripts/znab-backup.{service,timer} scripts/znab-restore-check.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now znab-backup.timer znab-restore-check.timer
+```
+
+Restore (overwrites the live DB; stop znab first):
+
+```bash
+docker exec -i znab-postgres-1 pg_restore -U znab -d znab --clean --if-exists < file.dump
+```
+
 The production build is an installable app (browser Install button, Safari
 "Add to Dock", phone home screen). Browsers only offer it over HTTPS or
 localhost, so not on plain http://znab.
@@ -185,7 +210,7 @@ znab/
 ├── packages/
 │   ├── db/                   # Drizzle schema + migrations
 │   └── shared/               # Zod schemas + types (used by both)
-├── scripts/                  # systemd units, YNAB 4 sync, restart-web.sh
+├── scripts/                  # systemd units, YNAB 4 sync, backups, restart-web.sh
 └── seed-data/                # YNAB 4 .yfull exports (gitignored)
 ```
 

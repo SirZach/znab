@@ -14,6 +14,24 @@ import {
   SORT_DIRECTIONS,
 } from "./types";
 
+// ─── Dates ──────────────────────────────────────────────────────────────────
+
+/** True when "YYYY-MM-DD" names a day that exists (no 2026-02-30). */
+function isCalendarDate(value: string): boolean {
+  const [y, m, d] = value.split("-").map(Number) as [number, number, number];
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+/**
+ * A calendar date as "YYYY-MM-DD". Months are passed as their first day. An
+ * impossible day is refused here rather than left for Postgres to reject.
+ */
+export const isoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(isCalendarDate, "Not a real calendar date");
+
 // ─── Transaction ────────────────────────────────────────────────────────────
 
 export const createTransactionSchema = z.object({
@@ -23,7 +41,7 @@ export const createTransactionSchema = z.object({
   // A category row, or one of the two income categories by ynab id.
   categoryId: z.union([z.number().int().positive(), z.enum(INCOME_CATEGORY_IDS)]).nullable(),
   amount: moneySchema, // positive = inflow, negative = outflow
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: isoDateSchema,
   // Not Reconciled: see ASSIGNABLE_CLEARED_VALUES. Reconciling an account is
   // what sets that, so entering a row cannot claim it.
   cleared: z.enum(ASSIGNABLE_CLEARED_VALUES).default("Uncleared"),
@@ -54,7 +72,7 @@ export const createScheduledTransactionSchema = z.object({
   payeeName: z.string().min(1).optional(), // create payee on the fly
   categoryId: z.number().int().positive().nullable(),
   amount: moneySchema, // positive = inflow, negative = outflow
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: isoDateSchema,
   frequency: z.enum(FREQUENCY_VALUES),
   // Only TwiceAMonth reads this, and only the first day of the pair: the second
   // falls fifteen days later. Past the 15th the pair collapses towards the end
@@ -74,7 +92,7 @@ export const updateScheduledTransactionSchema = createScheduledTransactionSchema
 
 export const setBudgetedSchema = z.object({
   categoryId: z.number().int().positive(),
-  month: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // always first of month
+  month: isoDateSchema, // always first of month
   budgeted: moneySchema,
 });
 
@@ -97,7 +115,7 @@ export const createAccountSchema = z.object({
 export const reconcileAccountSchema = z.object({
   accountId: z.number().int().positive(),
   statementBalance: moneySchema,
-  statementDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  statementDate: isoDateSchema,
   adjustment: z.boolean().default(false),
 });
 
@@ -151,5 +169,5 @@ export const reportSearchSchema = z.object({
   // The spending calendar's year; this one when left out.
   year: z.number().int().min(1900).max(2099).optional(),
   // The calendar day whose transactions are listed below it.
-  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  day: isoDateSchema.optional(),
 });

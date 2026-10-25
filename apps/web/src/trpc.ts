@@ -19,20 +19,18 @@ export const trpc = createTRPCReact<AppRouter>();
 // named, on whatever host served the page (localhost, znab, a .ts.net
 // Tailscale address) rather than a hardcoded localhost that would only work
 // from the machine itself.
-const apiUrl = import.meta.env.PROD
-  ? "/trpc"
-  : `${window.location.protocol}//${window.location.hostname}:3001/trpc`;
+export const apiOrigin = import.meta.env.PROD
+  ? ""
+  : `${window.location.protocol}//${window.location.hostname}:3001`;
+
+/** Who the API is asked as: the header every request to it carries. */
+export function authHeaders(): Record<string, string> {
+  const slug = useUserStore.getState().userSlug;
+  return slug ? { "x-user-slug": slug } : {};
+}
 
 export function createTRPCClient() {
   return trpc.createClient({
-    links: [
-      httpBatchLink({
-        url: apiUrl,
-        headers() {
-          const slug = useUserStore.getState().userSlug;
-          return slug ? { "x-user-slug": slug } : {};
-        },
-      }),
-    ],
+    links: [httpBatchLink({ url: `${apiOrigin}/trpc`, headers: authHeaders })],
   });
 }

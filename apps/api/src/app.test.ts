@@ -25,6 +25,12 @@ describe("GET /health", () => {
   });
 });
 
+test("the CSV export is routed, and refuses a request naming no user", async () => {
+  const res = await createApp(async () => {}).request("/export/1/transactions.csv");
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({ error: "No user selected" });
+});
+
 test("an error thrown by a route is logged and answered with a generic 500", async () => {
   const app = createApp(async () => {});
   const boom = new Error("secret detail");

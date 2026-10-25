@@ -6,9 +6,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { BalanceFigure } from "@/components/register/balance-figure";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { MoneyInput } from "@/components/common/money-input";
-import { clearedBalanceAsOf, type ReconcilableRow, reconcileDifference } from "@znab/shared";
-import { coversStatement } from "@/lib/reconcile";
-import { cn, formatCurrency, formatDateISO, formatDateShort, parseAmountExpression } from "@/lib/utils";
+import { reconcileFigures } from "@/lib/reconcile";
+import { cn, formatCurrency, formatDateISO, formatDateShort } from "@/lib/utils";
+import { trpc } from "@/trpc";
 
 /** What Finish sends, once the reader has agreed to any adjustment it needs. */
 export type ReconcileInput = {
@@ -20,30 +20,19 @@ export type ReconcileInput = {
 /**
  * Reconciling, in a panel rather than a dialog: the register rows behind it
  * have to stay clickable, since ticking them off against the statement is the
- * whole exercise. Each tick refetches the account, so the cleared balance and
- * the difference move as the reader works down the statement.
+ * whole exercise. Each tick invalidates the account router, so the cleared
+ * balance and the difference move as the reader works down the statement.
  */
 export function ReconcilePanel({
-  clearedBalance,
-  rows,
-  hasMore,
-  clearedFilter,
-  isLoadingMore,
-  onLoadOlder,
+  budgetId,
+  accountId,
   isBusy,
   error,
   onFinish,
   onCancel,
 }: {
-  /** The account's cleared balance today, over its whole history. */
-  clearedBalance: number;
-  /** The register as loaded, to date that balance back to the statement. */
-  rows: readonly ReconcilableRow[];
-  /** Whether older transactions remain unloaded, and the filter narrowing them. */
-  hasMore: boolean;
-  clearedFilter: string;
-  isLoadingMore: boolean;
-  onLoadOlder: () => void;
+  budgetId: number;
+  accountId: number;
   isBusy: boolean;
   error: string | null;
   onFinish: (input: ReconcileInput) => void;
@@ -55,37 +44,22 @@ export function ReconcilePanel({
   const [confirming, setConfirming] = useState(false);
 
   const statementDate = formatDateISO(date);
-  const clearedAsOf = clearedBalanceAsOf(clearedBalance, rows, statementDate);
-
-  // The cleared balance is dated back by taking loaded rows off it, so a
-  // statement older than the register has loaded would be measured against an
-  // incomplete subtraction. Rather than show a difference that looks settled
-  // and let the API contradict it, the panel says what it is missing.
-  const covers = coversStatement({
-    statementDate,
-    oldestLoadedDate: rows[0]?.date,
-    hasMore,
-    clearedFilter,
-  });
-
-  // Nothing readable typed yet leaves the figures that depend on it off the
-  // panel: a difference of nothing would read as a statement that agrees. The
-  // difference shown is a reader's guide and the API is the authority, so a
-  // register scrolled short of the statement date is refused rather than
-  // reconciled wrongly.
-  const typed = parseAmountExpression(statement);
-  const figures =
-    typed === null
-      ? null
-      : {
-          statementBalance: typed,
-          difference: reconcileDifference({ statementBalance: typed, clearedBalance: clearedAsOf }),
-        };
+  // Worked out by the API over the whole history, the same sum Finish decides
+  // on, rather than dated back from the rows the register happens to have
+  // loaded: that estimate gave up ("Not yet known") whenever a filter was on
+  // or the statement predated the loaded window. The previous date's figure
+  // stands in while a new one loads, so the panel does not flicker.
+  const { data } = trpc.account.clearedBalanceAsOf.useQuery(
+    { budgetId, accountId, date: statementDate },
+    { placeholderData: (previous) => previous }
+  );
+  const clearedAsOf = data?.clearedBalance;
+  const { statementBalance, difference } = reconcileFigures(statement, clearedAsOf);
 
   function finish(adjustment: boolean) {
-    if (!figures) return;
+    if (statementBalance === null) return;
     setConfirming(false);
-    onFinish({ statementDate, statementBalance: figures.statementBalance, adjustment });
+    onFinish({ statementDate, statementBalance, adjustment });
   }
 
   return (
@@ -144,34 +118,34 @@ export function ReconcilePanel({
         </div>
 
         <dl className="flex items-end gap-6 text-right">
-          <BalanceFigure
-            label="Cleared balance"
-            value={clearedAsOf}
-            className="text-muted-foreground"
-          />
-          {figures && (
-            <>
-              <BalanceFigure
-                label="Statement"
-                value={figures.statementBalance}
-                className="text-muted-foreground"
-              />
-              {covers ? (
-                <BalanceFigure
-                  label="Difference"
-                  value={figures.difference}
-                  className={cn(
-                    "text-lg font-semibold",
-                    figures.difference === 0 && "text-green-500"
-                  )}
-                />
-              ) : (
-                <div>
-                  <span className="block text-xs text-muted-foreground mb-1">Difference</span>
-                  <span className="text-sm text-muted-foreground">Not yet known</span>
-                </div>
-              )}
-            </>
+          {clearedAsOf !== undefined && (
+            <BalanceFigure
+              label="Cleared balance"
+              value={clearedAsOf}
+              className="text-muted-foreground"
+            />
+          )}
+          {statementBalance !== null && (
+            <BalanceFigure
+              label="Statement"
+              value={statementBalance}
+              className="text-muted-foreground"
+            />
+          )}
+          {difference !== null ? (
+            <BalanceFigure
+              label="Difference"
+              value={difference}
+              className={cn("text-lg font-semibold", difference === 0 && "text-green-500")}
+            />
+          ) : (
+            <div>
+              <dt className="text-xs text-muted-foreground">Difference</dt>
+              <dd className="text-sm text-muted-foreground">
+                {/* Typed but not yet measured only while the first figure loads. */}
+                {statementBalance === null ? "Not yet known" : "…"}
+              </dd>
+            </div>
           )}
         </dl>
 
@@ -181,31 +155,13 @@ export function ReconcilePanel({
           </Button>
           <Button
             size="sm"
-            disabled={!figures || !covers || isBusy}
-            onClick={() => (figures?.difference === 0 ? finish(false) : setConfirming(true))}
+            disabled={difference === null || isBusy}
+            onClick={() => (difference === 0 ? finish(false) : setConfirming(true))}
           >
             Finish
           </Button>
         </div>
       </div>
-
-      {!covers && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          {clearedFilter !== "all"
-            ? "Clear the cleared-status filter to reconcile: this register is showing only some of its transactions, and the rest still count towards the balance."
-            : "This statement closes before the oldest transaction loaded, so what has cleared since it is not all here yet."}{" "}
-          {clearedFilter === "all" && (
-            <button
-              type="button"
-              onClick={onLoadOlder}
-              disabled={isLoadingMore}
-              className="underline hover:text-foreground disabled:opacity-50"
-            >
-              {isLoadingMore ? "Loading older transactions…" : "Load older transactions"}
-            </button>
-          )}
-        </p>
-      )}
 
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
 
@@ -217,7 +173,7 @@ export function ReconcilePanel({
         title="This statement does not agree"
         description={
           <>
-            A balance adjustment of {formatCurrency(figures?.difference ?? 0)} will be
+            A balance adjustment of {formatCurrency(difference ?? 0)} will be
             entered to make the account agree with the statement, and everything ticked as
             cleared will be marked reconciled.
           </>

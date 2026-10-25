@@ -131,20 +131,52 @@ describe("register row editing", () => {
 });
 
 describe("reconciling", () => {
-  // Nothing has cleared since the statement, so the cleared balance today is
-  // the one the statement should show.
+  // The API dates the cleared balance back to the statement over the whole
+  // history, so the panel needs nothing from the loaded rows.
   const reconcileFixtures = {
     ...fixtures,
-    "account.transactions": { ...fixtures["account.transactions"], clearedBalance: 250 },
+    "account.clearedBalanceAsOf": { clearedBalance: 250 },
     "account.reconcile": { reconciledCount: 0, adjustmentAmount: null },
   };
 
-  async function openPanel() {
-    const rendered = await renderRoute("/budgets/1/accounts/10", { fixtures: reconcileFixtures });
+  async function openPanel(path = "/budgets/1/accounts/10") {
+    const rendered = await renderRoute(path, { fixtures: reconcileFixtures });
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Reconcile" }));
     return { ...rendered, user, statement: screen.getByLabelText("Statement balance") };
   }
+
+  test("the difference is not yet known until a statement balance is typed", async () => {
+    const { user, statement } = await openPanel();
+    const difference = () => screen.getByText("Difference").nextElementSibling?.textContent;
+
+    expect(difference()).toBe("Not yet known");
+    await user.type(statement, "1,000");
+    await waitFor(() => expect(difference()).toBe("$750.00"));
+    await user.clear(statement);
+    await user.type(statement, "0");
+    expect(difference()).toBe("-$250.00");
+    await user.clear(statement);
+    expect(difference()).toBe("Not yet known");
+  });
+
+  // A filtered register used to leave the difference unknown for good, since
+  // the rows it had loaded could not prove the estimate.
+  test("a cleared filter does not hide the difference", async () => {
+    const { user, statement, inputsTo } = await openPanel(
+      "/budgets/1/accounts/10?cleared=Unreconciled"
+    );
+
+    await user.type(statement, "250");
+    await waitFor(() =>
+      expect(screen.getByText("Difference").nextElementSibling?.textContent).toBe("$0.00")
+    );
+    expect(inputsTo("account.clearedBalanceAsOf")[0]).toEqual({
+      budgetId: 1,
+      accountId: 10,
+      date: formatDateISO(new Date()),
+    });
+  });
 
   test("a statement that agrees finishes without an adjustment", async () => {
     const { user, statement, inputsTo } = await openPanel();

@@ -1,13 +1,11 @@
 import { useState } from "react";
-import { CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BalanceFigure } from "@/components/register/balance-figure";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { DateEntryInput } from "@/components/common/date-entry-input";
 import { MoneyInput } from "@/components/common/money-input";
 import { reconcileFigures } from "@/lib/reconcile";
-import { cn, formatCurrency, formatDateISO, formatDateShort } from "@/lib/utils";
+import { cn, formatCurrency, formatDateISO } from "@/lib/utils";
 import { trpc } from "@/trpc";
 
 /** What Finish sends, once the reader has agreed to any adjustment it needs. */
@@ -72,30 +70,25 @@ export function ReconcilePanel({
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex items-end gap-4">
           <div>
-            <span className="block text-xs text-muted-foreground mb-1">Statement date</span>
-            <Popover>
-              <PopoverTrigger
-                render={
-                  <Button
-                    variant="outline"
-                    className="text-sm font-normal h-auto py-1 px-2"
-                  />
-                }
-              >
-                <CalendarIcon className="mr-2 h-3.5 w-3.5 opacity-50" />
-                {formatDateShort(date)}
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={date}
-                  // Clicking the selected day deselects it, and a statement
-                  // without a date is not a statement, so that is ignored.
-                  onSelect={(next) => next && setDate(next)}
-                  autoFocus
-                />
-              </PopoverContent>
-            </Popover>
+            <label
+              htmlFor="statement-date"
+              className="block text-xs text-muted-foreground mb-1"
+            >
+              Statement date
+            </label>
+            {/* The first field, so it takes the keyboard as the panel opens,
+                selected so typing a date replaces today's. */}
+            <DateEntryInput
+              id="statement-date"
+              autoFocus
+              onFocus={(e) => e.currentTarget.select()}
+              value={date}
+              // Clicking the selected day deselects it, and a statement
+              // without a date is not a statement, so that is ignored.
+              onChange={(next) => next && setDate(next)}
+              onKeyDown={(e) => e.key === "Escape" && onCancel()}
+              className="w-24"
+            />
           </div>
 
           <div>
@@ -108,7 +101,6 @@ export function ReconcilePanel({
             <MoneyInput
               id="statement-balance"
               variant="underline"
-              autoFocus
               value={statement}
               onChange={(e) => setStatement(e.target.value)}
               onKeyDown={(e) => e.key === "Escape" && onCancel()}

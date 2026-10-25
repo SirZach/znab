@@ -129,7 +129,9 @@ bun start       # API on :3001 with SERVE_WEB=1, serving the built web app
 
 On the host this runs as the systemd user service in `scripts/znab.service`
 (install steps are in the file). After a rebuild:
-`systemctl --user restart znab`. `scripts/restart-web.sh` (`bun run
+`systemctl --user restart znab`. `bun run deploy` (`scripts/deploy.sh`) does
+it all on main: DB backup, pull, install, build, migrate, restart, health
+check. `scripts/restart-web.sh` (`bun run
 web:restart`) clears the Vite cache and restarts the web dev server.
 
 ---

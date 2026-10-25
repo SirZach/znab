@@ -1,14 +1,12 @@
-# znab as one supervised process: the API, serving the built web app itself.
+# znab in production: one supervised process, the API serving the built web
+# app itself, on port 3001 against the `znab` database. Caddy fronts it as
+# http://znab (scripts/Caddyfile proxies to 127.0.0.1:3001 only).
 #
-# This replaces a pair of nohup'd dev servers that nothing owned. Two things
-# follow from being supervised rather than detached. It comes back after a
-# crash and after a reboot, which nohup never did. And its output goes to
-# journald instead of to a shell that closes, which is what turned a failure
-# into a white page with no error behind it.
+# Supervised rather than nohup'd, so it comes back after a crash and after a
+# reboot, and its output goes to journald instead of a shell that closes.
 #
 # It is a user service rather than a system one: znab runs as one person on one
-# machine, needs nothing root owns, and keeps working with the same DATABASE_URL
-# the dev servers already use.
+# machine (host `znab`) and needs nothing root owns.
 #
 # Install:
 #
@@ -17,8 +15,6 @@
 #   systemctl --user daemon-reload
 #
 #   # Build the web app first, or the service refuses to start and says so.
-#   # Worth doing with the dev server stopped: this machine has 2GB and the
-#   # build wants a few hundred MB that a long-lived vite is otherwise holding.
 #   bun run build
 #
 #   systemctl --user enable --now znab
@@ -26,15 +22,15 @@
 #   # Without this it stops when you log out and does not come back on reboot.
 #   sudo loginctl enable-linger zach
 #
-# Then: http://znab:3001
-#
 #   systemctl --user status znab
 #   journalctl --user -u znab -f
-#   systemctl --user restart znab     # after a rebuild
 #
-# Developing is unchanged and unaffected: `bun run dev` still runs the two dev
-# servers on 5173 and 3001. Stop this service first, since it wants the same
-# port the API does.
+# Deploys: `bun run deploy` (scripts/deploy.sh) backs up, pulls main, builds,
+# migrates and restarts this service.
+#
+# Developing needs no stop: `bun run dev` runs Vite on 5173 and the dev API on
+# 3002 against the separate `znab_dev` database (scripts/dev-env.sh), beside
+# this service. `bun run db:refresh-dev` reloads znab_dev from prod data.
 
 [Unit]
 Description=znab
@@ -47,6 +43,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/workspace/znab
+# NODE_ENV=production stops Bun loading any .env.development, and variables set
+# here win over any .env file Bun finds in the working directory, so no dev
+# setting can leak in. apps/api/.env holds DATABASE_URL (database `znab`) and
+# API_PORT (3001, or unset for the same default), the port Caddy and
+# deploy.sh's health check expect. Dev overrides both in scripts/dev-env.sh.
+Environment=NODE_ENV=production
 Environment=SERVE_WEB=1
 EnvironmentFile=%h/workspace/znab/apps/api/.env
 ExecStart=%h/.bun/bin/bun apps/api/src/index.ts
@@ -56,9 +58,10 @@ ExecStart=%h/.bun/bin/bun apps/api/src/index.ts
 Restart=always
 RestartSec=3
 
-# 2GB total on this machine, and the app sits around 40MB. A cap this far above
-# that is not a budget, it is a tripwire: reaching it means something is wrong
-# and being restarted beats taking the machine into swap.
+# 6GB and 2 vCPUs on this machine, shared with Postgres and the dev servers,
+# and the app sits around 40MB. A cap this far above that is not a budget, it
+# is a tripwire: reaching it means something is wrong and being restarted beats
+# taking the machine into swap.
 MemoryMax=512M
 
 StandardOutput=journal

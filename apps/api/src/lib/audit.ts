@@ -1,8 +1,13 @@
 /**
- * The audit log: one row per row a money-changing write touched, written in the
- * same transaction as the write so the two commit or roll back together. The
- * YNAB 4 importer never comes through here; what it writes is YNAB's history,
- * not a change made in znab.
+ * The audit log: one row per row a write touched, written in the same
+ * transaction as the write so the two commit or roll back together. It covers
+ * transactions (transfer pairs included), allocations, scheduled transactions,
+ * accounts and category deletes. Not covered: payee merge, which repoints
+ * transactions to the kept payee; category create, rename, move, hide and
+ * goals; category groups; split parts, which only the importer writes; and the
+ * opening-balance category account create can make. The YNAB 4 importer never
+ * comes through here; what it writes is YNAB's history, not a change made in
+ * znab.
  */
 import { auditLog } from "@znab/db";
 import type { Tx } from "./tx";
@@ -29,13 +34,19 @@ export function auditAction(before: AuditedRow | undefined, after: AuditedRow | 
 /**
  * Records a write by the rows as they stood before it and as it left them,
  * paired by id. A row only in `after` was created; one only in `before` was
- * removed outright. Both sides are whole rows as stored.
+ * removed outright. Both sides are whole rows as stored. `action` overrides
+ * that reading for the rare write that knows better than its rows say, such
+ * as an upsert that found a row it had not read.
  */
 export async function audit(
   tx: Tx,
   userId: number,
   entity: AuditEntity,
-  { before = [], after = [] }: { before?: AuditedRow[]; after?: AuditedRow[] }
+  {
+    before = [],
+    after = [],
+    action,
+  }: { before?: AuditedRow[]; after?: AuditedRow[]; action?: ReturnType<typeof auditAction> }
 ) {
   const ids = new Set([...before, ...after].map((r) => r.id));
   if (ids.size === 0) return;
@@ -47,7 +58,7 @@ export async function audit(
       userId,
       entity,
       entityId: id,
-      action: auditAction(was, now),
+      action: action ?? auditAction(was, now),
       before: was ?? null,
       after: now ?? null,
     };

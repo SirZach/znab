@@ -33,7 +33,8 @@ function counterpartWhere(
 /**
  * The other half of a transfer as stored, when there is another half to find:
  * its cleared status is judged alongside the near side's, and the whole row is
- * what the audit log records it was.
+ * what the audit log records it was. Locked, like the near side, so that row
+ * cannot change between being read and being written.
  */
 async function loadCounterpart(
   tx: Tx,
@@ -45,7 +46,8 @@ async function loadCounterpart(
     .select()
     .from(transactions)
     .where(counterpartWhere(ctx, row.budgetId, row.transferTransactionId))
-    .limit(1);
+    .limit(1)
+    .for("update");
   return far ?? null;
 }
 
@@ -168,6 +170,8 @@ export const transactionRouter = router({
         input;
 
       return ctx.db.transaction(async (tx) => {
+        // Locked, so the row the audit log records as "before" is the row the
+        // update below actually changes.
         const [row] = await tx
           .select()
           .from(transactions)
@@ -177,7 +181,8 @@ export const transactionRouter = router({
               inArray(transactions.budgetId, ownedBudgetIds(ctx))
             )
           )
-          .limit(1);
+          .limit(1)
+          .for("update");
         if (!row) throw new TRPCError({ code: "NOT_FOUND" });
 
         const farBefore = await loadCounterpart(tx, ctx, row);
@@ -306,7 +311,8 @@ export const transactionRouter = router({
               inArray(transactions.budgetId, ownedBudgetIds(ctx))
             )
           )
-          .limit(1);
+          .limit(1)
+          .for("update");
         if (!row) throw new TRPCError({ code: "NOT_FOUND" });
 
         const farBefore = await loadCounterpart(tx, ctx, row);

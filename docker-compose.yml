@@ -8,10 +8,13 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: znab
+      # Only used when the volume is first created. The host's live database
+      # has its own password (ALTER ROLE), kept in the gitignored .env files.
       POSTGRES_PASSWORD: znab
       POSTGRES_DB: znab
     ports:
-      - "5432:5432"
+      # Loopback only: the API, dev servers and backups all run on this host.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

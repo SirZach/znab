@@ -15,32 +15,20 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKUP_DIR="${ZNAB_BACKUP_DIR:-$HOME/.local/share/znab/backups}"
-CONTAINER="${ZNAB_PG_CONTAINER:-znab-postgres-1}"
+# shellcheck source=scripts/backup-lib.sh
+. "$ROOT/scripts/backup-lib.sh"
 SERVICE="${ZNAB_SERVICE:-znab.service}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3001/health}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"
-
-step() { printf '\n==> %s\n' "$1"; }
 
 main() {
   cd "$ROOT"
 
   step "Backing up the database"
-  mkdir -p "$BACKUP_DIR"
-  local backup tmp
-  backup="$BACKUP_DIR/znab-$(date +%Y%m%d-%H%M%S).dump"
-  tmp="$backup.partial"
-  # Dumps hold every transaction, so keep them private. Written to a .partial
-  # name first so a dump that dies halfway never looks like a good backup.
-  (umask 077 && docker exec "$CONTAINER" pg_dump -U znab -Fc znab > "$tmp")
-  if [ ! -s "$tmp" ]; then
-    rm -f "$tmp"
-    echo "    pg_dump wrote nothing" >&2
-    return 1
-  fi
-  mv "$tmp" "$backup"
-  echo "    $backup ($(du -h "$backup" | cut -f1))"
+  # backup.sh keeps the newest 10 of these and never uploads them.
+  local backup
+  backup="$BACKUP_DIR/znab-predeploy-$(date +%Y%m%d-%H%M%S).dump"
+  dump_db "$backup"
 
   step "Pulling main"
   local branch

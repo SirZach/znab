@@ -12,6 +12,8 @@
     "dev:web": "bun run --filter web dev",
     "web:restart": "bash scripts/restart-web.sh",
     "deploy": "bash scripts/deploy.sh",
+    "backup": "bash scripts/backup.sh",
+    "backup:check": "bash scripts/restore-check.sh",
     "build": "bun run --filter web build",
     "start": "SERVE_WEB=1 bun run --filter api start",
     "db:generate": "bun run --filter @znab/db generate",
@@ -21,9 +23,10 @@
     "ynab:reset": "FORCE=1 bash scripts/sync-ynab4.sh",
     "test": "bun run --filter '*' test",
     "test:db": "bun run --filter api test:db",
+    "test:scripts": "bash scripts/backup-lib.test.sh",
     "typecheck": "tsc --noEmit -p apps/api && tsc --noEmit -p apps/web && tsc --noEmit -p packages/db && tsc --noEmit -p packages/shared",
     "lint": "biome lint .",
-    "check": "bun run typecheck && bun run lint && bun run test && bun run test:db"
+    "check": "bun run typecheck && bun run lint && bun run test && bun run test:db && bun run test:scripts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

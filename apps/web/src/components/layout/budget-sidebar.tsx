@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sidebar";
 import { currentMonthParam } from "@/lib/utils";
 import { BackToBudgets } from "./back-to-budgets";
+import { InstallAppItem } from "./install-app-item";
 import { NavItem } from "./nav-item";
 import { SidebarAccountGroup, type SidebarAccount } from "./sidebar-account-group";
 
@@ -173,6 +174,7 @@ export function BudgetSidebar({
 
       <SidebarFooter className="border-t border-sidebar-border">
         <SidebarMenu>
+          <InstallAppItem />
           <SidebarMenuItem>
             <SidebarMenuButton className="text-sidebar-foreground/70" onClick={onSignOut}>
               <LogOut />

@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { serveStatic } from "hono/bun";
 import { createApp } from "./app";
+import { serveWeb } from "./serve-web";
 
 const app = createApp();
 
@@ -25,16 +25,7 @@ if (process.env.SERVE_WEB) {
   }
 
   // Registered after the API routes above, so nothing here can shadow them.
-  app.use("*", serveStatic({ root: webDist }));
-
-  // Everything left is a route belonging to the client's own router, which
-  // only exists once the page has loaded, so the page is what to send. A path
-  // with an extension is a different thing: an asset that is genuinely missing,
-  // and saying so beats handing back the index page under the wrong type and
-  // letting the browser fail on it a step later.
-  app.get("*", async (c) =>
-    /\.[^/]+$/.test(c.req.path) ? c.notFound() : c.html(await Bun.file(indexHtml).text())
-  );
+  serveWeb(app, webDist);
 }
 
 const port = Number(process.env.API_PORT ?? 3001);

@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { router, budgetProcedure } from "../trpc";
 import { categories, categoryGroups, payees } from "@znab/db";
 import { categoryNameSchema } from "@znab/shared";
+import { audit } from "../lib/audit";
 import { ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import { countOf, pluralize } from "../lib/plural";
 import { assertExactly, reorderRows } from "../lib/reorder";
@@ -300,15 +301,17 @@ export const categoryRouter = router({
             )
           );
 
-        await tx
+        const removed = await tx
           .delete(categories)
           .where(
             and(
               eq(categories.id, category.id),
               inArray(categories.budgetId, ownedBudgetIds(ctx))
             )
-          );
+          )
+          .returning();
 
+        await audit(tx, ctx.user.id, "category", { before: removed });
         return { id: category.id };
       });
     }),

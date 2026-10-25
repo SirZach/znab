@@ -20,6 +20,7 @@ import {
   reconcileAccountSchema,
   reconcileDifference,
 } from "@znab/shared";
+import { audit } from "../lib/audit";
 import { ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import { isoDateSchema } from "../lib/input";
 import { countOf } from "../lib/plural";
@@ -62,14 +63,9 @@ async function lockAccount(
   accountId: number,
   budgetId: number
 ) {
+  // The whole row, since it is also what the audit log records it was.
   const [account] = await tx
-    .select({
-      id: accounts.id,
-      name: accounts.name,
-      accountType: accounts.accountType,
-      onBudget: accounts.onBudget,
-      lastReconciledDate: accounts.lastReconciledDate,
-    })
+    .select()
     .from(accounts)
     .where(
       and(
@@ -516,23 +512,28 @@ export const accountRouter = router({
             { enabled: false }
           );
 
-          await tx.insert(transactions).values({
-            ynabId: crypto.randomUUID(),
-            budgetId: input.budgetId,
-            accountId: account!.id,
-            payeeId,
-            // Both, the way the importer stores them: the id points at the
-            // category row and the ynab id says which envelope it stands for.
-            categoryId,
-            categoryYnabId: opening.categoryYnabId,
-            amount: String(amount),
-            date: input.startingBalanceDate ?? localToday(),
-            // The money is already there, so the bank has agreed to it.
-            cleared: "Cleared",
-            accepted: true,
-          });
+          const [openingTxn] = await tx
+            .insert(transactions)
+            .values({
+              ynabId: crypto.randomUUID(),
+              budgetId: input.budgetId,
+              accountId: account!.id,
+              payeeId,
+              // Both, the way the importer stores them: the id points at the
+              // category row and the ynab id says which envelope it stands for.
+              categoryId,
+              categoryYnabId: opening.categoryYnabId,
+              amount: String(amount),
+              date: input.startingBalanceDate ?? localToday(),
+              // The money is already there, so the bank has agreed to it.
+              cleared: "Cleared",
+              accepted: true,
+            })
+            .returning();
+          await audit(tx, ctx.user.id, "transaction", { after: [openingTxn!] });
         }
 
+        await audit(tx, ctx.user.id, "account", { after: [account!] });
         return account!;
       });
     }),
@@ -623,6 +624,7 @@ export const accountRouter = router({
           )
           .returning();
 
+        await audit(tx, ctx.user.id, "account", { before: [account], after: [updated!] });
         return updated!;
       });
     }),
@@ -664,6 +666,7 @@ export const accountRouter = router({
           )
           .returning();
 
+        await audit(tx, ctx.user.id, "account", { before: [account], after: [updated!] });
         return updated!;
       });
     }),
@@ -758,9 +761,10 @@ export const accountRouter = router({
           .where(
             and(eq(accounts.id, account.id), inArray(accounts.budgetId, ownedBudgetIds(ctx)))
           )
-          .returning({ id: accounts.id });
+          .returning();
 
-        return deleted!;
+        await audit(tx, ctx.user.id, "account", { before: [account], after: [deleted!] });
+        return { id: deleted!.id };
       });
     }),
 
@@ -845,39 +849,45 @@ export const accountRouter = router({
           // does not, so it is made on demand.
           const payeeId = await findOrCreatePayee(tx, input.budgetId, RECONCILE_PAYEE_NAME);
 
-          await tx.insert(transactions).values({
-            ynabId: crypto.randomUUID(),
-            budgetId: input.budgetId,
-            accountId: account.id,
-            payeeId,
-            categoryYnabId: adjustment.categoryYnabId,
-            amount: String(adjustment.amount),
-            date: input.statementDate,
-            // Reconciled as written: it is the row that makes the statement
-            // true, which also keeps it out of the sweep below and so out of
-            // the count of rows the user's own ticking reconciled.
-            cleared: "Reconciled",
-            accepted: true,
-            memo: RECONCILE_MEMO,
-          });
+          const [adjustmentTxn] = await tx
+            .insert(transactions)
+            .values({
+              ynabId: crypto.randomUUID(),
+              budgetId: input.budgetId,
+              accountId: account.id,
+              payeeId,
+              categoryYnabId: adjustment.categoryYnabId,
+              amount: String(adjustment.amount),
+              date: input.statementDate,
+              // Reconciled as written: it is the row that makes the statement
+              // true, which also keeps it out of the sweep below and so out of
+              // the count of rows the user's own ticking reconciled.
+              cleared: "Reconciled",
+              accepted: true,
+              memo: RECONCILE_MEMO,
+            })
+            .returning();
+          await audit(tx, ctx.user.id, "transaction", { after: [adjustmentTxn!] });
           adjustmentAmount = adjustment.amount;
         }
 
+        const sweep = and(
+          eq(transactions.accountId, account.id),
+          eq(transactions.cleared, "Cleared"),
+          lte(transactions.date, input.statementDate),
+          isNull(transactions.deletedAt),
+          inArray(transactions.budgetId, ownedBudgetIds(ctx))
+        );
+        // Read first, so the log holds each row as it was before the sweep.
+        const unswept = await tx.select().from(transactions).where(sweep).for("update");
         const swept = await tx
           .update(transactions)
           .set({ cleared: "Reconciled", updatedAt: new Date() })
-          .where(
-            and(
-              eq(transactions.accountId, account.id),
-              eq(transactions.cleared, "Cleared"),
-              lte(transactions.date, input.statementDate),
-              isNull(transactions.deletedAt),
-              inArray(transactions.budgetId, ownedBudgetIds(ctx))
-            )
-          )
-          .returning({ id: transactions.id });
+          .where(sweep)
+          .returning();
+        await audit(tx, ctx.user.id, "transaction", { before: unswept, after: swept });
 
-        await tx
+        const [reconciled] = await tx
           .update(accounts)
           .set({
             lastReconciledBalance: String(input.statementBalance),
@@ -889,7 +899,9 @@ export const accountRouter = router({
               eq(accounts.id, account.id),
               inArray(accounts.budgetId, ownedBudgetIds(ctx))
             )
-          );
+          )
+          .returning();
+        await audit(tx, ctx.user.id, "account", { before: [account], after: [reconciled!] });
 
         return {
           reconciledCount: swept.length,

@@ -10,6 +10,7 @@ import {
   type FrequencyValue,
 } from "@znab/shared";
 import { TRPCError } from "@trpc/server";
+import { audit } from "../lib/audit";
 import { assertIdsInBudget, ownedBudgetIds, type AuthedContext } from "../lib/authz";
 import { localToday } from "../lib/date";
 import { findOrCreatePayee } from "../lib/find-or-create-payee";
@@ -153,58 +154,35 @@ async function loadScheduled(tx: Tx, ctx: AuthedContext, id: number) {
 }
 
 /**
- * A "Once" schedule that has been entered is spent, and leaving it in place
- * would offer it forever.
- */
-async function retire(tx: Tx, ctx: AuthedContext, id: number) {
-  await tx
-    .update(scheduledTransactions)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(scheduledTransactions.id, id),
-        inArray(scheduledTransactions.budgetId, ownedBudgetIds(ctx)),
-      ),
-    );
-}
-
-// Scoped the way `retire` is: every caller reaches these through a read that
-// was already scoped, but a helper taking a bare row id and writing to it is
-// the exact shape of the defect this repo has already had four times.
-async function moveTo(tx: Tx, ctx: AuthedContext, id: number, date: string) {
-  await tx
-    .update(scheduledTransactions)
-    .set({ date, updatedAt: new Date() })
-    .where(
-      and(
-        eq(scheduledTransactions.id, id),
-        inArray(scheduledTransactions.budgetId, ownedBudgetIds(ctx)),
-      ),
-    );
-}
-
-/**
  * Moves a schedule past the occurrence just dealt with, or retires it when it
- * never comes round again.
+ * never comes round again: a "Once" schedule that has been entered is spent,
+ * and leaving it in place would offer it forever.
+ *
+ * Every caller reaches this through a read that was already scoped, but a
+ * helper taking a bare row id and writing to it is the exact shape of the
+ * defect this repo has already had four times, so the write is scoped too.
  */
 async function advance(
   tx: Tx,
   ctx: AuthedContext,
-  row: {
-    id: number;
-    date: string;
-    frequency: string;
-    twiceMonthDay: number | null;
-    anchorDay: number | null;
-  },
+  row: typeof scheduledTransactions.$inferSelect,
   past: string,
 ) {
   const next = nextOccurrence(recurrenceOf(row), past);
-  if (next === null) {
-    await retire(tx, ctx, row.id);
-    return null;
-  }
-  await moveTo(tx, ctx, row.id, next);
+  const [after] = await tx
+    .update(scheduledTransactions)
+    .set({
+      ...(next === null ? { deletedAt: new Date() } : { date: next }),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(scheduledTransactions.id, row.id),
+        inArray(scheduledTransactions.budgetId, ownedBudgetIds(ctx)),
+      ),
+    )
+    .returning();
+  await audit(tx, ctx.user.id, "scheduled_transaction", { before: [row], after: [after!] });
   return next;
 }
 
@@ -219,7 +197,11 @@ async function advance(
  * on the scheduled entity but the importer never stored it, and it would be a
  * second source of truth for something the payee already says.
  */
-async function occurrenceWriter(tx: Tx, row: typeof scheduledTransactions.$inferSelect) {
+async function occurrenceWriter(
+  tx: Tx,
+  userId: number,
+  row: typeof scheduledTransactions.$inferSelect,
+) {
   // The account can go while the schedule pointing at it stays, so the row is
   // only good as long as what it names still exists.
   const into = await tx.query.accounts.findFirst({
@@ -267,7 +249,7 @@ async function occurrenceWriter(tx: Tx, row: typeof scheduledTransactions.$infer
       targetAccountId: payee.targetAccountId,
     });
     return (date: string) =>
-      insertTransferPair(tx, ends, {
+      insertTransferPair(tx, userId, ends, {
         amount: Number(row.amount),
         date,
         categoryId: row.categoryId,
@@ -296,6 +278,7 @@ async function occurrenceWriter(tx: Tx, row: typeof scheduledTransactions.$infer
         dateFromSchedule: date,
       })
       .returning();
+    await audit(tx, userId, "transaction", { after: [txn!] });
     return txn!;
   };
 }
@@ -411,6 +394,7 @@ export const scheduledTransactionRouter = router({
           })
           .returning();
 
+        await audit(tx, ctx.user.id, "scheduled_transaction", { after: [created!] });
         return created!;
       });
     }),
@@ -476,6 +460,10 @@ export const scheduledTransactionRouter = router({
           )
           .returning();
 
+        await audit(tx, ctx.user.id, "scheduled_transaction", {
+          before: [row],
+          after: [updated!],
+        });
         return updated!;
       });
     }),
@@ -484,7 +472,7 @@ export const scheduledTransactionRouter = router({
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.db.transaction(async (tx) => {
-        await loadScheduled(tx, ctx, input.id);
+        const row = await loadScheduled(tx, ctx, input.id);
         // A soft delete, like everything else here: the transactions already
         // entered from this schedule stay, and stay pointing at nothing.
         const [removed] = await tx
@@ -497,6 +485,10 @@ export const scheduledTransactionRouter = router({
             ),
           )
           .returning();
+        await audit(tx, ctx.user.id, "scheduled_transaction", {
+          before: [row],
+          after: [removed!],
+        });
         return removed!;
       });
     }),
@@ -507,7 +499,7 @@ export const scheduledTransactionRouter = router({
     .mutation(async ({ ctx, input }) => {
       return ctx.db.transaction(async (tx) => {
         const row = await loadScheduled(tx, ctx, input.id);
-        const write = await occurrenceWriter(tx, row);
+        const write = await occurrenceWriter(tx, ctx.user.id, row);
         const entered = await write(row.date);
         const next = await advance(tx, ctx, row, row.date);
         return { transaction: entered, enteredDate: row.date, nextDate: next };
@@ -569,7 +561,7 @@ export const scheduledTransactionRouter = router({
               // read from the same routine, rather than walked separately.
               const due = occurrencesThrough(recurrenceOf(row), asOf, MAX_CATCH_UP);
               if (due.length === 0) return 0;
-              const write = await occurrenceWriter(inner, row);
+              const write = await occurrenceWriter(inner, ctx.user.id, row);
               for (const date of due) await write(date);
               await advance(inner, ctx, row, due[due.length - 1]!);
               return due.length;

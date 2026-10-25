@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { allAccountsSearchSchema, type RegisterSort, type SortDirection } from "@znab/shared";
 import { AllAccountsTable } from "@/components/accounts/all-accounts-table";
+import { ExportCsvButton } from "@/components/accounts/export-csv-button";
 import { PageHeader } from "@/components/common/page-header";
 import { ClearedFilter } from "@/components/register/cleared-filter";
 import { RegisterSearch } from "@/components/register/register-search";
@@ -57,7 +58,10 @@ function AllAccountsRegister() {
             {data ? ` · ${formatCurrency(data.balance)} across every account` : ""}
           </>
         }
-      />
+        className="flex flex-wrap items-center justify-between gap-4"
+      >
+        <ExportCsvButton budgetId={Number(budgetId)} />
+      </PageHeader>
 
       <div className="px-6 py-2 border-b border-border flex flex-wrap items-center gap-3">
         <RegisterSearch

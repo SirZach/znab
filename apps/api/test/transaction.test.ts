@@ -25,6 +25,35 @@ function transfer(caller: Caller, seed: Seed, from: "checking" | "savings" | "tr
   });
 }
 
+describe("impossible dates", () => {
+  test("are a BAD_REQUEST rather than a database error", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      const { budgetId } = seed;
+      await expectTrpcError(
+        caller.transaction.create({
+          budgetId,
+          accountId: seed.accounts.checking.id,
+          payeeId: seed.payees.grocer.id,
+          categoryId: seed.categories.groceries.id,
+          amount: -5,
+          date: "2026-02-30",
+        }),
+        "BAD_REQUEST"
+      );
+      await expectTrpcError(caller.budget.monthBudget({ budgetId, month: "2026-02-30" }), "BAD_REQUEST");
+      await expectTrpcError(
+        caller.account.reconcile({
+          budgetId,
+          accountId: seed.accounts.checking.id,
+          statementBalance: 0,
+          statementDate: "2025-04-31",
+        }),
+        "BAD_REQUEST"
+      );
+    });
+  });
+});
+
 describe("transaction.create transfers", () => {
   test("on-budget to on-budget writes a linked, negated, uncategorized pair and the back payee once", async () => {
     await withCaller(async ({ tx, seed, caller }) => {
@@ -167,10 +196,9 @@ describe("transaction.create payees", () => {
   test("a failed create leaves no orphan payee behind", async () => {
     await withCaller(async ({ tx, seed, caller }) => {
       const before = await countRows(tx, payees, seed.budgetId);
-      // The schema only checks the date's shape, so Feb 30 gets as far as the
-      // row insert and fails there, after the payee has been made. The payee
-      // must go with the row. (If date validation is tightened, this needs
-      // another way to fail inside the write.)
+      // The schema lets a NUL byte through in the memo, which Postgres text
+      // refuses, so the row insert fails after the payee has been made. The
+      // payee must go with the row.
       await expectTrpcError(
         caller.transaction.create({
           budgetId: seed.budgetId,
@@ -179,7 +207,8 @@ describe("transaction.create payees", () => {
           payeeName: "Brand New Payee",
           categoryId: null,
           amount: -12,
-          date: "2025-02-30",
+          date: "2025-02-28",
+          memo: "bad\u0000memo",
         }),
         "INTERNAL_SERVER_ERROR"
       );

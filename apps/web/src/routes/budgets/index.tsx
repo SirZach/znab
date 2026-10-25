@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { LinkCard } from "@/components/common/link-card";
-import { CenteredMessage } from "@/components/common/centered-message";
+import { AppLoader } from "@/components/layout/app-loader";
 import { useBudgetList } from "@/hooks/useBudgetList";
 import { requireUser } from "@/lib/require-user";
 
@@ -13,7 +13,7 @@ function BudgetListPage() {
   const { budgets, isLoading } = useBudgetList();
 
   if (isLoading) {
-    return <CenteredMessage className="min-h-screen bg-background">Loading budgets…</CenteredMessage>;
+    return <AppLoader />;
   }
 
   return (

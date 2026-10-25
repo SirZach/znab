@@ -2,8 +2,9 @@
  * The reads the month engine runs on, shared by every router that has to
  * reason about a month so they cannot drift apart.
  */
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { monthlyBudgets } from "@znab/db";
+import { audit } from "./audit";
 import type { AuthedContext } from "./authz";
 import type { ActivityRow, BudgetedRow, IncomeRow } from "./budget-math";
 import { IS_INCOME, onBudgetMoneySource } from "./money-source";
@@ -62,17 +63,29 @@ export function loadBudgetInputs(db: AuthedContext["db"], budgetId: number) {
 }
 
 /**
- * Writes one category's allocation row for a month, creating it on first use.
- * Only the fields in `set` change on an existing row; a new row starts with
- * nothing budgeted unless `set` says otherwise. The ynab id is the shape YNAB 4
- * gives a monthly category budget, so an authored row matches an imported one.
+ * Writes one category's allocation row for a month, creating it on first use,
+ * and audits it as changed by `userId`. Only the fields in `set` change on an
+ * existing row; a new row starts with nothing budgeted unless `set` says
+ * otherwise. The ynab id is the shape YNAB 4 gives a monthly category budget,
+ * so an authored row matches an imported one.
  */
 export async function upsertMonthlyBudget(
-  db: AuthedContext["db"] | Tx,
+  tx: Tx,
+  userId: number,
   key: { budgetId: number; categoryId: number; month: string },
   set: { budgeted?: string; overspendingHandling?: string }
 ) {
-  await db
+  // Locked, so a concurrent write to the same allocation cannot slip between
+  // the row the log says it was and the row the upsert leaves.
+  const before = await tx
+    .select()
+    .from(monthlyBudgets)
+    .where(
+      and(eq(monthlyBudgets.categoryId, key.categoryId), eq(monthlyBudgets.month, key.month))
+    )
+    .for("update");
+
+  const after = await tx
     .insert(monthlyBudgets)
     .values({
       ynabId: `MCB/${key.month.slice(0, 7)}/${key.categoryId}`,
@@ -85,5 +98,8 @@ export async function upsertMonthlyBudget(
     .onConflictDoUpdate({
       target: [monthlyBudgets.categoryId, monthlyBudgets.month],
       set: { ...set, updatedAt: new Date() },
-    });
+    })
+    .returning();
+
+  await audit(tx, userId, "monthly_budget", { before, after });
 }

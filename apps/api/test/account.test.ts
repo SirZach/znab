@@ -100,6 +100,37 @@ describe("account.reconcile", () => {
   });
 });
 
+describe("account.clearedBalanceAsOf", () => {
+  test("sums Cleared and Reconciled rows up to the date, whatever the register has loaded", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      await enter(caller, seed, 100, "2025-03-01", "Cleared");
+      await enter(caller, seed, -30, "2025-03-05", "Cleared");
+      await enter(caller, seed, -10, "2025-03-02", "Uncleared");
+      await enter(caller, seed, 999, "2025-03-20", "Cleared");
+      const asOf = (date: string) =>
+        caller.account.clearedBalanceAsOf({
+          budgetId: seed.budgetId,
+          accountId: seed.accounts.checking.id,
+          date,
+        });
+
+      expect(await asOf("2025-03-10")).toEqual({ clearedBalance: 70 });
+      expect(await asOf("2025-03-05")).toEqual({ clearedBalance: 70 });
+      expect(await asOf("2025-02-28")).toEqual({ clearedBalance: 0 });
+      expect(await asOf("2025-03-20")).toEqual({ clearedBalance: 1069 });
+
+      // Reconciled rows still count: they are part of what the bank agrees to.
+      await caller.account.reconcile({
+        budgetId: seed.budgetId,
+        accountId: seed.accounts.checking.id,
+        statementBalance: 70,
+        statementDate: "2025-03-10",
+      });
+      expect(await asOf("2025-03-10")).toEqual({ clearedBalance: 70 });
+    });
+  });
+});
+
 describe("account.transactions cleared filter", () => {
   test("Unreconciled shows Uncleared and Cleared rows, and Reconciled the rest", async () => {
     await withCaller(async ({ seed, caller }) => {

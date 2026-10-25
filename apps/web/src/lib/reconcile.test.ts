@@ -1,45 +1,66 @@
 import { describe, expect, test } from "bun:test";
-import { coversStatement } from "./reconcile";
+import { finishBlocker, reconcileFigures } from "./reconcile";
 
-describe("coversStatement: whether that figure is exact or merely close", () => {
-  const loaded = {
-    statementDate: "2026-01-31",
-    oldestLoadedDate: "2025-11-01",
-    hasMore: true,
-    clearedFilter: "all",
-  };
-
-  test("a window reaching back past the statement covers it", () => {
-    expect(coversStatement(loaded)).toBe(true);
+describe("reconcileFigures", () => {
+  test("nothing readable typed leaves both figures unknown", () => {
+    expect(reconcileFigures("", 70)).toEqual({ statementBalance: null, difference: null });
+    expect(reconcileFigures("abc", 70)).toEqual({ statementBalance: null, difference: null });
+    expect(reconcileFigures("1/0", 70)).toEqual({ statementBalance: null, difference: null });
   });
 
-  test("a statement older than the window does not, since rows after it are missing", () => {
-    expect(coversStatement({ ...loaded, statementDate: "2025-06-01" })).toBe(false);
+  test("a readable statement gives the difference, statement less cleared", () => {
+    expect(reconcileFigures("100", 70)).toEqual({ statementBalance: 100, difference: 30 });
+    expect(reconcileFigures("50", 70)).toEqual({ statementBalance: 50, difference: -20 });
   });
 
-  test("the oldest loaded row's own date still counts as covered", () => {
-    expect(coversStatement({ ...loaded, statementDate: "2025-11-01" })).toBe(true);
+  test("zero is a statement balance, not a missing one", () => {
+    expect(reconcileFigures("0", 70)).toEqual({ statementBalance: 0, difference: -70 });
+    expect(reconcileFigures("0.00", 0)).toEqual({ statementBalance: 0, difference: 0 });
   });
 
-  test("nothing older left to load covers any date at all", () => {
-    expect(
-      coversStatement({ ...loaded, statementDate: "2013-09-11", hasMore: false })
-    ).toBe(true);
+  test("currency symbols, thousands separators and arithmetic are read", () => {
+    expect(reconcileFigures("$1,234.56", 1234.56).difference).toBe(0);
+    expect(reconcileFigures("200+50", 250).difference).toBe(0);
   });
 
-  test("an empty register covers nothing while more remains", () => {
-    expect(coversStatement({ ...loaded, oldestLoadedDate: undefined })).toBe(false);
-    expect(
-      coversStatement({ ...loaded, oldestLoadedDate: undefined, hasMore: false })
-    ).toBe(true);
+  test("a credit card statement is negative on both sides", () => {
+    expect(reconcileFigures("-2,199.45", -2376.15)).toEqual({
+      statementBalance: -2199.45,
+      difference: 176.7,
+    });
   });
 
-  // The rows left out by a status filter are the cleared ones this sum is made
-  // of, so a filtered register cannot answer the question however much it holds.
-  test("a cleared filter breaks coverage even with everything loaded", () => {
-    expect(coversStatement({ ...loaded, clearedFilter: "Uncleared" })).toBe(false);
-    expect(
-      coversStatement({ ...loaded, clearedFilter: "Cleared", hasMore: false })
-    ).toBe(false);
+  test("the difference waits for the cleared balance to load", () => {
+    expect(reconcileFigures("100", undefined)).toEqual({ statementBalance: 100, difference: null });
+  });
+});
+
+describe("finishBlocker", () => {
+  const blocker = (statementBalance: number | null, difference: number | null) =>
+    finishBlocker({ statementBalance, difference });
+
+  test("asks for a statement balance until one is typed", () => {
+    expect(blocker(null, null)).toBe("Enter a statement balance");
+  });
+
+  test("says nothing once the statement agrees, or while the cleared balance loads", () => {
+    expect(blocker(250, 0)).toBeNull();
+    expect(blocker(250, null)).toBeNull();
+  });
+
+  test("an asset account short of its statement has the gap left to clear", () => {
+    expect(blocker(1000, 123.45)).toBe("$123.45 left to clear");
+    expect(blocker(0, 42.17)).toBe("$42.17 left to clear");
+  });
+
+  test("an asset account past its statement has cleared too much", () => {
+    expect(blocker(500, -250)).toBe("Cleared is $250.00 over the statement");
+  });
+
+  test("a credit card reads the other way round, since it owes", () => {
+    // Owes 2,000 per the statement, 1,800 cleared: 200 of charges still to tick.
+    expect(blocker(-2000, -200)).toBe("$200.00 left to clear");
+    // Owes 2,000 per the statement, 2,200 cleared: 200 ticked that should not be.
+    expect(blocker(-2000, 200)).toBe("Cleared is $200.00 over the statement");
   });
 });

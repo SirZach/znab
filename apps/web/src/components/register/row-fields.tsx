@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
-import { CalendarIcon, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import {
   Command,
   CommandEmpty,
@@ -11,12 +10,11 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatDateShort } from "@/lib/utils";
 import { MoneyInput } from "@/components/common/money-input";
 import { UnderlineInput } from "@/components/common/underline-input";
 import { FlagCell } from "@/components/register/flag-cell";
 import { PayeePicker } from "@/components/common/payee-picker";
-import { offsetDays, parseDateEntry } from "@/lib/date-entry";
+import { DateEntryInput } from "@/components/common/date-entry-input";
 import type { PayeeAutofillPatch, PayeeAutofillSource } from "@/lib/payee-autofill";
 import type { RegisterCategoryOption } from "@/lib/category-options";
 import type { RegisterFields } from "@/lib/register-row";
@@ -85,10 +83,6 @@ export function RegisterRowFields({
 
   const categoryTriggerRef = useRef<HTMLButtonElement>(null);
   const memoRef = useRef<HTMLInputElement>(null);
-  const [dateOpen, setDateOpen] = useState(false);
-  // What is in the date field while it is being typed into. Null means nothing
-  // is being typed, so the field shows the date the row actually holds.
-  const [dateDraft, setDateDraft] = useState<string | null>(null);
 
   const tab = (n: number) => (tabIndexBase === undefined ? undefined : tabIndexBase + n);
 
@@ -98,10 +92,7 @@ export function RegisterRowFields({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") {
-      setDateDraft(null);
-      onSubmit();
-    }
+    if (e.key === "Enter") onSubmit();
     if (e.key === "Escape") onCancel?.();
   }
 
@@ -114,64 +105,15 @@ export function RegisterRowFields({
       />
 
       <td className="px-6 py-2">
-        <div className="flex items-center gap-0.5">
-          <UnderlineInput
-            type="text"
-            ref={dateInputRef}
-            tabIndex={tab(1)}
-            aria-label="Date"
-            placeholder="Date"
-            // The date the row holds, unless somebody is part way through
-            // typing another one, in which case theirs stands untouched.
-            value={dateDraft ?? (fields.date ? formatDateShort(fields.date) : "")}
-            onChange={(e) => {
-              setDateDraft(e.target.value);
-              const parsed = parseDateEntry(e.target.value);
-              if (parsed) onChange({ date: parsed });
-            }}
-            // Whatever was typed is dropped on the way out and the field falls
-            // back to the date that was understood, so half a date never sticks.
-            onBlur={() => setDateDraft(null)}
-            onKeyDown={(e) => {
-              // A day either side is the commonest correction there is, and
-              // the arrows are otherwise doing nothing in a text field.
-              if ((e.key === "ArrowUp" || e.key === "ArrowDown") && fields.date) {
-                e.preventDefault();
-                setDateDraft(null);
-                onChange({ date: offsetDays(fields.date, e.key === "ArrowUp" ? 1 : -1) });
-                return;
-              }
-              handleKeyDown(e);
-            }}
-            className="tabular-nums"
-          />
-          <Popover open={dateOpen} onOpenChange={setDateOpen}>
-            <PopoverTrigger
-              render={
-                <Button
-                  tabIndex={-1}
-                  variant="ghost"
-                  aria-label="Pick a date from a calendar"
-                  className="h-auto shrink-0 px-1 py-0.5"
-                />
-              }
-            >
-              <CalendarIcon className="h-3.5 w-3.5 opacity-50" />
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={fields.date}
-                onSelect={(date) => {
-                  setDateDraft(null);
-                  onChange({ date });
-                  setDateOpen(false);
-                }}
-                autoFocus
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
+        <DateEntryInput
+          ref={dateInputRef}
+          tabIndex={tab(1)}
+          aria-label="Date"
+          placeholder="Date"
+          value={fields.date}
+          onChange={(date) => onChange({ date })}
+          onKeyDown={handleKeyDown}
+        />
       </td>
 
       <td className="px-4 py-2">

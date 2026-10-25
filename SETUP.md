@@ -143,6 +143,10 @@ it all on main: DB backup, pull, install, build, migrate, restart, health
 check. `scripts/restart-web.sh` (`bun run
 web:restart`) clears the Vite cache and restarts the web dev server.
 
+The production build is an installable app (browser Install button, Safari
+"Add to Dock", phone home screen). Browsers only offer it over HTTPS or
+localhost, so not on plain http://znab.
+
 ---
 
 ## Adding shadcn/ui components

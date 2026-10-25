@@ -15,3 +15,6 @@ export const CATEGORY_TYPES = ["OUTFLOW", "INFLOW"] as const;
 
 /** A monthly budget row's overspending flag; null means "same as last month". */
 export const OVERSPENDING_HANDLING = ["Confined", "AffectsBuffer"] as const;
+
+/** What an audit log row records happening to the row it names. */
+export const AUDIT_ACTIONS = ["create", "update", "delete"] as const;

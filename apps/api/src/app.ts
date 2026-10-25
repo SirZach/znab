@@ -6,6 +6,7 @@ import { db } from "@znab/db";
 import { sql } from "drizzle-orm";
 import { appRouter } from "./routers";
 import { createContext } from "./context";
+import { exportTransactionsCsv } from "./lib/transactions-csv";
 
 /**
  * Logs tRPC errors that are the server's fault. Client errors (BAD_REQUEST,
@@ -58,6 +59,8 @@ export function createApp(ping: () => Promise<unknown> = () => db.execute(sql`se
         }
       },
       credentials: true,
+      // So the dev web app, on another port, can read the export's filename.
+      exposeHeaders: ["Content-Disposition"],
     })
   );
 
@@ -68,6 +71,11 @@ export function createApp(ping: () => Promise<unknown> = () => db.execute(sql`se
       createContext,
       onError: logTrpcError,
     })
+  );
+
+  // A plain route rather than a tRPC query, so the response is the file itself.
+  app.get("/export/:budgetId/transactions.csv", (c) =>
+    exportTransactionsCsv(db, c.req.raw, c.req.param("budgetId"))
   );
 
   // One round trip to Postgres, so a monitor sees a dead database, not just a

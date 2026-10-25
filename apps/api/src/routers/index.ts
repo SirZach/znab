@@ -7,6 +7,7 @@ import { reportRouter } from "./report";
 import { categoryRouter } from "./category";
 import { scheduledTransactionRouter } from "./scheduled-transaction";
 import { householdSplitRouter } from "./household-split";
+import { auditRouter } from "./audit";
 
 export const appRouter = router({
   budget: budgetRouter,
@@ -17,6 +18,7 @@ export const appRouter = router({
   category: categoryRouter,
   scheduledTransaction: scheduledTransactionRouter,
   householdSplit: householdSplitRouter,
+  audit: auditRouter,
 });
 
 export type AppRouter = typeof appRouter;

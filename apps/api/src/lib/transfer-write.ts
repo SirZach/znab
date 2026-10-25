@@ -6,6 +6,7 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { accounts, payees, transactions } from "@znab/db";
 import type { TransactionCategoryId } from "@znab/shared";
+import { audit } from "./audit";
 import { categoryColumns } from "./category-columns";
 import { transferCategoryId, transferPayeeName, transferPayeeYnabId } from "./transfer";
 import type { Tx } from "./tx";
@@ -106,9 +107,14 @@ export async function resolveTransferEnds(
  * up front because each row has to name the other. Which side carries the
  * category follows from the two accounts (see `transferCategoryId`). The memo
  * travels: every memoed pair in the imported data carries the same text on
- * both sides.
+ * both sides. Both rows are audited as made by `userId`.
  */
-export async function insertTransferPair(tx: Tx, ends: TransferEnds, entry: TransferEntry) {
+export async function insertTransferPair(
+  tx: Tx,
+  userId: number,
+  ends: TransferEnds,
+  entry: TransferEntry
+) {
   const { budgetId, near, far } = ends;
   const nearYnabId = crypto.randomUUID();
   const farYnabId = crypto.randomUUID();
@@ -137,30 +143,35 @@ export async function insertTransferPair(tx: Tx, ends: TransferEnds, entry: Tran
     })
     .returning();
 
-  await tx.insert(transactions).values({
-    ...shared,
-    ynabId: farYnabId,
-    accountId: far.id,
-    payeeId: ends.farPayeeId,
-    ...categoryColumns(transferCategoryId(far, near, entry.categoryId)),
-    amount: String(-entry.amount),
-    cleared: "Uncleared",
-    accepted: true,
-    transferAccountId: near.id,
-    transferTransactionId: nearYnabId,
-  });
+  const [farTxn] = await tx
+    .insert(transactions)
+    .values({
+      ...shared,
+      ynabId: farYnabId,
+      accountId: far.id,
+      payeeId: ends.farPayeeId,
+      ...categoryColumns(transferCategoryId(far, near, entry.categoryId)),
+      amount: String(-entry.amount),
+      cleared: "Uncleared",
+      accepted: true,
+      transferAccountId: near.id,
+      transferTransactionId: nearYnabId,
+    })
+    .returning();
 
+  await audit(tx, userId, "transaction", { after: [nearTxn!, farTxn!] });
   return nearTxn!;
 }
 
 /** Resolves the ends and writes one transfer: the whole job for a single entry. */
 export async function writeTransferPair(
   tx: Tx,
+  userId: number,
   budgetId: number,
   nearAccountId: number,
   payee: TransferPayee,
   entry: TransferEntry
 ) {
   const ends = await resolveTransferEnds(tx, budgetId, nearAccountId, payee);
-  return insertTransferPair(tx, ends, entry);
+  return insertTransferPair(tx, userId, ends, entry);
 }

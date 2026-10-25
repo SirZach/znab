@@ -18,10 +18,11 @@ export const trpc = createTRPCReact<AppRouter>();
 // The dev server is a second server on a second port, so there it has to be
 // named, on whatever host served the page (localhost, znab, a .ts.net
 // Tailscale address) rather than a hardcoded localhost that would only work
-// from the machine itself.
+// from the machine itself. Its port is 3002, so dev runs beside prod on 3001;
+// VITE_API_PORT moves it, and scripts/dev-env.sh moves the dev API with it.
 export const apiOrigin = import.meta.env.PROD
   ? ""
-  : `${window.location.protocol}//${window.location.hostname}:3001`;
+  : `${window.location.protocol}//${window.location.hostname}:${import.meta.env.VITE_API_PORT || "3002"}`;
 
 /** Who the API is asked as: the header every request to it carries. */
 export function authHeaders(): Record<string, string> {

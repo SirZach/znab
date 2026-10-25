@@ -28,7 +28,7 @@ bun dev
 
 This runs the backend and frontend together (output interleaved):
 
-- Backend (API): http://localhost:3001
+- Backend (API): http://localhost:3002, DB `znab_dev` (`bun db:refresh-dev` loads it)
 - Frontend (web): http://localhost:5173
 
 Open http://localhost:5173 to use the app.
@@ -38,7 +38,7 @@ Open http://localhost:5173 to use the app.
 Run each in its own terminal:
 
 ```bash
-bun dev:api   # backend  -> http://localhost:3001
+bun dev:api   # backend  -> http://localhost:3002
 bun dev:web   # frontend -> http://localhost:5173
 ```
 
@@ -54,7 +54,7 @@ bun run test    # tests only (bun test in apps/api and apps/web)
 `bun run build` builds the web app, then `bun start` runs the API with
 `SERVE_WEB=1` so it also serves `apps/web/dist` on port 3001. On the host this
 runs as the user service in `scripts/znab.service` (install steps are in that
-file). `scripts/restart-web.sh` (`bun run web:restart`) clears the Vite cache
+file), behind Caddy at http://znab (`scripts/Caddyfile`), with dev beside it. `scripts/restart-web.sh` (`bun run web:restart`) clears the Vite cache
 and restarts the web dev server.
 
 For full setup details, database conventions, and project structure, see [SETUP.md](./SETUP.md).

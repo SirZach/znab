@@ -2,9 +2,9 @@
 Description=Back up the znab database nightly
 
 [Timer]
-# Set the zone to the owner's (timedatectl list-timezones). The host clock is
+# The owner's zone (timedatectl list-timezones). The host clock is
 # UTC, so the zone is what makes this 03:00 local.
-OnCalendar=*-*-* 03:00:00 America/Chicago
+OnCalendar=*-*-* 03:00:00 America/New_York
 # Catch up at boot on a run missed while the machine was off.
 Persistent=true
 

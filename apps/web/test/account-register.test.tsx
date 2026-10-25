@@ -191,6 +191,27 @@ describe("reconciling", () => {
     });
   });
 
+  test("Finish says beside it what is left, not only in a tooltip", async () => {
+    const { user, statement } = await openPanel();
+    const finish = screen.getByRole("button", { name: "Finish" });
+    const reason = () => document.getElementById(finish.getAttribute("aria-describedby") ?? "");
+
+    expect(finish).toHaveProperty("disabled", true);
+    expect(reason()?.textContent).toBe("Enter a statement balance");
+
+    await user.type(statement, "373.45");
+    await waitFor(() => expect(reason()?.textContent).toBe("$123.45 left to clear"));
+    expect(finish).toHaveProperty("disabled", false);
+
+    await user.clear(statement);
+    await user.type(statement, "200");
+    expect(reason()?.textContent).toBe("Cleared is $50.00 over the statement");
+
+    await user.clear(statement);
+    await user.type(statement, "250");
+    expect(finish.getAttribute("aria-describedby")).toBeNull();
+  });
+
   test("a statement that agrees finishes without an adjustment", async () => {
     const { user, statement, inputsTo } = await openPanel();
 

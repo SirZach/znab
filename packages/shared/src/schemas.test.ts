@@ -1,5 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { allAccountsSearchSchema } from "./schemas";
+import { allAccountsSearchSchema, createTransactionSchema, isoDateSchema } from "./schemas";
+
+describe("isoDateSchema", () => {
+  test("accepts real days, leap days included", () => {
+    for (const day of ["2026-02-28", "2024-02-29", "2026-12-31", "2026-01-01"]) {
+      expect(isoDateSchema.safeParse(day).success).toBe(true);
+    }
+  });
+
+  test("refuses days that do not exist and malformed strings", () => {
+    for (const day of ["2026-02-30", "2025-02-29", "2026-04-31", "2026-13-01", "2026-00-10", "2026-01-00", "2026-1-5"]) {
+      expect(isoDateSchema.safeParse(day).success).toBe(false);
+    }
+  });
+
+  test("guards the schemas that carry a date", () => {
+    const base = { accountId: 1, payeeId: null, categoryId: null, amount: -5 };
+    expect(createTransactionSchema.safeParse({ ...base, date: "2026-02-30" }).success).toBe(false);
+    expect(createTransactionSchema.safeParse({ ...base, date: "2026-02-28" }).success).toBe(true);
+  });
+});
 
 describe("allAccountsSearchSchema", () => {
   test("defaults to every row, newest first, from the start", () => {

@@ -4,7 +4,7 @@ import { BalanceFigure } from "@/components/register/balance-figure";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { DateEntryInput } from "@/components/common/date-entry-input";
 import { MoneyInput } from "@/components/common/money-input";
-import { reconcileFigures } from "@/lib/reconcile";
+import { finishBlocker, reconcileFigures } from "@/lib/reconcile";
 import { cn, formatCurrency, formatDateISO } from "@/lib/utils";
 import { trpc } from "@/trpc";
 
@@ -53,6 +53,9 @@ export function ReconcilePanel({
   );
   const clearedAsOf = data?.clearedBalance;
   const { statementBalance, difference } = reconcileFigures(statement, clearedAsOf);
+  // Finish still works with a gap left, by offering an adjustment, so the gap
+  // is said whether or not the button is disabled.
+  const blocker = finishBlocker({ statementBalance, difference });
 
   function finish(adjustment: boolean) {
     if (statementBalance === null) return;
@@ -142,11 +145,17 @@ export function ReconcilePanel({
         </dl>
 
         <div className="flex items-center gap-2">
+          {blocker && (
+            <p id="finish-blocker" className="text-xs text-muted-foreground">
+              {blocker}
+            </p>
+          )}
           <Button variant="ghost" size="sm" onClick={onCancel}>
             Cancel
           </Button>
           <Button
             size="sm"
+            aria-describedby={blocker ? "finish-blocker" : undefined}
             disabled={difference === null || isBusy}
             onClick={() => (difference === 0 ? finish(false) : setConfirming(true))}
           >

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { reconcileFigures } from "./reconcile";
+import { finishBlocker, reconcileFigures } from "./reconcile";
 
 describe("reconcileFigures", () => {
   test("nothing readable typed leaves both figures unknown", () => {
@@ -32,5 +32,35 @@ describe("reconcileFigures", () => {
 
   test("the difference waits for the cleared balance to load", () => {
     expect(reconcileFigures("100", undefined)).toEqual({ statementBalance: 100, difference: null });
+  });
+});
+
+describe("finishBlocker", () => {
+  const blocker = (statementBalance: number | null, difference: number | null) =>
+    finishBlocker({ statementBalance, difference });
+
+  test("asks for a statement balance until one is typed", () => {
+    expect(blocker(null, null)).toBe("Enter a statement balance");
+  });
+
+  test("says nothing once the statement agrees, or while the cleared balance loads", () => {
+    expect(blocker(250, 0)).toBeNull();
+    expect(blocker(250, null)).toBeNull();
+  });
+
+  test("an asset account short of its statement has the gap left to clear", () => {
+    expect(blocker(1000, 123.45)).toBe("$123.45 left to clear");
+    expect(blocker(0, 42.17)).toBe("$42.17 left to clear");
+  });
+
+  test("an asset account past its statement has cleared too much", () => {
+    expect(blocker(500, -250)).toBe("Cleared is $250.00 over the statement");
+  });
+
+  test("a credit card reads the other way round, since it owes", () => {
+    // Owes 2,000 per the statement, 1,800 cleared: 200 of charges still to tick.
+    expect(blocker(-2000, -200)).toBe("$200.00 left to clear");
+    // Owes 2,000 per the statement, 2,200 cleared: 200 ticked that should not be.
+    expect(blocker(-2000, 200)).toBe("Cleared is $200.00 over the statement");
   });
 });

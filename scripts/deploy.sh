@@ -9,7 +9,8 @@
 #   docker exec -i znab-postgres-1 pg_restore -U znab -d znab --clean --if-exists < <file>.dump
 #
 # Everything runs inside main(), which bash reads in full before running any
-# of it, so the git pull rewriting this file mid-run cannot change what runs.
+# of it, and exits on the same line, so the git pull rewriting this file
+# mid-run cannot change what runs.
 
 set -euo pipefail
 
@@ -78,4 +79,4 @@ main() {
   return 1
 }
 
-main "$@"
+main "$@"; exit $?

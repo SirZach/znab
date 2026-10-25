@@ -1,0 +1,13 @@
+# Fronts http://znab with the prod service (scripts/znab.service, port 3001).
+# Only prod: the dev servers stay on their own ports (5173, 3002).
+#
+# Install:
+#
+#   sudo cp scripts/Caddyfile /etc/caddy/Caddyfile
+#   caddy validate --config /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+
+:80 {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3001
+}

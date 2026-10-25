@@ -105,22 +105,18 @@ systemctl --user disable --now ynab4-sync.timer
 
 ## 6. Run the dev servers
 
-In one terminal:
+Dev runs beside prod: Vite on 0.0.0.0:5173 and the dev API on 3002, against a
+separate `znab_dev` database (same Postgres and login). `scripts/dev-env.sh`
+sets the dev API's DATABASE_URL and port and refuses any DB not ending in
+`_dev`; `VITE_API_PORT` moves the port for both sides.
+
 ```bash
-bun dev:api    # http://localhost:3001
+bun db:refresh-dev   # once, and whenever you want fresh data: znab_dev from the newest backup + migrations
+bun dev              # both servers; or bun dev:api / bun dev:web
+bun db:migrate:dev   # apply new migrations to znab_dev
 ```
 
-In another:
-```bash
-bun dev:web    # http://localhost:5173
-```
-
-Or both at once (output interleaved):
-```bash
-bun dev
-```
-
-Open http://localhost:5173 to see the user picker.
+Open http://znab:5173 (or http://localhost:5173) to see the user picker.
 
 ## 7. Tests and checks
 
@@ -137,11 +133,12 @@ bun start       # API on :3001 with SERVE_WEB=1, serving the built web app
 ```
 
 On the host this runs as the systemd user service in `scripts/znab.service`
-(install steps are in the file). After a rebuild:
-`systemctl --user restart znab`. `bun run deploy` (`scripts/deploy.sh`) does
-it all on main: DB backup, pull, install, build, migrate, restart, health
-check. `scripts/restart-web.sh` (`bun run
-web:restart`) clears the Vite cache and restarts the web dev server.
+(install steps are in the file) against the `znab` database. Caddy serves it
+as http://znab, proxying to 127.0.0.1:3001 only (`scripts/Caddyfile`).
+`bun run deploy` (`scripts/deploy.sh`) does it all on main: DB backup, pull,
+install, build, migrate (`bun db:migrate` targets prod), restart, health check.
+`scripts/restart-web.sh` (`bun run web:restart`) clears the Vite cache and
+restarts the web dev server.
 
 ### Backups
 

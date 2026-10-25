@@ -1,43 +1,8 @@
 import { join } from "node:path";
-import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
-import { trpcServer } from "@hono/trpc-server";
-import { appRouter } from "./routers";
-import { createContext } from "./context";
+import { createApp } from "./app";
 
-const app = new Hono();
-
-// Dev-only: allow localhost plus access over Tailscale (znab hostname / *.ts.net).
-app.use(
-  "*",
-  cors({
-    origin: (origin) => {
-      if (!origin) return origin;
-      try {
-        const { hostname } = new URL(origin);
-        const allowed =
-          hostname === "localhost" ||
-          hostname === "znab" ||
-          hostname.endsWith(".ts.net");
-        return allowed ? origin : null;
-      } catch {
-        return null;
-      }
-    },
-    credentials: true,
-  })
-);
-
-app.use(
-  "/trpc/*",
-  trpcServer({
-    router: appRouter,
-    createContext,
-  })
-);
-
-app.get("/health", (c) => c.json({ ok: true }));
+const app = createApp();
 
 /**
  * In production this server is the whole app: the web side is 1.3MB of files

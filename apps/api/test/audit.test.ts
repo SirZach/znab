@@ -170,6 +170,32 @@ describe("audit log", () => {
     });
   });
 
+  test("reconciling with nothing to sweep logs only the account", async () => {
+    await withCaller(async ({ tx, seed, caller }) => {
+      await caller.transaction.create({
+        budgetId: seed.budgetId,
+        accountId: seed.accounts.checking.id,
+        payeeId: null,
+        categoryId: null,
+        amount: 15,
+        date: "2025-03-04",
+      });
+      const before = (await auditRows(tx, seed.budgetId, "transaction")).length;
+
+      const result = await caller.account.reconcile({
+        budgetId: seed.budgetId,
+        accountId: seed.accounts.checking.id,
+        statementBalance: 0,
+        statementDate: "2025-03-31",
+      });
+      expect(result.reconciledCount).toBe(0);
+      expect(await auditRows(tx, seed.budgetId, "transaction")).toHaveLength(before);
+      expect((await auditRows(tx, seed.budgetId, "account")).map((r) => r.action)).toEqual([
+        "update",
+      ]);
+    });
+  });
+
   test("entering a schedule logs the transaction and the schedule moving on", async () => {
     await withCaller(async ({ tx, seed, caller }) => {
       const schedule = await caller.scheduledTransaction.create({

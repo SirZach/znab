@@ -5,10 +5,12 @@ import { AUDIT_ACTIONS, oneOf } from "./checks";
 import { budgets } from "./budgets";
 import { users } from "./users";
 
-// Every change znab makes to money, written in the same transaction as the
-// change. `before` and `after` are the whole row as stored, so a bad edit can
-// be put back by hand without restoring a dump. `entity_id` is not a foreign
-// key: it names a row in whichever table `entity` says, and outlives it.
+// Changes made in znab to transactions, allocations, scheduled transactions,
+// accounts and category deletes, written in the same transaction as the change
+// (apps/api/src/lib/audit.ts lists what is left out). `before` and `after` are
+// the whole row as stored, so a bad edit can be put back by hand without
+// restoring a dump. `entity_id` is not a foreign key: it names a row in
+// whichever table `entity` says, and outlives it.
 export const auditLog = pgTable("audit_log", {
   id: serial("id").primaryKey(),
   budgetId: integer("budget_id")

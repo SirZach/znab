@@ -2,7 +2,7 @@
  * The reads the month engine runs on, shared by every router that has to
  * reason about a month so they cannot drift apart.
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, sql } from "drizzle-orm";
 import { monthlyBudgets } from "@znab/db";
 import { audit } from "./audit";
 import type { AuthedContext } from "./authz";
@@ -85,7 +85,7 @@ export async function upsertMonthlyBudget(
     )
     .for("update");
 
-  const after = await tx
+  const [written] = await tx
     .insert(monthlyBudgets)
     .values({
       ynabId: `MCB/${key.month.slice(0, 7)}/${key.categoryId}`,
@@ -99,7 +99,17 @@ export async function upsertMonthlyBudget(
       target: [monthlyBudgets.categoryId, monthlyBudgets.month],
       set: { ...set, updatedAt: new Date() },
     })
-    .returning();
+    // `xmax` is 0 on a freshly inserted row version and set on one the
+    // conflict branch updated. It is what tells the two apart when another
+    // write created the row after the read above found nothing to lock.
+    .returning({ ...getTableColumns(monthlyBudgets), inserted: sql<boolean>`(xmax = 0)` });
 
-  await audit(tx, userId, "monthly_budget", { before, after });
+  const { inserted, ...after } = written!;
+  await audit(tx, userId, "monthly_budget", {
+    before,
+    after: [after],
+    // Updated, but from a row that was never read: logged as an update with
+    // no "before" rather than as a create.
+    ...(!inserted && before.length === 0 ? { action: "update" as const } : {}),
+  });
 }

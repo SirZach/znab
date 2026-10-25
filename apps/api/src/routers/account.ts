@@ -878,13 +878,25 @@ export const accountRouter = router({
           isNull(transactions.deletedAt),
           inArray(transactions.budgetId, ownedBudgetIds(ctx))
         );
-        // Read first, so the log holds each row as it was before the sweep.
+        // Read first, so the log holds each row as it was before the sweep, and
+        // sweep exactly the rows read: one ticked Cleared in between is left for
+        // the next reconcile rather than swept with no "before" behind it.
         const unswept = await tx.select().from(transactions).where(sweep).for("update");
-        const swept = await tx
-          .update(transactions)
-          .set({ cleared: "Reconciled", updatedAt: new Date() })
-          .where(sweep)
-          .returning();
+        const swept = unswept.length
+          ? await tx
+              .update(transactions)
+              .set({ cleared: "Reconciled", updatedAt: new Date() })
+              .where(
+                and(
+                  inArray(
+                    transactions.id,
+                    unswept.map((r) => r.id)
+                  ),
+                  inArray(transactions.budgetId, ownedBudgetIds(ctx))
+                )
+              )
+              .returning()
+          : [];
         await audit(tx, ctx.user.id, "transaction", { before: unswept, after: swept });
 
         const [reconciled] = await tx

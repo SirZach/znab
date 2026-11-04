@@ -12,11 +12,11 @@ const payees = [
   { id: 5, name: " Maple Lane Fuel" },
 ];
 
-async function typeInPicker(text: string) {
+async function typeInPicker(text: string, list = payees) {
   const onPick = mock();
   const onCreate = mock();
   render(
-    <PayeePicker payees={payees} payeeId={null} payeeName="" onPick={onPick} onCreate={onCreate} />
+    <PayeePicker payees={list} payeeId={null} payeeName="" onPick={onPick} onCreate={onCreate} />
   );
   await userEvent.click(screen.getByRole("combobox"));
   await userEvent.type(await screen.findByPlaceholderText("Search payees..."), text);
@@ -39,6 +39,15 @@ describe("PayeePicker", () => {
   test("a transfer matches on its account name, as if the Transfer prefix were not there", async () => {
     const { onPick } = await typeInPicker("bett{Enter}");
     expect(onPick).toHaveBeenCalledWith(payees[3]);
+  });
+
+  test("a transfer wins a tie with a plain payee of the same name", async () => {
+    const tied = [
+      { id: 6, name: "Rewards Card" },
+      { id: 7, name: "Transfer : Rewards Card" },
+    ];
+    const { onPick } = await typeInPicker("Rewards Card{Enter}", tied);
+    expect(onPick).toHaveBeenCalledWith(tied[1]);
   });
 
   test("a payee whose name has surrounding spaces is still the closest match", async () => {

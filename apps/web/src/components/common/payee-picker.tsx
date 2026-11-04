@@ -20,9 +20,13 @@ const CREATE = "\u0000create";
 
 // Every transfer payee is named "Transfer : <account>", and with the account
 // name pushed back past that prefix a search for it ranked below any payee
-// that merely started the same way. Transfers are searched by account name.
-const searchPayees: typeof defaultFilter = (value, search, keywords) =>
-  defaultFilter(value.replace(/^Transfer : /, ""), search, keywords);
+// that merely started the same way. Transfers are searched by account name,
+// and a plain payee scores a hair lower so a transfer wins a tie with it.
+const searchPayees: typeof defaultFilter = (value, search, keywords) => {
+  const account = value.replace(/^Transfer : /, "");
+  const score = defaultFilter(account, search, keywords);
+  return account === value ? score * 0.999 : score;
+};
 
 /**
  * The payee picker for the register and scheduled transactions. What is typed

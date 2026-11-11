@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { registerSW } from "virtual:pwa-register";
+import { Toaster } from "@/components/ui/sonner";
 import { routeTree } from "./routeTree.gen";
 import { trpc, createTRPCClient } from "./trpc";
 import { useUserStore } from "./store/user";
@@ -31,6 +32,7 @@ function App() {
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} context={{ queryClient, userSlug }} />
+        <Toaster />
       </QueryClientProvider>
     </trpc.Provider>
   );

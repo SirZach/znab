@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { DEFERRED_INCOME, IMMEDIATE_INCOME } from "@znab/shared";
 import {
+  autofillCategoryValue,
   autofillDraft,
   filterPayees,
   hasAutofill,
@@ -100,5 +102,20 @@ describe("autofillDraft", () => {
       savedCategoryHidden: false,
       categoryId: 9,
     });
+  });
+
+  test("keeps saved income, which has no row to hide", () => {
+    expect(autofillDraft({ ...blank, autofillCategoryId: IMMEDIATE_INCOME }, options)).toMatchObject({
+      savedCategoryHidden: false,
+      categoryId: IMMEDIATE_INCOME,
+    });
+  });
+});
+
+describe("autofillCategoryValue", () => {
+  test("reads a row id as a number and income as its ynab id", () => {
+    expect(autofillCategoryValue("")).toBe("");
+    expect(autofillCategoryValue("100")).toBe(100);
+    expect(autofillCategoryValue(DEFERRED_INCOME)).toBe(DEFERRED_INCOME);
   });
 });

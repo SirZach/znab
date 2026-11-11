@@ -7,13 +7,20 @@ import { formatCurrency, parseAmountExpression } from "@/lib/utils";
  * something readable is typed, since a difference of nothing would read as a
  * statement that agrees; zero is a balance like any other. The difference is
  * null while either side is missing.
+ *
+ * A debt account's balance is negative in the register, but its statement
+ * prints what is owed as a positive figure, so either sign typed there is
+ * taken as owed.
  */
 export function reconcileFigures(
   statementText: string,
-  clearedBalance: number | undefined
+  clearedBalance: number | undefined,
+  holdsDebt = false
 ): { statementBalance: number | null; difference: number | null } {
   const parsed = parseAmountExpression(statementText);
-  const statementBalance = parsed !== null && Number.isFinite(parsed) ? parsed : null;
+  const readable = parsed !== null && Number.isFinite(parsed) ? parsed : null;
+  const statementBalance =
+    readable !== null && holdsDebt && readable !== 0 ? -Math.abs(readable) : readable;
   const difference =
     statementBalance === null || clearedBalance === undefined
       ? null

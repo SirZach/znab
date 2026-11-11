@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   accountRegisterSearchSchema,
   type FlagColor,
+  isCreditAccountType,
   type TransactionCategoryId,
 } from "@znab/shared";
 import { useEffect, useRef, useState } from "react";
@@ -276,6 +277,7 @@ function AccountRegisterPage() {
       {reconciling ? (
         <ReconcilePanel
           {...ids}
+          holdsDebt={isCreditAccountType(account?.accountType ?? "")}
           isBusy={reconcile.isReconciling}
           error={reconcile.error}
           onFinish={(input) => reconcile.reconcile(input, () => setReconciling(false))}

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DEFERRED_INCOME, IMMEDIATE_INCOME, type TransactionCategoryId } from "@znab/shared";
 import { payeeAutofillPatch } from "./payee-autofill";
 import type { PayeeAutofillSource, RegisterDraft } from "./payee-autofill";
 
@@ -86,6 +87,17 @@ describe("payeeAutofillPatch: a category the picker cannot show is never set", (
   test("a selectable autofill category is set", () => {
     const patch = payeeAutofillPatch(payee({ autofillCategoryId: 1 }), emptyRow(), categories);
     expect(patch).toEqual({ categoryId: 1 });
+  });
+
+  test("an income autofill is set when the picker offers income", () => {
+    const withIncome: { id: TransactionCategoryId }[] = [
+      { id: IMMEDIATE_INCOME },
+      { id: DEFERRED_INCOME },
+      ...categories,
+    ];
+    const gusto = payee({ autofillCategoryId: DEFERRED_INCOME });
+    expect(payeeAutofillPatch(gusto, emptyRow(), withIncome)).toEqual({ categoryId: DEFERRED_INCOME });
+    expect(payeeAutofillPatch(gusto, emptyRow(), categories)).toEqual({});
   });
 });
 

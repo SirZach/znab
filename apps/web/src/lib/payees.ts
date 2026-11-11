@@ -1,4 +1,8 @@
-import type { PayeeRenameOperator } from "@znab/shared";
+import {
+  isIncomeCategoryId,
+  type PayeeRenameOperator,
+  type TransactionCategoryId,
+} from "@znab/shared";
 
 /**
  * How many rows are drawn at a time. A budget carries around a thousand payees,
@@ -20,7 +24,7 @@ export const TRANSFER_NOTE =
 
 /** The autofill fields of a payee as the manage list returns them. */
 export type PayeeAutofillFields = {
-  autofillCategoryId: number | null;
+  autofillCategoryId: TransactionCategoryId | null;
   autofillMemo: string | null;
 };
 
@@ -74,9 +78,19 @@ export function mergeSummary(
 export type AutofillDraft = {
   /** The saved category is hidden, so the field starts empty and saving clears it. */
   savedCategoryHidden: boolean;
-  categoryId: number | "";
+  categoryId: TransactionCategoryId | "";
   memo: string;
 };
+
+/**
+ * The autofill category picker's value back as an id. A select hands every
+ * value over as a string, and only category rows are numbers: income keeps its
+ * ynab id.
+ */
+export function autofillCategoryValue(value: string): TransactionCategoryId | "" {
+  if (value === "" || isIncomeCategoryId(value)) return value;
+  return Number(value);
+}
 
 /**
  * Hiding a category is a soft delete, so it leaves the picker and the API
@@ -85,7 +99,8 @@ export type AutofillDraft = {
  * stale one is dropped, the way register autofill already drops it. An empty
  * option list means the categories have not arrived yet, not that every
  * category is hidden; treating it as hidden would clear a perfectly good
- * category the moment anyone saved.
+ * category the moment anyone saved. Income has no row to hide, so it is always
+ * shown.
  */
 export function autofillDraft(
   payee: PayeeAutofillFields,
@@ -93,6 +108,7 @@ export function autofillDraft(
 ): AutofillDraft {
   const savedCategoryHidden =
     payee.autofillCategoryId !== null &&
+    !isIncomeCategoryId(payee.autofillCategoryId) &&
     categoryOptions.length > 0 &&
     !categoryOptions.some((c) => c.id === payee.autofillCategoryId);
   return {

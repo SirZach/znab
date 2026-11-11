@@ -5,8 +5,9 @@ import { FieldSelect } from "@/components/common/field-select";
 import { SectionHeading } from "@/components/common/section-heading";
 import { SidePanelSection } from "@/components/common/side-panel-section";
 import type { AutofillInput, ManagedPayee } from "@/hooks/usePayees";
-import type { CategoryOption } from "@/lib/category-options";
-import { autofillDraft } from "@/lib/payees";
+import { type CategoryOption, INCOME_OPTIONS } from "@/lib/category-options";
+import { autofillCategoryValue, autofillDraft } from "@/lib/payees";
+import type { TransactionCategoryId } from "@znab/shared";
 
 /**
  * A payee's autofill defaults. Its drafts are seeded once, so the caller
@@ -26,7 +27,7 @@ export function AutofillSection({
   onSave: (input: AutofillInput) => void;
 }) {
   const [initial] = useState(() => autofillDraft(payee, categoryOptions));
-  const [categoryId, setCategoryId] = useState<number | "">(initial.categoryId);
+  const [categoryId, setCategoryId] = useState<TransactionCategoryId | "">(initial.categoryId);
   const [memo, setMemo] = useState(initial.memo);
 
   return (
@@ -39,11 +40,12 @@ export function AutofillSection({
       <FieldSelect
         aria-label="Autofill category"
         value={categoryId}
-        onChange={(e) => setCategoryId(e.target.value === "" ? "" : Number(e.target.value))}
+        onChange={(e) => setCategoryId(autofillCategoryValue(e.target.value))}
         className="w-full"
       >
         <option value="">No category</option>
-        {categoryOptions.map((c) => (
+        {/* Income leads, as in the register, so a paycheck can autofill it. */}
+        {[...INCOME_OPTIONS, ...categoryOptions].map((c) => (
           <option key={c.id} value={c.id}>
             {c.label}
           </option>

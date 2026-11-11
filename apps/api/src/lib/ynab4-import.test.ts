@@ -11,6 +11,7 @@ import {
   importTargets,
   mirrorRequested,
   monthlyBudgetRows,
+  payeeRows,
   renameRuleRows,
   type RowRefs,
   scheduledTransactionRows,
@@ -19,6 +20,7 @@ import {
   toMoney,
   transactionRows,
 } from "./ynab4-import";
+import { IMMEDIATE_INCOME, SPLIT_CATEGORY_ID } from "@znab/shared";
 import type { YfullFile } from "./ynab4-package";
 
 const now = new Date("2025-06-01T00:00:00Z");
@@ -176,6 +178,27 @@ describe("transactions", () => {
       { ynabId: "s1", transactionId: 1, categoryId: 31, categoryYnabId: "c1", payeeId: null, amount: "-3.00", memo: null },
     ]);
     expect([...live].map(([id, set]) => [id, [...set]])).toEqual([[1, ["s1"]], [2, []]]);
+  });
+});
+
+describe("payees", () => {
+  test("autofill keeps income by ynab id and a category by row", () => {
+    const rows = payeeRows(
+      data({
+        payees: [
+          { entityId: "p1", name: "Gusto", autoFillCategoryId: IMMEDIATE_INCOME },
+          { entityId: "p2", name: "Shop", autoFillCategoryId: "c1" },
+          { entityId: "p3", name: "Split", autoFillCategoryId: SPLIT_CATEGORY_ID },
+        ],
+      }),
+      plain,
+      refs
+    );
+    expect(rows.map((r) => [r.ynabId, r.autofillCategoryId, r.autofillIncome])).toEqual([
+      ["p1", null, IMMEDIATE_INCOME],
+      ["p2", 31, null],
+      ["p3", null, null],
+    ]);
   });
 });
 

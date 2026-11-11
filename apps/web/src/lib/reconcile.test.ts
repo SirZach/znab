@@ -33,6 +33,17 @@ describe("reconcileFigures", () => {
   test("the difference waits for the cleared balance to load", () => {
     expect(reconcileFigures("100", undefined)).toEqual({ statementBalance: 100, difference: null });
   });
+
+  test("a debt account takes the statement as owed whichever sign is typed", () => {
+    const owed = { statementBalance: -1886.01, difference: 0 };
+    expect(reconcileFigures("1886.01", -1886.01, true)).toEqual(owed);
+    expect(reconcileFigures("-1886.01", -1886.01, true)).toEqual(owed);
+    expect(reconcileFigures("0", -25, true)).toEqual({ statementBalance: 0, difference: 25 });
+  });
+
+  test("an asset account keeps the sign typed", () => {
+    expect(reconcileFigures("-40", -40, false)).toEqual({ statementBalance: -40, difference: 0 });
+  });
 });
 
 describe("finishBlocker", () => {

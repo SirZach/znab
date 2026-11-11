@@ -24,6 +24,7 @@ export type ReconcileInput = {
 export function ReconcilePanel({
   budgetId,
   accountId,
+  holdsDebt,
   isBusy,
   error,
   onFinish,
@@ -31,6 +32,8 @@ export function ReconcilePanel({
 }: {
   budgetId: number;
   accountId: number;
+  /** A card or other debt account, whose statement prints what is owed. */
+  holdsDebt: boolean;
   isBusy: boolean;
   error: string | null;
   onFinish: (input: ReconcileInput) => void;
@@ -52,7 +55,7 @@ export function ReconcilePanel({
     { placeholderData: (previous) => previous }
   );
   const clearedAsOf = data?.clearedBalance;
-  const { statementBalance, difference } = reconcileFigures(statement, clearedAsOf);
+  const { statementBalance, difference } = reconcileFigures(statement, clearedAsOf, holdsDebt);
   // Finish still works with a gap left, by offering an adjustment, so the gap
   // is said whether or not the button is disabled.
   const blocker = finishBlocker({ statementBalance, difference });

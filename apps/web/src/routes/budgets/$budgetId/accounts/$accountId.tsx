@@ -333,7 +333,10 @@ function AccountRegisterPage() {
             <table className="w-full table-fixed text-sm">
               <RegisterColgroup />
               <tbody>
-                {transactions.map((txn) => {
+                {transactions.map((saved) => {
+                  // The C column runs ahead of the server; see cycleCleared.
+                  const cleared = writes.clearedOf(saved);
+                  const txn = cleared === saved.cleared ? saved : { ...saved, cleared };
                   const editing = txn.id === editingId;
                   const onCycleCleared = () => writes.cycleCleared(txn.cleared, txn.id);
                   return (

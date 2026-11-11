@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { toast } from "sonner";
 import { trpc } from "@/trpc";
 import { invalidateMoney } from "@/lib/invalidate";
 import {
@@ -30,8 +32,33 @@ export function useRegisterWrites({
   const utils = trpc.useUtils();
   const invalidate = () => invalidateMoney(utils);
 
+  // Ticking down a statement row by row cannot wait on a round trip each time,
+  // so the C column shows the click at once. Each row's override holds until
+  // the refetch after its save lands, or is dropped when the save fails. A
+  // later click on the same row owns the override, so an earlier save settling
+  // leaves it alone.
+  const [clearedOverrides, setClearedOverrides] = useState<Record<number, string>>({});
+  const dropOverride = (id: number, cleared: string) =>
+    setClearedOverrides((prev) => {
+      if (prev[id] !== cleared) return prev;
+      const { [id]: _, ...rest } = prev;
+      return rest;
+    });
+
   const setClearedMutation = trpc.transaction.setClearedStatus.useMutation({
-    onSuccess: invalidate,
+    onSuccess: async (_data, { id, cleared }) => {
+      await invalidate();
+      dropOverride(id, cleared);
+    },
+    onError: (error, { id, cleared }) => {
+      dropOverride(id, cleared);
+      // One toast however many rows failed together, as a bulk change can.
+      toast.error("Cleared status was not saved", {
+        id: "cleared-not-saved",
+        description: error.message,
+      });
+      invalidate();
+    },
   });
   const updateMutation = trpc.transaction.update.useMutation({ onSuccess: invalidate });
   const deleteMutation = trpc.transaction.delete.useMutation({ onSuccess: invalidate });
@@ -77,12 +104,15 @@ export function useRegisterWrites({
      * sent a call that is already known to be refused.
      */
     cycleCleared(current: string, id: number) {
-      if (current === "Reconciled") return;
-      setClearedMutation.mutate({
-        id,
-        cleared: current === "Cleared" ? "Uncleared" : "Cleared",
-      });
+      const shown = clearedOverrides[id] ?? current;
+      if (shown === "Reconciled") return;
+      const cleared = shown === "Cleared" ? "Uncleared" : "Cleared";
+      setClearedOverrides((prev) => ({ ...prev, [id]: cleared }));
+      setClearedMutation.mutate({ id, cleared });
     },
+
+    /** A row's cleared status as the register should show it, clicks included. */
+    clearedOf: (txn: { id: number; cleared: string }) => clearedOverrides[txn.id] ?? txn.cleared,
 
     isSaving: createMutation.isPending,
     isSavingEdit: updateMutation.isPending || deleteMutation.isPending,

@@ -1,7 +1,7 @@
 import { toCategoryOptions } from "@/lib/category-options";
 import { invalidateMoney } from "@/lib/invalidate";
 import { trpc } from "@/trpc";
-import type { PayeeRenameOperator } from "@znab/shared";
+import type { PayeeRenameOperator, TransactionCategoryId } from "@znab/shared";
 
 /**
  * One row of the manage list. Read back off the hook rather than off the router
@@ -12,7 +12,7 @@ export type ManagedPayee = ReturnType<typeof usePayees>["payees"][number];
 /** A payee's autofill defaults as the inspector saves them. */
 export type AutofillInput = {
   id: number;
-  categoryId: number | null;
+  categoryId: TransactionCategoryId | null;
   memo: string | null;
 };
 

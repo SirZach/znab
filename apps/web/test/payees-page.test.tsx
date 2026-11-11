@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { DEFERRED_INCOME } from "@znab/shared";
 import { renderRoute } from "./router";
 
 function payee(over: Record<string, unknown>) {
@@ -111,6 +112,11 @@ describe("payees page", () => {
       categoryId: 100,
       memo: "weekly",
     });
+
+    await user.selectOptions(within(panel).getByLabelText("Autofill category"), DEFERRED_INCOME);
+    await user.click(within(panel).getByRole("button", { name: "Save autofill" }));
+    await waitFor(() => expect(inputsTo("payee.setAutofill")).toHaveLength(2));
+    expect(inputsTo("payee.setAutofill")[1]).toMatchObject({ categoryId: DEFERRED_INCOME });
 
     await user.type(within(panel).getByLabelText("Rule text"), " ACME ");
     await user.click(within(panel).getByRole("button", { name: "Add rule" }));

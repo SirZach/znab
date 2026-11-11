@@ -10,8 +10,15 @@ import {
   scheduledTransactions,
   categories,
 } from "@znab/db";
-import { PAYEE_RENAME_OPERATORS, type PayeeRenameOperator } from "@znab/shared";
+import {
+  INCOME_CATEGORY_IDS,
+  isIncomeCategoryId,
+  PAYEE_RENAME_OPERATORS,
+  type PayeeRenameOperator,
+  type TransactionCategoryId,
+} from "@znab/shared";
 import { ownedBudgetIds, type AuthedContext } from "../lib/authz";
+import { categoryRowId } from "../lib/category-columns";
 import { countOf } from "../lib/plural";
 import type { Tx } from "../lib/tx";
 
@@ -59,13 +66,29 @@ function assertNotTransfer(
   }
 }
 
+/**
+ * The payee's autofill category as the one field a picker holds: a category
+ * row id, or an income id when the payee autofills income.
+ */
+function withAutofillCategory<
+  T extends { autofillCategoryId: number | null; autofillIncome: string | null },
+>(row: T): Omit<T, "autofillCategoryId" | "autofillIncome"> & {
+  autofillCategoryId: TransactionCategoryId | null;
+} {
+  const { autofillIncome, autofillCategoryId, ...rest } = row;
+  return {
+    ...rest,
+    autofillCategoryId: isIncomeCategoryId(autofillIncome) ? autofillIncome : autofillCategoryId,
+  };
+}
+
 export const payeeRouter = router({
   // The register's payee picker: live, enabled payees only, plus the autofill
   // defaults so choosing a payee can fill in category and memo without a
   // second round trip.
   list: budgetProcedure
     .query(async ({ ctx, input }) => {
-      return ctx.db.query.payees.findMany({
+      const rows = await ctx.db.query.payees.findMany({
         where: and(
           eq(payees.budgetId, input.budgetId),
           isNull(payees.deletedAt),
@@ -76,10 +99,12 @@ export const payeeRouter = router({
           id: true,
           name: true,
           autofillCategoryId: true,
+          autofillIncome: true,
           autofillMemo: true,
           targetAccountId: true,
         },
       });
+      return rows.map(withAutofillCategory);
     }),
 
   // Everything the Manage Payees screen shows, for around a thousand payees a
@@ -100,6 +125,7 @@ export const payeeRouter = router({
           enabled: payees.enabled,
           targetAccountId: payees.targetAccountId,
           autofillCategoryId: payees.autofillCategoryId,
+          autofillIncome: payees.autofillIncome,
           autofillMemo: payees.autofillMemo,
           transactionCount: count(transactions.id),
           lastUsed: sql<string | null>`max(${transactions.date})`,
@@ -152,7 +178,7 @@ export const payeeRouter = router({
 
       // Postgres counts are bigints, which the driver hands over as strings.
       return rows.map((row) => ({
-        ...row,
+        ...withAutofillCategory(row),
         transactionCount: Number(row.transactionCount),
         renameRules: rulesByPayee.get(row.id) ?? [],
       }));
@@ -394,11 +420,12 @@ export const payeeRouter = router({
   // together and each is nullable, so clearing one is an ordinary save rather
   // than an operation of its own. The amount YNAB 4 remembered is still
   // imported but never offered: it was only ever the payee's last amount.
+  // Income has no category row, so it is stored apart and needs no lookup.
   setAutofill: budgetProcedure
     .input(
       z.object({
         id: z.number().int().positive(),
-        categoryId: z.number().int().positive().nullable(),
+        categoryId: z.union([z.number().int().positive(), z.enum(INCOME_CATEGORY_IDS)]).nullable(),
         memo: z.string().max(500).nullable(),
       })
     )
@@ -408,10 +435,12 @@ export const payeeRouter = router({
 
         // A category from another budget would autofill transactions with an
         // envelope this budget cannot even show.
-        if (input.categoryId !== null) {
+        const income = isIncomeCategoryId(input.categoryId) ? input.categoryId : null;
+        const rowId = categoryRowId(input.categoryId) ?? null;
+        if (rowId !== null) {
           const category = await tx.query.categories.findFirst({
             where: and(
-              eq(categories.id, input.categoryId),
+              eq(categories.id, rowId),
               eq(categories.budgetId, input.budgetId),
               isNull(categories.deletedAt)
             ),
@@ -422,10 +451,13 @@ export const payeeRouter = router({
           }
         }
 
+        // Both columns are written every time, so switching between income
+        // and a category never leaves the old one behind.
         const [updated] = await tx
           .update(payees)
           .set({
-            autofillCategoryId: input.categoryId,
+            autofillCategoryId: rowId,
+            autofillIncome: income,
             autofillMemo: input.memo?.trim() || null,
             updatedAt: new Date(),
           })
@@ -433,10 +465,11 @@ export const payeeRouter = router({
           .returning({
             id: payees.id,
             autofillCategoryId: payees.autofillCategoryId,
+            autofillIncome: payees.autofillIncome,
             autofillMemo: payees.autofillMemo,
           });
 
-        return updated!;
+        return withAutofillCategory(updated!);
       });
     }),
 

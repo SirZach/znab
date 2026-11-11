@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { eq, inArray } from "drizzle-orm";
 import { payeeRenameRules, payees, scheduledTransactions, transactions } from "@znab/db";
+import { DEFERRED_INCOME } from "@znab/shared";
 import { expectTrpcError, withCaller } from "./harness";
 
 describe("payee.merge", () => {
@@ -149,6 +150,32 @@ describe("payee writes run in one transaction against a locked payee", () => {
         autofillCategoryId: seed.categories.groceries.id,
         autofillMemo: "weekly",
       });
+    });
+  });
+
+  test("setAutofill stores income in place of a category, and back again", async () => {
+    await withCaller(async ({ seed, caller, tx }) => {
+      const base = { budgetId: seed.budgetId, id: seed.payees.grocer.id, memo: null };
+      await caller.payee.setAutofill({ ...base, categoryId: seed.categories.groceries.id });
+
+      expect(await caller.payee.setAutofill({ ...base, categoryId: DEFERRED_INCOME })).toEqual({
+        id: seed.payees.grocer.id,
+        autofillCategoryId: DEFERRED_INCOME,
+        autofillMemo: null,
+      });
+      const stored = await tx.query.payees.findFirst({ where: eq(payees.id, seed.payees.grocer.id) });
+      expect([stored!.autofillCategoryId, stored!.autofillIncome]).toEqual([null, DEFERRED_INCOME]);
+
+      const listed = await caller.payee.list({ budgetId: seed.budgetId });
+      expect(listed.find((p) => p.id === seed.payees.grocer.id)!.autofillCategoryId).toBe(DEFERRED_INCOME);
+      const managed = await caller.payee.listForManage({ budgetId: seed.budgetId });
+      const row = managed.find((p) => p.id === seed.payees.grocer.id)!;
+      expect(row.autofillCategoryId).toBe(DEFERRED_INCOME);
+      expect("autofillIncome" in row).toBe(false);
+
+      await caller.payee.setAutofill({ ...base, categoryId: seed.categories.groceries.id });
+      const back = await tx.query.payees.findFirst({ where: eq(payees.id, seed.payees.grocer.id) });
+      expect([back!.autofillCategoryId, back!.autofillIncome]).toEqual([seed.categories.groceries.id, null]);
     });
   });
 });

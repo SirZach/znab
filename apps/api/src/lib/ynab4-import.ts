@@ -18,7 +18,13 @@ import type {
   NewSubTransaction,
   NewTransaction,
 } from "@znab/db";
-import { FLAG_COLORS, isSpecialCategoryId, PAYEE_RENAME_OPERATORS, SPLIT_CATEGORY_ID } from "@znab/shared";
+import {
+  FLAG_COLORS,
+  isIncomeCategoryId,
+  isSpecialCategoryId,
+  PAYEE_RENAME_OPERATORS,
+  SPLIT_CATEGORY_ID,
+} from "@znab/shared";
 import { isSystemGroupYnabId } from "./category";
 import type { YfullFile, YnabRenameCondition } from "./ynab4-package";
 
@@ -167,6 +173,8 @@ export function payeeRows(
     name: p.name,
     targetAccountId: p.targetAccountId ? refs.accounts.get(p.targetAccountId) ?? null : null,
     autofillCategoryId: refs.resolveCategory(p.autoFillCategoryId),
+    // Income has no category row to resolve to, so it keeps its ynab id.
+    autofillIncome: isIncomeCategoryId(p.autoFillCategoryId) ? p.autoFillCategoryId : null,
     autofillAmount: p.autoFillAmount != null ? toMoney(p.autoFillAmount) : null,
     autofillMemo: p.autoFillMemo ?? null,
     enabled: p.enabled,

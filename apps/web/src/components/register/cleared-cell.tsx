@@ -10,13 +10,20 @@ export function ClearedCell({ cleared, onCycle }: { cleared: string; onCycle: ()
   const locked = cleared === "Reconciled";
 
   return (
-    <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+    // The whole cell takes the click, not just the 14px icon; the button inside
+    // stays for the keyboard, and its click bubbles up here.
+    <td
+      className={cn("group px-2 py-2 text-center", locked ? "cursor-default" : "cursor-pointer")}
+      onClick={(e) => {
+        e.stopPropagation();
+        onCycle();
+      }}
+    >
       <button
         type="button"
-        onClick={onCycle}
         className={cn(
           "transition-colors",
-          locked ? "cursor-default" : "text-muted-foreground hover:text-foreground"
+          locked ? "cursor-default" : "text-muted-foreground group-hover:text-foreground"
         )}
         title={locked ? "Reconciled against a statement" : cleared}
       >

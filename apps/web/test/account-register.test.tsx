@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { formatDateISO } from "@/lib/utils";
 import { renderRoute } from "./router";
 
@@ -127,6 +128,36 @@ describe("register row editing", () => {
 
     expect(within(tr).queryByText("No category")).toBeNull();
     expect(within(tr).getByRole("combobox")).toBeTruthy();
+  });
+});
+
+describe("ticking rows off", () => {
+  async function grocerCell(setClearedStatus: () => Promise<unknown>) {
+    await renderRoute("/budgets/1/accounts/10", {
+      fixtures: { ...fixtures, "transaction.setClearedStatus": setClearedStatus },
+    });
+    const tr = (await screen.findByText("Grocer")).closest("tr")!;
+    return within(tr);
+  }
+
+  test("the C column shows the click before the save answers", async () => {
+    // A save that never answers: whatever the icon shows came from the click.
+    const row = await grocerCell(() => new Promise(() => {}));
+    await userEvent.click(row.getByTitle("Uncleared"));
+    expect(row.getByTitle("Cleared")).toBeTruthy();
+  });
+
+  test("a refused save puts the icon back and says it was not saved", async () => {
+    const toastError = spyOn(toast, "error");
+    const row = await grocerCell(() => Promise.reject(new Error("Account is closed")));
+    await userEvent.click(row.getByTitle("Uncleared"));
+
+    await waitFor(() => expect(row.getByTitle("Uncleared")).toBeTruthy());
+    expect(toastError).toHaveBeenCalledWith(
+      "Cleared status was not saved",
+      expect.objectContaining({ description: "Account is closed" })
+    );
+    toastError.mockRestore();
   });
 });
 

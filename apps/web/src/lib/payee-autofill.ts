@@ -11,9 +11,12 @@
 
 import type { TransactionCategoryId } from "@znab/shared";
 
-/** The autofill fields of a payee, as `payee.list` returns them. */
+/**
+ * The autofill fields of a payee, as `payee.list` returns them. The category
+ * is a row id, or an income id for a payee such as a paycheck.
+ */
 export type PayeeAutofillSource = {
-  autofillCategoryId: number | null;
+  autofillCategoryId: TransactionCategoryId | null;
   autofillMemo: string | null;
 };
 
@@ -25,7 +28,7 @@ export type RegisterDraft = {
 
 /** Only the fields autofill decided to fill. An absent key means leave it alone. */
 export type PayeeAutofillPatch = {
-  categoryId?: number;
+  categoryId?: TransactionCategoryId;
   memo?: string;
 };
 
@@ -36,10 +39,10 @@ export function payeeAutofillPatch(
 ): PayeeAutofillPatch {
   const patch: PayeeAutofillPatch = {};
 
-  // The importer drops autofill categories that pointed at YNAB's special
-  // income categories, and system groups never reach the picker. An id the
+  // Hidden categories and system groups never reach the picker. An id the
   // picker cannot show would leave the field looking blank while still
-  // submitting a category the user never saw.
+  // submitting a category the user never saw. Income is in the picker, so a
+  // payee that autofills income applies like any other.
   const categoryId = payee.autofillCategoryId;
   if (
     draft.categoryId === null &&

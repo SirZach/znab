@@ -1,0 +1,3 @@
+ALTER TABLE "payees" ADD COLUMN "autofill_income" text;--> statement-breakpoint
+ALTER TABLE "payees" ADD CONSTRAINT "payees_autofill_income_check" CHECK ("payees"."autofill_income" IN ('Category/__ImmediateIncome__', 'Category/__DeferredIncome__'));--> statement-breakpoint
+ALTER TABLE "payees" ADD CONSTRAINT "payees_autofill_one_category_check" CHECK ("payees"."autofill_category_id" IS NULL OR "payees"."autofill_income" IS NULL);

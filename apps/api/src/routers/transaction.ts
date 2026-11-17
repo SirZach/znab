@@ -237,10 +237,25 @@ export const transactionRouter = router({
         // account the payee stands in for.
         const nextPayee = resolvedPayeeId
           ? await tx.query.payees.findFirst({
-              where: and(eq(payees.id, resolvedPayeeId), eq(payees.budgetId, row.budgetId)),
+              where: and(
+                eq(payees.id, resolvedPayeeId),
+                eq(payees.budgetId, row.budgetId),
+                isNull(payees.deletedAt)
+              ),
               columns: { id: true, name: true, targetAccountId: true },
             })
           : null;
+        if (resolvedPayeeId && !nextPayee) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Payee not found" });
+        }
+        // A transfer with no payee at all would silently lose its other half.
+        // Picking an ordinary payee is how a transfer becomes an ordinary row.
+        if (row.isTransfer && resolvedPayeeId === null) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Pick a payee to turn this transfer back into an ordinary transaction.",
+          });
+        }
         const currentTarget = row.isTransfer ? row.transferAccountId : null;
         const nextTarget =
           resolvedPayeeId === undefined ? currentTarget : (nextPayee?.targetAccountId ?? null);
@@ -250,6 +265,16 @@ export const transactionRouter = router({
         const farGone: (typeof row)[] = [];
         let farMade: typeof row | null = null;
         if (relinks) {
+          // A transfer files its category on whichever side is on budget, so
+          // a row relinked from its off-budget side holds none of its own and
+          // the old counterpart's is the one to carry over.
+          const farCategoryBefore = farBefore
+            ? isIncomeCategoryId(farBefore.categoryYnabId)
+              ? farBefore.categoryYnabId
+              : farBefore.categoryId
+            : null;
+          const category =
+            categoryId !== undefined ? categoryId : (rowCategoryId ?? farCategoryBefore);
           if (row.isSplit && nextTarget !== null) {
             throw new TRPCError({
               code: "BAD_REQUEST",
@@ -272,7 +297,6 @@ export const transactionRouter = router({
               rest.accountId ?? row.accountId,
               { ...nextPayee, targetAccountId: nextTarget }
             );
-            const category = categoryId !== undefined ? categoryId : rowCategoryId;
             const farYnabId = crypto.randomUUID();
             farMade = await insertTransferFarSide(
               tx,
@@ -292,7 +316,12 @@ export const transactionRouter = router({
               ...categoryColumns(transferCategoryId(ends.near, ends.far, category)),
             };
           } else {
-            link = { isTransfer: false, transferAccountId: null, transferTransactionId: null };
+            link = {
+              isTransfer: false,
+              transferAccountId: null,
+              transferTransactionId: null,
+              ...categoryColumns(category),
+            };
           }
         }
 

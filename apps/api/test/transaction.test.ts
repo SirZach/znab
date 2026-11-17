@@ -266,6 +266,46 @@ describe("transaction.update to a transfer payee", () => {
   });
 });
 
+describe("transaction.update payee edge cases", () => {
+  test("relinking from the off-budget side carries the category over from the old counterpart", async () => {
+    await withCaller(async ({ tx, seed, caller }) => {
+      await transfer(caller, seed, "checking", "tracking", -200, seed.categories.rent.id);
+      const [offBudget] = await liveTransactions(tx, seed.accounts.tracking.id);
+      expect(offBudget!.categoryId).toBeNull();
+
+      // Tracking to credit card: the credit card side is on budget and takes the rent.
+      await caller.transaction.update({ id: offBudget!.id, payeeId: seed.transferPayee.credit });
+      const [far] = await liveTransactions(tx, seed.accounts.credit.id);
+      const [near] = await liveTransactions(tx, seed.accounts.tracking.id);
+      expect(near!.categoryId).toBeNull();
+      expect(far!.categoryId).toBe(seed.categories.rent.id);
+    });
+  });
+
+  test("clearing a transfer's payee is refused and keeps the counterpart", async () => {
+    await withCaller(async ({ tx, seed, caller }) => {
+      const near = await transfer(caller, seed, "checking", "savings", -100);
+      await expectTrpcError(caller.transaction.update({ id: near!.id, payeeId: null }), "BAD_REQUEST");
+      expect(await liveTransactions(tx, seed.accounts.savings.id)).toHaveLength(1);
+    });
+  });
+
+  test("a deleted payee is NOT_FOUND", async () => {
+    await withCaller(async ({ tx, seed, caller }) => {
+      const near = await transfer(caller, seed, "checking", "savings", -100);
+      await tx
+        .update(payees)
+        .set({ deletedAt: new Date() })
+        .where(eq(payees.id, seed.transferPayee.tracking));
+      await expectTrpcError(
+        caller.transaction.update({ id: near!.id, payeeId: seed.transferPayee.tracking }),
+        "NOT_FOUND"
+      );
+      expect(await liveTransactions(tx, seed.accounts.savings.id)).toHaveLength(1);
+    });
+  });
+});
+
 describe("transaction.delete on a transfer", () => {
   test("soft deletes both sides and restores both balances", async () => {
     await withCaller(async ({ tx, seed, caller }) => {

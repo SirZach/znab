@@ -99,15 +99,23 @@ export function RegisterRowFields({
   // straight to whichever money column it usually takes, and the memo is only
   // ever clicked into. The memo when the amount is locked, since nothing else
   // in the row is left to type in.
-  function focusAmount(categoryId: RegisterFields["categoryId"]) {
+  function amountInput(categoryId: RegisterFields["categoryId"]) {
     const column = columnForCategory(categoryId) === "inflow" ? inflowRef : outflowRef;
-    setTimeout(() => (column.current ?? memoRef.current)?.focus(), 0);
+    return column.current;
   }
 
-  // The category picker, or the amount when the category is locked.
+  function focusAmount(categoryId: RegisterFields["categoryId"]) {
+    setTimeout(() => (amountInput(categoryId) ?? memoRef.current)?.focus(), 0);
+  }
+
+  // The category picker, or the amount when the category is locked. Judged
+  // once the pick has rendered, since picking a transfer payee can lock the
+  // category and take its picker away.
   function focusAfterPayee() {
-    if (categoryTriggerRef.current) setTimeout(() => categoryTriggerRef.current?.focus(), 0);
-    else focusAmount(null);
+    setTimeout(
+      () => (categoryTriggerRef.current ?? amountInput(null) ?? memoRef.current)?.focus(),
+      0
+    );
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -246,9 +254,13 @@ export function RegisterRowFields({
           onKeyDown={(e) => {
             handleKeyDown(e);
             if (e.key !== "Tab") return;
+            // With the amount locked there is nowhere of ours to go, so the
+            // browser takes Tab on to the next stop.
             if (!e.shiftKey) {
+              const amount = amountInput(fields.categoryId);
+              if (!amount) return;
               e.preventDefault();
-              focusAmount(fields.categoryId);
+              amount.focus();
             } else if (categoryTriggerRef.current) {
               e.preventDefault();
               categoryTriggerRef.current.focus();

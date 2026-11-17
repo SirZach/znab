@@ -152,4 +152,63 @@ describe("AddRow", () => {
     await userEvent.keyboard("{Tab}");
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Inflow")));
   });
+
+  test("picking a transfer payee that locks the category goes to Outflow", async () => {
+    function Stateful() {
+      const [fields, setFields] = useState(emptyFields);
+      return (
+        <AddRow
+          fields={fields}
+          onChange={(patch) => setFields((prev) => ({ ...prev, ...patch }))}
+          payeeList={[
+            {
+              id: 9,
+              name: "Transfer : Savings",
+              autofillCategoryId: null,
+              autofillMemo: null,
+              targetAccountId: 3,
+            },
+          ]}
+          categoryOptions={categoryOptions}
+          autofillForPayee={() => ({})}
+          locks={fields.payeeId === 9 ? { category: { label: "Transfer", reason: "x" } } : {}}
+          onSave={() => {}}
+          onCancel={() => {}}
+          isSaving={false}
+          error={null}
+          dateInputRef={null}
+        />
+      );
+    }
+    renderWithTrpc(<Stateful />);
+
+    await userEvent.click(screen.getByText("Payee"));
+    await userEvent.type(await screen.findByPlaceholderText("Search payees..."), "sav{Enter}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Outflow")));
+  });
+
+  test("Tab from memo with the amount locked leaves memo", async () => {
+    renderWithTrpc(
+      <AddRow
+        fields={emptyFields()}
+        onChange={() => {}}
+        payeeList={[]}
+        categoryOptions={categoryOptions}
+        autofillForPayee={() => ({})}
+        locks={{ amount: "split" }}
+        onSave={() => {}}
+        onCancel={() => {}}
+        isSaving={false}
+        error={null}
+        dateInputRef={null}
+      />
+    );
+    const memo = screen.getByLabelText("Memo");
+    await userEvent.click(memo);
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    act(() => {
+      memo.dispatchEvent(tab);
+    });
+    expect(tab.defaultPrevented).toBe(false);
+  });
 });

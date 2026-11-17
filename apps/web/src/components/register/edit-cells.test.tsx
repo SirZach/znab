@@ -23,6 +23,11 @@ const txn = {
   runningBalance: 0,
 } as unknown as RegisterTransaction;
 
+const payeeList = [
+  { id: 200, name: "Grocer", autofillCategoryId: null, autofillMemo: null, targetAccountId: null },
+  { id: 9, name: "Transfer : Savings", autofillCategoryId: null, autofillMemo: null, targetAccountId: 3 },
+];
+
 function renderCells(over: Partial<RegisterTransaction> = {}) {
   const onSave = mock();
   const onDelete = mock();
@@ -34,7 +39,7 @@ function renderCells(over: Partial<RegisterTransaction> = {}) {
           <EditCells
             txn={{ ...txn, ...over }}
             locksFor={() => ({})}
-            payeeList={[]}
+            payeeList={payeeList}
             categoryOptions={[{ id: 100, label: "Everyday: Food" }]}
             autofillForPayee={() => ({})}
             isBusy={false}
@@ -75,5 +80,13 @@ describe("EditCells", () => {
     const { onCycleCleared, user } = renderCells();
     await user.click(screen.getByTitle("Uncleared"));
     expect(onCycleCleared).toHaveBeenCalledTimes(1);
+  });
+
+  test("a split's payee picker offers no transfer payees", async () => {
+    const { user } = renderCells({ isSplit: true });
+    await user.click(screen.getByText("Grocer"));
+    await screen.findByPlaceholderText("Search payees...");
+    expect(screen.getByRole("option", { name: "Grocer" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Transfer : Savings" })).toBeNull();
   });
 });

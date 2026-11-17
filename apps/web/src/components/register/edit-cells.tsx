@@ -50,7 +50,8 @@ export function EditCells({
       <RegisterRowFields
         fields={fields}
         onChange={(patch) => setFields((prev) => ({ ...prev, ...patch }))}
-        payees={payeeList}
+        // A split cannot be a transfer, so its picker offers no transfer payees.
+        payees={txn.isSplit ? payeeList?.filter((p) => p.targetAccountId === null) : payeeList}
         categoryOptions={categoryOptions}
         autofill={autofillForPayee}
         locks={locksFor(fields.payeeId)}

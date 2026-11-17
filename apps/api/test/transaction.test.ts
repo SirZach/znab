@@ -193,6 +193,59 @@ describe("transaction.create payees", () => {
     });
   });
 
+  test("a new payee remembers the row's category, and an existing one keeps its own", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      const enter = (payeeName: string, categoryId: number | typeof DEFERRED_INCOME) =>
+        caller.transaction.create({
+          budgetId: seed.budgetId,
+          accountId: seed.accounts.checking.id,
+          payeeId: null,
+          payeeName,
+          categoryId,
+          amount: -10,
+          date: DATE,
+        });
+      const autofill = async (payeeId: number | null) =>
+        (await caller.payee.list({ budgetId: seed.budgetId })).find((p) => p.id === payeeId)
+          ?.autofillCategoryId;
+
+      const bakery = await enter("Bakery", seed.categories.groceries.id);
+      expect(await autofill(bakery!.payeeId)).toBe(seed.categories.groceries.id);
+
+      await enter("Bakery", seed.categories.fun.id);
+      expect(await autofill(bakery!.payeeId)).toBe(seed.categories.groceries.id);
+
+      const paycheck = await enter("Paycheck", DEFERRED_INCOME);
+      expect(await autofill(paycheck!.payeeId)).toBe(DEFERRED_INCOME);
+    });
+  });
+
+  test("an edit that makes a new payee gives it the row's category", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      const row = await caller.transaction.create({
+        budgetId: seed.budgetId,
+        accountId: seed.accounts.checking.id,
+        payeeId: seed.payees.grocer.id,
+        categoryId: seed.categories.groceries.id,
+        amount: -10,
+        date: DATE,
+      });
+      const autofill = async (payeeId: number | null) =>
+        (await caller.payee.list({ budgetId: seed.budgetId })).find((p) => p.id === payeeId)
+          ?.autofillCategoryId;
+
+      const kept = await caller.transaction.update({ id: row!.id, payeeName: "Farm Stand" });
+      expect(await autofill(kept.payeeId)).toBe(seed.categories.groceries.id);
+
+      const changed = await caller.transaction.update({
+        id: row!.id,
+        payeeName: "Cinema",
+        categoryId: seed.categories.fun.id,
+      });
+      expect(await autofill(changed.payeeId)).toBe(seed.categories.fun.id);
+    });
+  });
+
   test("a failed create leaves no orphan payee behind", async () => {
     await withCaller(async ({ tx, seed, caller }) => {
       const before = await countRows(tx, payees, seed.budgetId);

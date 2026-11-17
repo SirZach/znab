@@ -88,3 +88,24 @@ describe("scheduledTransaction.enterDue", () => {
     });
   });
 });
+
+describe("scheduledTransaction payees", () => {
+  test("a payee made by a schedule remembers the schedule's category", async () => {
+    await withCaller(async ({ seed, caller }) => {
+      const created = await caller.scheduledTransaction.create({
+        budgetId: seed.budgetId,
+        accountId: seed.accounts.checking.id,
+        payeeId: null,
+        payeeName: "Landlord",
+        categoryId: seed.categories.rent.id,
+        amount: -1000,
+        date: localDay(5),
+        frequency: "Monthly",
+      });
+      const payee = (await caller.payee.list({ budgetId: seed.budgetId })).find(
+        (p) => p.id === created.payeeId
+      );
+      expect(payee?.autofillCategoryId).toBe(seed.categories.rent.id);
+    });
+  });
+});

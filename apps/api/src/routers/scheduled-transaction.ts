@@ -363,7 +363,10 @@ export const scheduledTransactionRouter = router({
 
         let payeeId = input.payeeId;
         if (!payeeId && input.payeeName) {
-          payeeId = (await findOrCreatePayee(tx, input.budgetId, input.payeeName)) ?? payeeId;
+          payeeId =
+            (await findOrCreatePayee(tx, input.budgetId, input.payeeName, {
+              categoryId: input.categoryId,
+            })) ?? payeeId;
         }
         await assertIdsInBudget(tx, input.budgetId, { payeeId });
         await assertNotSelfTransfer(tx, input.budgetId, payeeId, input.accountId);
@@ -415,7 +418,10 @@ export const scheduledTransactionRouter = router({
 
         let resolvedPayeeId = payeeId;
         if (resolvedPayeeId === undefined && payeeName) {
-          resolvedPayeeId = (await findOrCreatePayee(tx, row.budgetId, payeeName)) ?? resolvedPayeeId;
+          resolvedPayeeId =
+            (await findOrCreatePayee(tx, row.budgetId, payeeName, {
+              categoryId: rest.categoryId !== undefined ? rest.categoryId : row.categoryId,
+            })) ?? resolvedPayeeId;
         }
 
         await assertNotSelfTransfer(

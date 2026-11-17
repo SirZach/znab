@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, and, inArray, isNull } from "drizzle-orm";
 import { router, protectedProcedure, budgetProcedure } from "../trpc";
 import { transactions, payees, accounts } from "@znab/db";
-import { createTransactionSchema, updateTransactionSchema } from "@znab/shared";
+import { createTransactionSchema, isIncomeCategoryId, updateTransactionSchema } from "@znab/shared";
 import { TRPCError } from "@trpc/server";
 import { audit } from "../lib/audit";
 import { assertIdsInBudget, ownedBudgetIds, type AuthedContext } from "../lib/authz";
@@ -94,7 +94,10 @@ export const transactionRouter = router({
       return ctx.db.transaction(async (tx) => {
         let payeeId = input.payeeId;
         if (!payeeId && input.payeeName) {
-          payeeId = (await findOrCreatePayee(tx, input.budgetId, input.payeeName)) ?? payeeId;
+          payeeId =
+            (await findOrCreatePayee(tx, input.budgetId, input.payeeName, {
+              categoryId: input.categoryId,
+            })) ?? payeeId;
         }
 
         // A transfer is declared the way YNAB 4 declares one, by choosing the
@@ -221,7 +224,14 @@ export const transactionRouter = router({
 
         let resolvedPayeeId = payeeId;
         if (!resolvedPayeeId && payeeName) {
-          resolvedPayeeId = (await findOrCreatePayee(tx, row.budgetId, payeeName)) ?? resolvedPayeeId;
+          // An edit that leaves the category alone still has one: the row's own.
+          const rowCategoryId = isIncomeCategoryId(row.categoryYnabId)
+            ? row.categoryYnabId
+            : row.categoryId;
+          resolvedPayeeId =
+            (await findOrCreatePayee(tx, row.budgetId, payeeName, {
+              categoryId: categoryId !== undefined ? categoryId : rowCategoryId,
+            })) ?? resolvedPayeeId;
         }
 
         // Which side of a transfer carries the category follows from the two

@@ -9,7 +9,11 @@ import { assertIdsInBudget, ownedBudgetIds, type AuthedContext } from "../lib/au
 import { categoryColumns, categoryRowId } from "../lib/category-columns";
 import { findOrCreatePayee } from "../lib/find-or-create-payee";
 import { transferCategoryId } from "../lib/transfer";
-import { writeTransferPair } from "../lib/transfer-write";
+import {
+  insertTransferFarSide,
+  resolveTransferEnds,
+  writeTransferPair,
+} from "../lib/transfer-write";
 import type { Tx } from "../lib/tx";
 
 /**
@@ -196,21 +200,13 @@ export const transactionRouter = router({
           "Editing"
         );
 
-        // Repointing one side of a transfer at an ordinary payee would leave
-        // the other side taking money from an account that no longer claims
-        // it, and nothing on screen would say so. Moving the row to a third
-        // account is the same wound from the other direction: the counterpart
-        // would still name the account the money has left.
-        if (
-          row.isTransfer &&
-          (payeeId !== undefined ||
-            payeeName !== undefined ||
-            (rest.accountId !== undefined && rest.accountId !== row.accountId))
-        ) {
+        // Moving one side of a transfer to a third account would leave the
+        // counterpart naming the account the money has left.
+        if (row.isTransfer && rest.accountId !== undefined && rest.accountId !== row.accountId) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message:
-              "The payee of a transfer is the account it moves money to. Delete this transaction and enter it again to send it somewhere else.",
+              "One side of a transfer cannot move to another account. Delete this transaction and enter it again in the account it belongs to.",
           });
         }
 
@@ -222,16 +218,82 @@ export const transactionRouter = router({
           accountId: rest.accountId,
         });
 
+        // An edit that leaves the category alone still has one: the row's own.
+        const rowCategoryId = isIncomeCategoryId(row.categoryYnabId)
+          ? row.categoryYnabId
+          : row.categoryId;
+
         let resolvedPayeeId = payeeId;
         if (!resolvedPayeeId && payeeName) {
-          // An edit that leaves the category alone still has one: the row's own.
-          const rowCategoryId = isIncomeCategoryId(row.categoryYnabId)
-            ? row.categoryYnabId
-            : row.categoryId;
           resolvedPayeeId =
             (await findOrCreatePayee(tx, row.budgetId, payeeName, {
               categoryId: categoryId !== undefined ? categoryId : rowCategoryId,
             })) ?? resolvedPayeeId;
+        }
+
+        // The payee says whether the row is a transfer and where to, as it does
+        // on create. One that points somewhere other than the row's counterpart
+        // relinks it: the old counterpart goes, and a new one is made in the
+        // account the payee stands in for.
+        const nextPayee = resolvedPayeeId
+          ? await tx.query.payees.findFirst({
+              where: and(eq(payees.id, resolvedPayeeId), eq(payees.budgetId, row.budgetId)),
+              columns: { id: true, name: true, targetAccountId: true },
+            })
+          : null;
+        const currentTarget = row.isTransfer ? row.transferAccountId : null;
+        const nextTarget =
+          resolvedPayeeId === undefined ? currentTarget : (nextPayee?.targetAccountId ?? null);
+        const relinks = nextTarget !== currentTarget;
+
+        let link: Partial<typeof transactions.$inferInsert> = {};
+        const farGone: (typeof row)[] = [];
+        let farMade: typeof row | null = null;
+        if (relinks) {
+          if (row.isSplit && nextTarget !== null) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "A split cannot be a transfer. Delete it and enter the transfer on its own.",
+            });
+          }
+          if (farBefore) {
+            farGone.push(
+              ...(await tx
+                .update(transactions)
+                .set({ deletedAt: new Date(), updatedAt: new Date() })
+                .where(counterpartWhere(ctx, row.budgetId, farBefore.ynabId))
+                .returning())
+            );
+          }
+          if (nextPayee && nextTarget !== null) {
+            const ends = await resolveTransferEnds(
+              tx,
+              row.budgetId,
+              rest.accountId ?? row.accountId,
+              { ...nextPayee, targetAccountId: nextTarget }
+            );
+            const category = categoryId !== undefined ? categoryId : rowCategoryId;
+            const farYnabId = crypto.randomUUID();
+            farMade = await insertTransferFarSide(
+              tx,
+              ends,
+              {
+                amount: amount ?? Number(row.amount),
+                date: rest.date ?? row.date,
+                memo: rest.memo !== undefined ? rest.memo : row.memo,
+                categoryId: category,
+              },
+              { near: row.ynabId, far: farYnabId }
+            );
+            link = {
+              isTransfer: true,
+              transferAccountId: ends.far.id,
+              transferTransactionId: farYnabId,
+              ...categoryColumns(transferCategoryId(ends.near, ends.far, category)),
+            };
+          } else {
+            link = { isTransfer: false, transferAccountId: null, transferTransactionId: null };
+          }
         }
 
         // Which side of a transfer carries the category follows from the two
@@ -240,7 +302,7 @@ export const transactionRouter = router({
         const farAccountId = row.transferAccountId;
         let nearCategoryId = categoryId;
         let farCategoryId: typeof categoryId;
-        if (row.isTransfer && categoryId !== undefined && farAccountId !== null) {
+        if (!relinks && row.isTransfer && categoryId !== undefined && farAccountId !== null) {
           const ends = await tx.query.accounts.findMany({
             where: and(
               inArray(accounts.id, [row.accountId, farAccountId]),
@@ -263,6 +325,7 @@ export const transactionRouter = router({
             ...(resolvedPayeeId !== undefined ? { payeeId: resolvedPayeeId } : {}),
             ...(nearCategoryId !== undefined ? categoryColumns(nearCategoryId) : {}),
             ...(amount != null ? { amount: String(amount) } : {}),
+            ...link,
             updatedAt: new Date(),
           })
           .where(
@@ -278,8 +341,8 @@ export const transactionRouter = router({
         // side clears and is filed in its own account. One genuinely
         // half-paired transfer survives in the imported data, so a counterpart
         // that cannot be found updates nothing rather than failing the edit.
-        let farAfter: (typeof row)[] = [];
-        if (farBefore) {
+        let farAfter: (typeof row)[] = [...farGone, ...(farMade ? [farMade] : [])];
+        if (farBefore && !relinks) {
           farAfter = await tx
             .update(transactions)
             .set({

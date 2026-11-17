@@ -15,8 +15,6 @@ import { amountToFields, fieldsToAmount, type RegisterFields } from "@/lib/regis
 import { formatDateISO } from "@/lib/utils";
 
 /** Why the fields a row will not let anyone change here are the way they are. */
-export const TRANSFER_PAYEE_NOTE =
-  "A transfer's payee is the account it moves money to. Delete this transaction and enter it again to send it somewhere else.";
 export const TRANSFER_CATEGORY_NOTE =
   "Money moved between two budgeted accounts has not been spent, so it is not categorised.";
 export const SPLIT_NOTE =
@@ -108,27 +106,37 @@ export function transferKeepsCategory(
   );
 }
 
+/**
+ * The account a row moves money to once saved with `payeeId`: its own
+ * counterpart's while the payee is unchanged, otherwise whichever account the
+ * picked payee stands in for, which is none for an ordinary payee. Picking a
+ * transfer payee is how a row becomes a transfer, so this is what the row's
+ * locks and its save are judged by rather than what it was stored as.
+ */
+export const transferAccountAfter = (
+  txn: { payeeId: number | null; transferAccountId: number | null },
+  payeeId: number | null,
+  transferTargetOf: (payeeId: number | null) => number | null
+): number | null => (payeeId === txn.payeeId ? txn.transferAccountId : transferTargetOf(payeeId));
+
 /** What `locksFor` reads off a row. */
 export type LockableRow = {
   isSplit?: boolean;
-  isTransfer?: boolean;
   transferAccountId: number | null;
 };
 
 /**
- * What a row will not let anyone change here. A transfer's payee is the
- * account on the other end, and a transfer carries a category on one side of
- * the pair at most: both rules the API enforces on save, so the register
- * shows them rather than fights them. A split's category and amount are the
- * sum of its parts, and there is no editor for those, so changing either here
- * would only break the split.
+ * What a row will not let anyone change here. A transfer carries a category on
+ * one side of the pair at most, a rule the API enforces on save, so the
+ * register shows it rather than fights it. A split's category and amount are
+ * the sum of its parts, and there is no editor for those, so changing either
+ * here would only break the split.
  */
 export function locksFor(
   row: LockableRow,
   keepsCategory: (transferAccountId: number | null) => boolean
 ): RegisterRowLocks {
   const locks: RegisterRowLocks = {};
-  if (row.isTransfer) locks.payee = TRANSFER_PAYEE_NOTE;
   if (row.isSplit) {
     locks.category = { label: "Split", reason: SPLIT_NOTE };
     locks.amount = SPLIT_NOTE;
@@ -167,15 +175,14 @@ export function buildTransactionCreate(
 export type UpdatableRow = ReconcilableSide & {
   id: number;
   isSplit: boolean;
-  isTransfer: boolean;
 };
 
 /**
  * The update payload for a row already on the books, or null when the fields
- * cannot be read as one. A transfer's payee is left out: it is the other
- * account's name, and the API refuses to move one side of a pair to a different
- * payee. An empty memo is sent as the empty string rather than dropped, so a
- * memo can be cleared.
+ * cannot be read as one. The payee is always sent: a transfer payee makes the
+ * row a transfer to that account, and an ordinary one makes a transfer an
+ * ordinary row again, both decided by the API. An empty memo is sent as the
+ * empty string rather than dropped, so a memo can be cleared.
  *
  * A reconciled row is acknowledged rather than refused: the register asks
  * before it opens one for editing, so reaching here is the reader saying they
@@ -190,12 +197,8 @@ export function buildTransactionUpdate(
   if (!fields.date || amount === null) return null;
   return {
     id: txn.id,
-    ...(txn.isTransfer
-      ? {}
-      : {
-          payeeId: fields.payeeId,
-          payeeName: fields.payeeId ? undefined : fields.payeeName || undefined,
-        }),
+    payeeId: fields.payeeId,
+    payeeName: fields.payeeId ? undefined : fields.payeeName || undefined,
     // Absent rather than null where the row shows no category to edit: a
     // transfer's category is held on whichever side is on budget, and a null
     // sent from the other side would clear it there. A split's categories

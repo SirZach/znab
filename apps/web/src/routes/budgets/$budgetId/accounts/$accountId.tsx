@@ -30,7 +30,13 @@ import { useRegisterUpcoming } from "@/hooks/useRegisterUpcoming";
 import { useRegisterWrites } from "@/hooks/useRegisterWrites";
 import { amountColumnFor } from "@/lib/amount-column";
 import { bulkDeleteNote, planBulkCategorise, planBulkCleared } from "@/lib/register-bulk";
-import { emptyFields, fieldsFrom, isReconciled, locksFor } from "@/lib/register-edit";
+import {
+  emptyFields,
+  fieldsFrom,
+  isReconciled,
+  locksFor,
+  transferAccountAfter,
+} from "@/lib/register-edit";
 import { unsaveableReason, type RegisterFields } from "@/lib/register-row";
 
 export const Route = createFileRoute("/budgets/$budgetId/accounts/$accountId")({
@@ -76,9 +82,12 @@ function AccountRegisterPage() {
   const reconcile = useReconcile(ids);
   const selection = useRegisterSelection(transactions);
   const { selectedRows } = selection;
+  const transferTargetOf = (payeeId: number | null) =>
+    payeeList?.find((p) => p.id === payeeId)?.targetAccountId ?? null;
   const writes = useRegisterWrites({
     ...ids,
     transferKeepsCategory,
+    transferTargetOf,
     onCreated: () => {
       // A refetch rather than a patch puts a back-dated row in the middle, so
       // the view goes to the bottom where the newest rows are.
@@ -137,8 +146,7 @@ function AccountRegisterPage() {
   // Picking a transfer payee can take the category away mid-entry, so what is
   // saved is what the row shows. The draft keeps the old category in case the
   // payee is changed back to an ordinary one.
-  const addPayee = payeeList?.find((p) => p.id === addFields.payeeId);
-  const addLocks = lockRow({ transferAccountId: addPayee?.targetAccountId ?? null });
+  const addLocks = lockRow({ transferAccountId: transferTargetOf(addFields.payeeId) });
   const addDraft = addLocks.category ? { ...addFields, categoryId: null } : addFields;
 
   // A row that cannot be saved was being dropped on the floor: Enter did
@@ -357,7 +365,12 @@ function AccountRegisterPage() {
                         <EditCells
                           key={txn.id}
                           txn={txn}
-                          locks={lockRow(txn)}
+                          locksFor={(payeeId) =>
+                            lockRow({
+                              isSplit: txn.isSplit,
+                              transferAccountId: transferAccountAfter(txn, payeeId, transferTargetOf),
+                            })
+                          }
                           payeeList={payeeList}
                           categoryOptions={categoryOptions}
                           autofillForPayee={autofillForPayee}

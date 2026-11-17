@@ -33,7 +33,7 @@ function renderCells(over: Partial<RegisterTransaction> = {}) {
         <tr>
           <EditCells
             txn={{ ...txn, ...over }}
-            locks={{}}
+            locksFor={() => ({})}
             payeeList={[]}
             categoryOptions={[{ id: 100, label: "Everyday: Food" }]}
             autofillForPayee={() => ({})}

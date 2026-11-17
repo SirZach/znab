@@ -141,6 +141,131 @@ describe("transaction.update on a transfer", () => {
   });
 });
 
+describe("transaction.update to a transfer payee", () => {
+  /** An ordinary groceries purchase out of checking. */
+  function purchase(caller: Caller, seed: Seed) {
+    return caller.transaction.create({
+      budgetId: seed.budgetId,
+      accountId: seed.accounts.checking.id,
+      payeeId: seed.payees.grocer.id,
+      categoryId: seed.categories.groceries.id,
+      amount: -40,
+      date: DATE,
+      memo: "moved",
+      cleared: "Cleared",
+    });
+  }
+
+  test("an ordinary row becomes a linked, negated pair, uncategorized between budget accounts", async () => {
+    await withCaller(async ({ tx, seed, caller }) => {
+      const row = await purchase(caller, seed);
+      const near = await caller.transaction.update({ id: row!.id, payeeId: seed.transferPayee.savings });
+
+      const [far] = await liveTransactions(tx, seed.accounts.savings.id);
+      expect(near).toMatchObject({
+        id: row!.id,
+        isTransfer: true,
+        transferAccountId: seed.accounts.savings.id,
+        transferTransactionId: far!.ynabId,
+        payeeId: seed.transferPayee.savings,
+        categoryId: null,
+        amount: "-40.00",
+        cleared: "Cleared",
+      });
+      expect(far).toMatchObject({
+        isTransfer: true,
+        transferAccountId: seed.accounts.checking.id,
+        transferTransactionId: row!.ynabId,
+        payeeId: seed.transferPayee.checking,
+        categoryId: null,
+        amount: "40.00",
+        date: DATE,
+        memo: "moved",
+        cleared: "Uncleared",
+      });
+    });
+  });
+
+  test("to an off-budget account the category stays on the budget side, and the edit's own values cross over", async () => {
+    await withCaller(async ({ tx, seed, caller }) => {
+      const row = await purchase(caller, seed);
+      const near = await caller.transaction.update({
+        id: row!.id,
+        payeeId: seed.transferPayee.tracking,
+        amount: -55,
+        date: "2025-03-09",
+      });
+
+      const [far] = await liveTransactions(tx, seed.accounts.tracking.id);
+      expect(near!.categoryId).toBe(seed.categories.groceries.id);
+      expect(far).toMatchObject({ amount: "55.00", date: "2025-03-09", categoryId: null });
+    });
+  });
+
+  test("another budget's transfer payee and the row's own account are refused, writing nothing", async () => {
+    await withCaller(async ({ tx, seed, other, caller }) => {
+      const row = await purchase(caller, seed);
+      await expectTrpcError(
+        caller.transaction.update({ id: row!.id, payeeId: other.transferPayee.savings }),
+        "NOT_FOUND"
+      );
+      await expectTrpcError(
+        caller.transaction.update({ id: row!.id, payeeId: seed.transferPayee.checking }),
+        "BAD_REQUEST"
+      );
+      expect(await liveTransactions(tx, seed.accounts.savings.id)).toHaveLength(0);
+      const [still] = await liveTransactions(tx, seed.accounts.checking.id);
+      expect(still).toMatchObject({ isTransfer: false, payeeId: seed.payees.grocer.id });
+    });
+  });
+
+  test("a transfer sent to another account moves its counterpart there", async () => {
+    await withCaller(async ({ tx, seed, caller }) => {
+      const near = await transfer(caller, seed, "checking", "savings", -100);
+      const moved = await caller.transaction.update({ id: near!.id, payeeId: seed.transferPayee.tracking });
+
+      expect(await liveTransactions(tx, seed.accounts.savings.id)).toHaveLength(0);
+      const [far] = await liveTransactions(tx, seed.accounts.tracking.id);
+      expect(moved).toMatchObject({
+        id: near!.id,
+        transferAccountId: seed.accounts.tracking.id,
+        transferTransactionId: far!.ynabId,
+      });
+      expect(far).toMatchObject({ amount: "100.00", transferTransactionId: near!.ynabId });
+    });
+  });
+
+  test("a transfer given an ordinary payee loses its counterpart and takes the category sent", async () => {
+    await withCaller(async ({ tx, seed, caller }) => {
+      const near = await transfer(caller, seed, "checking", "savings", -100);
+      const plain = await caller.transaction.update({
+        id: near!.id,
+        payeeId: seed.payees.grocer.id,
+        categoryId: seed.categories.groceries.id,
+      });
+
+      expect(await liveTransactions(tx, seed.accounts.savings.id)).toHaveLength(0);
+      expect(plain).toMatchObject({
+        isTransfer: false,
+        transferAccountId: null,
+        transferTransactionId: null,
+        payeeId: seed.payees.grocer.id,
+        categoryId: seed.categories.groceries.id,
+      });
+    });
+  });
+
+  test("resending a transfer's own payee keeps its counterpart", async () => {
+    await withCaller(async ({ tx, seed, caller }) => {
+      const near = await transfer(caller, seed, "checking", "savings", -100);
+      const [farBefore] = await liveTransactions(tx, seed.accounts.savings.id);
+      await caller.transaction.update({ id: near!.id, payeeId: seed.transferPayee.savings, amount: -80 });
+      const [farAfter] = await liveTransactions(tx, seed.accounts.savings.id);
+      expect(farAfter).toMatchObject({ id: farBefore!.id, amount: "80.00" });
+    });
+  });
+});
+
 describe("transaction.delete on a transfer", () => {
   test("soft deletes both sides and restores both balances", async () => {
     await withCaller(async ({ tx, seed, caller }) => {

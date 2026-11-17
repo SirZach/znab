@@ -11,7 +11,7 @@ import {
   locksFor,
   SPLIT_NOTE,
   TRANSFER_CATEGORY_NOTE,
-  TRANSFER_PAYEE_NOTE,
+  transferAccountAfter,
   transferKeepsCategory,
 } from "./register-edit";
 
@@ -96,11 +96,21 @@ describe("transferKeepsCategory", () => {
   });
 });
 
+describe("transferAccountAfter", () => {
+  const targetOf = (payeeId: number | null) => (payeeId === 50 ? 3 : null);
+  test("an unchanged payee keeps the row's own counterpart", () => {
+    expect(transferAccountAfter({ payeeId: 40, transferAccountId: 2 }, 40, targetOf)).toBe(2);
+  });
+  test("a newly picked payee decides: a transfer payee's account, or none", () => {
+    expect(transferAccountAfter({ payeeId: 7, transferAccountId: null }, 50, targetOf)).toBe(3);
+    expect(transferAccountAfter({ payeeId: 40, transferAccountId: 2 }, 7, targetOf)).toBeNull();
+  });
+});
+
 describe("locksFor", () => {
   const keeps = (id: number | null) => id === null;
-  test("a transfer locks its payee, and its category when it carries none", () => {
-    expect(locksFor({ isTransfer: true, transferAccountId: 2 }, keeps)).toEqual({
-      payee: TRANSFER_PAYEE_NOTE,
+  test("a transfer locks its category when it carries none, and leaves its payee free", () => {
+    expect(locksFor({ transferAccountId: 2 }, keeps)).toEqual({
       category: { label: "No category", reason: TRANSFER_CATEGORY_NOTE },
     });
   });
@@ -143,10 +153,10 @@ describe("buildTransactionUpdate", () => {
     expect(input).toMatchObject({ id: 1, amount: 0, memo: "", categoryId: 100, payeeId: 7 });
     expect(input?.acknowledgeReconciled).toBe(false);
   });
-  test("a transfer sends no payee, and no category where it carries none", () => {
-    const input = buildTransactionUpdate({ ...txn, isTransfer: true }, fields(), false)!;
-    expect("payeeId" in input).toBe(false);
-    expect("payeeName" in input).toBe(false);
+  test("sends the payee, so picking a transfer payee makes a transfer, and no category where it carries none", () => {
+    const input = buildTransactionUpdate(txn, fields({ payeeId: 9 }), false)!;
+    expect(input.payeeId).toBe(9);
+    expect(input.payeeName).toBeUndefined();
     expect("categoryId" in input).toBe(false);
   });
   test("a split sends no category", () => {

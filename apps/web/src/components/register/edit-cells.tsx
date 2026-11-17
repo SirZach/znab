@@ -18,7 +18,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
  */
 export function EditCells({
   txn,
-  locks,
+  locksFor,
   payeeList,
   categoryOptions,
   autofillForPayee,
@@ -30,7 +30,8 @@ export function EditCells({
   columnForCategory,
 }: {
   txn: RegisterTransaction;
-  locks: RegisterRowLocks;
+  /** Judged by the payee being picked, since picking a transfer payee makes a transfer. */
+  locksFor: (payeeId: number | null) => RegisterRowLocks;
   payeeList: RegisterLookups["payeeList"];
   categoryOptions: RegisterLookups["categoryOptions"];
   autofillForPayee: RegisterLookups["autofillForPayee"];
@@ -52,7 +53,7 @@ export function EditCells({
         payees={payeeList}
         categoryOptions={categoryOptions}
         autofill={autofillForPayee}
-        locks={locks}
+        locks={locksFor(fields.payeeId)}
         onSubmit={() => onSave(fields)}
         onCancel={onCancel}
         autoFocus

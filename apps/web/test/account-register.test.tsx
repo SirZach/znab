@@ -112,22 +112,36 @@ describe("register row editing", () => {
     const { user, tr, inputsTo } = await openRow("Transfer : Savings");
 
     expect(within(tr).getByText("No category")).toBeTruthy();
-    expect(within(tr).queryByRole("combobox")).toBeNull();
+    // The payee picker alone: the category has none.
+    expect(within(tr).getAllByRole("combobox")).toHaveLength(1);
 
     await user.type(within(tr).getByLabelText("Memo"), "{Enter}");
     await waitFor(() => expect(inputsTo("transaction.update")).toHaveLength(1));
     const input = inputsTo("transaction.update")[0] as Record<string, unknown>;
-    expect(input).toMatchObject({ id: 2, amount: -50 });
-    // Neither a category nor a payee: the API owns both for a transfer.
+    expect(input).toMatchObject({ id: 2, amount: -50, payeeId: 201 });
     expect("categoryId" in input).toBe(false);
-    expect("payeeId" in input).toBe(false);
   });
 
   test("a transfer out to an off-budget account keeps its category picker", async () => {
     const { tr } = await openRow("Transfer : Mortgage");
 
     expect(within(tr).queryByText("No category")).toBeNull();
-    expect(within(tr).getByRole("combobox")).toBeTruthy();
+    expect(within(tr).getAllByRole("combobox")).toHaveLength(2);
+  });
+
+  test("picking a transfer payee on an ordinary row takes its category away and sends the payee", async () => {
+    const { user, tr, inputsTo } = await openRow("Grocer");
+
+    // The payee picker comes before the category's.
+    await user.click(within(tr).getAllByRole("combobox")[0]!);
+    await user.click(await screen.findByRole("option", { name: "Transfer : Savings" }));
+    await waitFor(() => expect(within(tr).getByText("No category")).toBeTruthy());
+
+    await user.type(within(tr).getByLabelText("Memo"), "{Enter}");
+    await waitFor(() => expect(inputsTo("transaction.update")).toHaveLength(1));
+    const input = inputsTo("transaction.update")[0] as Record<string, unknown>;
+    expect(input).toMatchObject({ id: 1, payeeId: 201 });
+    expect("categoryId" in input).toBe(false);
   });
 });
 

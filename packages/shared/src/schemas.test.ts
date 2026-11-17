@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { allAccountsSearchSchema, createTransactionSchema, isoDateSchema } from "./schemas";
+import {
+  accountRegisterSearchSchema,
+  allAccountsSearchSchema,
+  createTransactionSchema,
+  isoDateSchema,
+} from "./schemas";
 
 describe("isoDateSchema", () => {
   test("accepts real days, leap days included", () => {
@@ -18,6 +23,16 @@ describe("isoDateSchema", () => {
     const base = { accountId: 1, payeeId: null, categoryId: null, amount: -5 };
     expect(createTransactionSchema.safeParse({ ...base, date: "2026-02-30" }).success).toBe(false);
     expect(createTransactionSchema.safeParse({ ...base, date: "2026-02-28" }).success).toBe(true);
+  });
+});
+
+describe("accountRegisterSearchSchema", () => {
+  test("opens on unreconciled rows, oldest first", () => {
+    expect(accountRegisterSearchSchema.parse({})).toEqual({ cleared: "Unreconciled", sort: "date", dir: "asc" });
+  });
+
+  test("keeps a chosen All", () => {
+    expect(accountRegisterSearchSchema.parse({ cleared: "all" }).cleared).toBe("all");
   });
 });
 

@@ -134,8 +134,11 @@ export const budgetSearchSchema = z.object({
 });
 
 export const accountRegisterSearchSchema = z.object({
-  // An old link may still name a filter that has since gone, so it falls back.
-  cleared: z.enum(REGISTER_CLEARED_FILTERS).default("all").catch("all"),
+  // A register opens on what is still to be reconciled, since that is the
+  // part anybody works on; All is one click away and stays in the URL once
+  // chosen. An old link may still name a filter that has since gone, so it
+  // falls back to the same.
+  cleared: z.enum(REGISTER_CLEARED_FILTERS).default("Unreconciled").catch("Unreconciled"),
   q: z.string().optional(),
   // A register is a chronological ledger first, so date ascending is what it
   // falls back to and what it returns to.
@@ -149,6 +152,9 @@ export const accountRegisterSearchSchema = z.object({
 // All Accounts is the screen for finding something, so it falls back to newest
 // first, and the pager's "Newer" and "Older" read from the recent end.
 export const allAccountsSearchSchema = accountRegisterSearchSchema.omit({ txn: true }).extend({
+  // Every row, unlike one account's register: a search here is meant to reach
+  // reconciled history too.
+  cleared: z.enum(REGISTER_CLEARED_FILTERS).default("all").catch("all"),
   dir: z.enum(SORT_DIRECTIONS).default("desc"),
   offset: z.number().int().min(0).default(0),
 });

@@ -90,6 +90,22 @@ async function openRow(payee: string) {
   return { ...rendered, user, tr };
 }
 
+describe("register filter", () => {
+  test("opens on unreconciled rows", async () => {
+    const { inputsTo } = await renderRoute("/budgets/1/accounts/10", { fixtures });
+
+    await waitFor(() => expect(inputsTo("account.transactions").length).toBeGreaterThan(0));
+    expect(inputsTo("account.transactions").at(-1)).toMatchObject({ cleared: "Unreconciled" });
+  });
+
+  test("keeps All when the URL asks for it", async () => {
+    const { inputsTo } = await renderRoute("/budgets/1/accounts/10?cleared=all", { fixtures });
+
+    await waitFor(() => expect(inputsTo("account.transactions").length).toBeGreaterThan(0));
+    expect(inputsTo("account.transactions").at(-1)).toMatchObject({ cleared: "all" });
+  });
+});
+
 describe("register row editing", () => {
   test("Outflow takes arithmetic, and Enter saves it as one signed amount", async () => {
     const { user, tr, inputsTo } = await openRow("Grocer");

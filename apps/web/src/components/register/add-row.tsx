@@ -4,6 +4,7 @@ import { RegisterColgroup } from "@/components/register/register-colgroup";
 import { RowError } from "@/components/register/row-error";
 import { RegisterRowFields, type RegisterRowLocks } from "@/components/register/row-fields";
 import type { RegisterLookups } from "@/hooks/useRegisterLookups";
+import type { AmountColumn } from "@/lib/amount-column";
 import type { RegisterFields } from "@/lib/register-row";
 
 /** The sticky row under the register that enters a new transaction. */
@@ -19,6 +20,7 @@ export function AddRow({
   isSaving,
   error,
   dateInputRef,
+  columnForCategory,
 }: {
   fields: RegisterFields;
   onChange: (patch: Partial<RegisterFields>) => void;
@@ -32,6 +34,7 @@ export function AddRow({
   isSaving: boolean;
   error: string | null;
   dateInputRef: Ref<HTMLInputElement>;
+  columnForCategory?: (categoryId: RegisterFields["categoryId"]) => AmountColumn;
 }) {
   return (
     // Lighter than any state a register row can be in, hovered, selected or
@@ -50,6 +53,7 @@ export function AddRow({
             onSubmit={onSave}
             tabIndexBase={1}
             dateInputRef={dateInputRef}
+            columnForCategory={columnForCategory}
           />
           {/* Spans the cleared column too, so both buttons fit on one line. */}
           <td colSpan={2} className="px-2 py-2">

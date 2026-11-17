@@ -28,6 +28,7 @@ import { type RegisterTransaction, useRegisterPages } from "@/hooks/useRegisterP
 import { useRegisterSelection } from "@/hooks/useRegisterSelection";
 import { useRegisterUpcoming } from "@/hooks/useRegisterUpcoming";
 import { useRegisterWrites } from "@/hooks/useRegisterWrites";
+import { amountColumnFor } from "@/lib/amount-column";
 import { bulkDeleteNote, planBulkCategorise, planBulkCleared } from "@/lib/register-bulk";
 import { emptyFields, fieldsFrom, isReconciled, locksFor } from "@/lib/register-edit";
 import { unsaveableReason, type RegisterFields } from "@/lib/register-row";
@@ -129,6 +130,9 @@ function AccountRegisterPage() {
   }
 
   const lockRow = (row: Parameters<typeof locksFor>[0]) => locksFor(row, transferKeepsCategory);
+  // Judged from the rows on screen, which are this account's most recent.
+  const columnForCategory = (categoryId: TransactionCategoryId | null) =>
+    amountColumnFor(categoryId, transactions);
 
   // Picking a transfer payee can take the category away mid-entry, so what is
   // saved is what the row shows. The draft keeps the old category in case the
@@ -362,6 +366,7 @@ function AccountRegisterPage() {
                           onDelete={() => writes.deleteTransaction(txn, () => setEditingId(null))}
                           onCancel={() => edit(null)}
                           onCycleCleared={onCycleCleared}
+                          columnForCategory={columnForCategory}
                         />
                       ) : (
                         <TransactionCells
@@ -403,6 +408,7 @@ function AccountRegisterPage() {
             isSaving={writes.isSaving}
             error={addBlocked ?? writes.createError}
             dateInputRef={addDateRef}
+            columnForCategory={columnForCategory}
           />
         </div>
 

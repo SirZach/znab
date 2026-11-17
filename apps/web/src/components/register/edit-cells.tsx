@@ -6,6 +6,7 @@ import { RegisterRowFields, type RegisterRowLocks } from "@/components/register/
 import type { RegisterLookups } from "@/hooks/useRegisterLookups";
 import type { RegisterTransaction } from "@/hooks/useRegisterPages";
 import { fieldsFrom } from "@/lib/register-edit";
+import type { AmountColumn } from "@/lib/amount-column";
 import type { RegisterFields } from "@/lib/register-row";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ export function EditCells({
   onDelete,
   onCancel,
   onCycleCleared,
+  columnForCategory,
 }: {
   txn: RegisterTransaction;
   locks: RegisterRowLocks;
@@ -37,6 +39,7 @@ export function EditCells({
   onDelete: () => void;
   onCancel: () => void;
   onCycleCleared: () => void;
+  columnForCategory?: (categoryId: RegisterFields["categoryId"]) => AmountColumn;
 }) {
   const [fields, setFields] = useState<RegisterFields>(() => fieldsFrom(txn));
   const [confirming, setConfirming] = useState(false);
@@ -53,6 +56,7 @@ export function EditCells({
         onSubmit={() => onSave(fields)}
         onCancel={onCancel}
         autoFocus
+        columnForCategory={columnForCategory}
       />
 
       <ClearedCell cleared={txn.cleared} onCycle={onCycleCleared} />

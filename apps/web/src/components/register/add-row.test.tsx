@@ -101,6 +101,55 @@ describe("AddRow", () => {
 
     await userEvent.keyboard("{Enter}");
     expect(latest.categoryId).toBe(2);
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Memo")));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Outflow")));
+  });
+
+  test("Memo is left out of the Tab order", () => {
+    renderAddRow();
+    expect(screen.getByLabelText("Memo").tabIndex).toBe(-1);
+  });
+
+  test("picking a category that usually takes money in goes to Inflow", async () => {
+    renderWithTrpc(
+      <AddRow
+        fields={emptyFields()}
+        onChange={() => {}}
+        payeeList={[]}
+        categoryOptions={categoryOptions}
+        autofillForPayee={() => ({})}
+        locks={{}}
+        onSave={() => {}}
+        onCancel={() => {}}
+        isSaving={false}
+        error={null}
+        dateInputRef={null}
+        columnForCategory={(id) => (id === 2 ? "inflow" : "outflow")}
+      />
+    );
+    act(() => screen.getByText("Category").closest("button")?.focus());
+    await userEvent.type(await screen.findByPlaceholderText("Search categories..."), "rest{Tab}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Inflow")));
+  });
+
+  test("Tab from a clicked into memo goes to the category's money column", async () => {
+    renderWithTrpc(
+      <AddRow
+        fields={{ ...emptyFields(), categoryId: 2 }}
+        onChange={() => {}}
+        payeeList={[]}
+        categoryOptions={categoryOptions}
+        autofillForPayee={() => ({})}
+        locks={{}}
+        onSave={() => {}}
+        onCancel={() => {}}
+        isSaving={false}
+        error={null}
+        dateInputRef={null}
+        columnForCategory={(id) => (id === 2 ? "inflow" : "outflow")}
+      />
+    );
+    await userEvent.click(screen.getByLabelText("Memo"));
+    await userEvent.keyboard("{Tab}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Inflow")));
   });
 });

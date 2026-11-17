@@ -1,5 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { payees } from "@znab/db";
+import { isIncomeCategoryId, type TransactionCategoryId } from "@znab/shared";
 import { normalizePayeeName, payeeNameKey } from "./payee-name";
 import type { Tx } from "./tx";
 
@@ -9,12 +10,16 @@ import type { Tx } from "./tx";
  * stored name with stray whitespace is reused rather than doubled. Transfer
  * payees are left out of the match: a typed name never quietly turns a row
  * into half of a transfer. Returns null when the name is blank.
+ *
+ * `categoryId` is the category of the row that brought the payee into being.
+ * A new payee remembers it as its autofill, the way YNAB 4 does, so the next
+ * row for that payee fills it in. A payee that already exists keeps its own.
  */
 export async function findOrCreatePayee(
   tx: Tx,
   budgetId: number,
   rawName: string | null | undefined,
-  opts: { enabled?: boolean } = {}
+  opts: { enabled?: boolean; categoryId?: TransactionCategoryId | null } = {}
 ): Promise<number | null> {
   const name = normalizePayeeName(rawName);
   if (!name) return null;
@@ -37,6 +42,9 @@ export async function findOrCreatePayee(
       budgetId,
       name,
       ...(opts.enabled !== undefined ? { enabled: opts.enabled } : {}),
+      ...(isIncomeCategoryId(opts.categoryId)
+        ? { autofillIncome: opts.categoryId }
+        : { autofillCategoryId: opts.categoryId ?? null }),
     })
     .returning({ id: payees.id });
   return created!.id;

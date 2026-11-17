@@ -33,6 +33,9 @@
   --sidebar-accent-foreground: 240 4.8% 95.9%;
   --sidebar-border: 240 3.7% 15.9%;
   --sidebar-ring: 217.2 91.2% 59.8%;
+  /* Orange tint that sets category group rows apart from their categories */
+  --group: 34 100% 92%;
+  --group-foreground: 21 80% 28%;
   /* Full colors rather than HSL triplets: Tailwind's green-600 and amber-600,
      which these replaced. The chart colors are the same in both themes. */
   --success: oklch(62.7% 0.194 149.214);
@@ -63,6 +66,8 @@
   --border: 217.2 32.6% 17.5%;
   --input: 217.2 32.6% 17.5%;
   --ring: 224.3 76.3% 48%;
+  --group: 24 45% 15%;
+  --group-foreground: 31 97% 72%;
   /* Tailwind's green-500 and amber-400 */
   --success: oklch(72.3% 0.219 149.579);
   --warning: oklch(82.8% 0.189 84.429);
@@ -96,6 +101,8 @@
   --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
   --color-sidebar-border: hsl(var(--sidebar-border));
   --color-sidebar-ring: hsl(var(--sidebar-ring));
+  --color-group: hsl(var(--group));
+  --color-group-foreground: hsl(var(--group-foreground));
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-chart-1: var(--chart-1);

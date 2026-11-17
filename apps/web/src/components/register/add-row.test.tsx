@@ -101,6 +101,114 @@ describe("AddRow", () => {
 
     await userEvent.keyboard("{Enter}");
     expect(latest.categoryId).toBe(2);
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Memo")));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Outflow")));
+  });
+
+  test("Memo is left out of the Tab order", () => {
+    renderAddRow();
+    expect(screen.getByLabelText("Memo").tabIndex).toBe(-1);
+  });
+
+  test("picking a category that usually takes money in goes to Inflow", async () => {
+    renderWithTrpc(
+      <AddRow
+        fields={emptyFields()}
+        onChange={() => {}}
+        payeeList={[]}
+        categoryOptions={categoryOptions}
+        autofillForPayee={() => ({})}
+        locks={{}}
+        onSave={() => {}}
+        onCancel={() => {}}
+        isSaving={false}
+        error={null}
+        dateInputRef={null}
+        columnForCategory={(id) => (id === 2 ? "inflow" : "outflow")}
+      />
+    );
+    act(() => screen.getByText("Category").closest("button")?.focus());
+    await userEvent.type(await screen.findByPlaceholderText("Search categories..."), "rest{Tab}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Inflow")));
+  });
+
+  test("Tab from a clicked into memo goes to the category's money column", async () => {
+    renderWithTrpc(
+      <AddRow
+        fields={{ ...emptyFields(), categoryId: 2 }}
+        onChange={() => {}}
+        payeeList={[]}
+        categoryOptions={categoryOptions}
+        autofillForPayee={() => ({})}
+        locks={{}}
+        onSave={() => {}}
+        onCancel={() => {}}
+        isSaving={false}
+        error={null}
+        dateInputRef={null}
+        columnForCategory={(id) => (id === 2 ? "inflow" : "outflow")}
+      />
+    );
+    await userEvent.click(screen.getByLabelText("Memo"));
+    await userEvent.keyboard("{Tab}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Inflow")));
+  });
+
+  test("picking a transfer payee that locks the category goes to Outflow", async () => {
+    function Stateful() {
+      const [fields, setFields] = useState(emptyFields);
+      return (
+        <AddRow
+          fields={fields}
+          onChange={(patch) => setFields((prev) => ({ ...prev, ...patch }))}
+          payeeList={[
+            {
+              id: 9,
+              name: "Transfer : Savings",
+              autofillCategoryId: null,
+              autofillMemo: null,
+              targetAccountId: 3,
+            },
+          ]}
+          categoryOptions={categoryOptions}
+          autofillForPayee={() => ({})}
+          locks={fields.payeeId === 9 ? { category: { label: "Transfer", reason: "x" } } : {}}
+          onSave={() => {}}
+          onCancel={() => {}}
+          isSaving={false}
+          error={null}
+          dateInputRef={null}
+        />
+      );
+    }
+    renderWithTrpc(<Stateful />);
+
+    await userEvent.click(screen.getByText("Payee"));
+    await userEvent.type(await screen.findByPlaceholderText("Search payees..."), "sav{Enter}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Outflow")));
+  });
+
+  test("Tab from memo with the amount locked leaves memo", async () => {
+    renderWithTrpc(
+      <AddRow
+        fields={emptyFields()}
+        onChange={() => {}}
+        payeeList={[]}
+        categoryOptions={categoryOptions}
+        autofillForPayee={() => ({})}
+        locks={{ amount: "split" }}
+        onSave={() => {}}
+        onCancel={() => {}}
+        isSaving={false}
+        error={null}
+        dateInputRef={null}
+      />
+    );
+    const memo = screen.getByLabelText("Memo");
+    await userEvent.click(memo);
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    act(() => {
+      memo.dispatchEvent(tab);
+    });
+    expect(tab.defaultPrevented).toBe(false);
   });
 });

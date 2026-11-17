@@ -6,6 +6,7 @@ import {
   buildTransactionCreate,
   buildTransactionUpdate,
   isReconciled,
+  transferAccountAfter,
   type ReconcilableSide,
   type UpdatableRow,
 } from "@/lib/register-edit";
@@ -21,11 +22,14 @@ export function useRegisterWrites({
   budgetId,
   accountId,
   transferKeepsCategory,
+  transferTargetOf,
   onCreated,
 }: {
   budgetId: number;
   accountId: number;
   transferKeepsCategory: (transferAccountId: number | null) => boolean;
+  /** The account a payee stands in for, or null for an ordinary payee. */
+  transferTargetOf: (payeeId: number | null) => number | null;
   /** After a new row is saved and the register has refetched. */
   onCreated?: () => void;
 }) {
@@ -76,14 +80,14 @@ export function useRegisterWrites({
     },
 
     updateTransaction(
-      txn: UpdatableRow & { transferAccountId: number | null },
+      txn: UpdatableRow & { payeeId: number | null; transferAccountId: number | null },
       fields: RegisterFields,
       onDone?: () => void
     ) {
       const input = buildTransactionUpdate(
         txn,
         fields,
-        transferKeepsCategory(txn.transferAccountId)
+        transferKeepsCategory(transferAccountAfter(txn, fields.payeeId, transferTargetOf))
       );
       if (input) updateMutation.mutate(input, { onSuccess: () => onDone?.() });
     },

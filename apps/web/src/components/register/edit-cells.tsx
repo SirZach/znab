@@ -6,6 +6,7 @@ import { RegisterRowFields, type RegisterRowLocks } from "@/components/register/
 import type { RegisterLookups } from "@/hooks/useRegisterLookups";
 import type { RegisterTransaction } from "@/hooks/useRegisterPages";
 import { fieldsFrom } from "@/lib/register-edit";
+import type { AmountColumn } from "@/lib/amount-column";
 import type { RegisterFields } from "@/lib/register-row";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -17,7 +18,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
  */
 export function EditCells({
   txn,
-  locks,
+  locksFor,
   payeeList,
   categoryOptions,
   autofillForPayee,
@@ -26,9 +27,11 @@ export function EditCells({
   onDelete,
   onCancel,
   onCycleCleared,
+  columnForCategory,
 }: {
   txn: RegisterTransaction;
-  locks: RegisterRowLocks;
+  /** Judged by the payee being picked, since picking a transfer payee makes a transfer. */
+  locksFor: (payeeId: number | null) => RegisterRowLocks;
   payeeList: RegisterLookups["payeeList"];
   categoryOptions: RegisterLookups["categoryOptions"];
   autofillForPayee: RegisterLookups["autofillForPayee"];
@@ -37,6 +40,7 @@ export function EditCells({
   onDelete: () => void;
   onCancel: () => void;
   onCycleCleared: () => void;
+  columnForCategory?: (categoryId: RegisterFields["categoryId"]) => AmountColumn;
 }) {
   const [fields, setFields] = useState<RegisterFields>(() => fieldsFrom(txn));
   const [confirming, setConfirming] = useState(false);
@@ -46,13 +50,15 @@ export function EditCells({
       <RegisterRowFields
         fields={fields}
         onChange={(patch) => setFields((prev) => ({ ...prev, ...patch }))}
-        payees={payeeList}
+        // A split cannot be a transfer, so its picker offers no transfer payees.
+        payees={txn.isSplit ? payeeList?.filter((p) => p.targetAccountId === null) : payeeList}
         categoryOptions={categoryOptions}
         autofill={autofillForPayee}
-        locks={locks}
+        locks={locksFor(fields.payeeId)}
         onSubmit={() => onSave(fields)}
         onCancel={onCancel}
         autoFocus
+        columnForCategory={columnForCategory}
       />
 
       <ClearedCell cleared={txn.cleared} onCycle={onCycleCleared} />

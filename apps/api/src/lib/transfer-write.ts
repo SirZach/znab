@@ -101,6 +101,15 @@ export async function resolveTransferEnds(
   return { budgetId, near, far, nearPayeeId: payee.id, farPayeeId };
 }
 
+/** What both rows of a transfer carry alike. */
+const sharedColumns = (budgetId: number, entry: TransferEntry) => ({
+  budgetId,
+  date: entry.date,
+  memo: entry.memo,
+  isTransfer: true,
+  ...(entry.dateFromSchedule !== undefined ? { dateFromSchedule: entry.dateFromSchedule } : {}),
+});
+
 /**
  * Inserts both rows of one transfer between ends already resolved, and returns
  * the near one, which is the row the caller asked for. Both ynab ids are minted
@@ -118,18 +127,10 @@ export async function insertTransferPair(
   const { budgetId, near, far } = ends;
   const nearYnabId = crypto.randomUUID();
   const farYnabId = crypto.randomUUID();
-  const shared = {
-    budgetId,
-    date: entry.date,
-    memo: entry.memo,
-    isTransfer: true,
-    ...(entry.dateFromSchedule !== undefined ? { dateFromSchedule: entry.dateFromSchedule } : {}),
-  };
-
   const [nearTxn] = await tx
     .insert(transactions)
     .values({
-      ...shared,
+      ...sharedColumns(budgetId, entry),
       ynabId: nearYnabId,
       accountId: near.id,
       payeeId: ends.nearPayeeId,
@@ -143,11 +144,31 @@ export async function insertTransferPair(
     })
     .returning();
 
+  const farTxn = await insertTransferFarSide(tx, ends, entry, { near: nearYnabId, far: farYnabId });
+
+  await audit(tx, userId, "transaction", { after: [nearTxn!, farTxn] });
+  return nearTxn!;
+}
+
+/**
+ * Inserts the far row of a transfer whose near row is `ynabIds.near`, which
+ * either is being inserted alongside it or already exists, as when an edit
+ * turns an ordinary row into a transfer. The far side has not seen the money
+ * yet, so it starts uncleared. Not audited here: the caller records it with
+ * whatever else it wrote.
+ */
+export async function insertTransferFarSide(
+  tx: Tx,
+  ends: TransferEnds,
+  entry: TransferEntry,
+  ynabIds: { near: string; far: string }
+) {
+  const { budgetId, near, far } = ends;
   const [farTxn] = await tx
     .insert(transactions)
     .values({
-      ...shared,
-      ynabId: farYnabId,
+      ...sharedColumns(budgetId, entry),
+      ynabId: ynabIds.far,
       accountId: far.id,
       payeeId: ends.farPayeeId,
       ...categoryColumns(transferCategoryId(far, near, entry.categoryId)),
@@ -155,12 +176,10 @@ export async function insertTransferPair(
       cleared: "Uncleared",
       accepted: true,
       transferAccountId: near.id,
-      transferTransactionId: nearYnabId,
+      transferTransactionId: ynabIds.near,
     })
     .returning();
-
-  await audit(tx, userId, "transaction", { after: [nearTxn!, farTxn!] });
-  return nearTxn!;
+  return farTxn!;
 }
 
 /** Resolves the ends and writes one transfer: the whole job for a single entry. */

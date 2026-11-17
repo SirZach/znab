@@ -15,6 +15,7 @@ import { UnderlineInput } from "@/components/common/underline-input";
 import { FlagCell } from "@/components/register/flag-cell";
 import { PayeePicker } from "@/components/common/payee-picker";
 import { DateEntryInput } from "@/components/common/date-entry-input";
+import { type AmountColumn, amountColumnFor } from "@/lib/amount-column";
 import type { PayeeAutofillPatch, PayeeAutofillSource } from "@/lib/payee-autofill";
 import type { RegisterCategoryOption } from "@/lib/category-options";
 import type { RegisterFields } from "@/lib/register-row";
@@ -53,6 +54,7 @@ export function RegisterRowFields({
   tabIndexBase,
   autoFocus,
   dateInputRef,
+  columnForCategory = (categoryId) => amountColumnFor(categoryId, []),
 }: {
   fields: RegisterFields;
   /** Only the keys that changed; the caller merges them into its draft. */
@@ -74,6 +76,11 @@ export function RegisterRowFields({
    */
   dateInputRef?: React.Ref<HTMLInputElement>;
   /**
+   * The money column Tab goes to once a category is picked. Without one, only
+   * income goes to Inflow.
+   */
+  columnForCategory?: (categoryId: RegisterFields["categoryId"]) => AmountColumn;
+  /**
    * The number this account is up to, offered as the check field's placeholder
    * rather than typed into it: most rows are not cheques, and prefilling would
    * put a check number on every one of them.
@@ -83,12 +90,32 @@ export function RegisterRowFields({
 
   const categoryTriggerRef = useRef<HTMLButtonElement>(null);
   const memoRef = useRef<HTMLInputElement>(null);
+  const outflowRef = useRef<HTMLInputElement>(null);
+  const inflowRef = useRef<HTMLInputElement>(null);
 
   const tab = (n: number) => (tabIndexBase === undefined ? undefined : tabIndexBase + n);
 
-  // The category picker, or the memo when the category is locked.
+  // Memo is rarely used, so it is out of the Tab order: the category hands
+  // straight to whichever money column it usually takes, and the memo is only
+  // ever clicked into. The memo when the amount is locked, since nothing else
+  // in the row is left to type in.
+  function amountInput(categoryId: RegisterFields["categoryId"]) {
+    const column = columnForCategory(categoryId) === "inflow" ? inflowRef : outflowRef;
+    return column.current;
+  }
+
+  function focusAmount(categoryId: RegisterFields["categoryId"]) {
+    setTimeout(() => (amountInput(categoryId) ?? memoRef.current)?.focus(), 0);
+  }
+
+  // The category picker, or the amount when the category is locked. Judged
+  // once the pick has rendered, since picking a transfer payee can lock the
+  // category and take its picker away.
   function focusAfterPayee() {
-    setTimeout(() => (categoryTriggerRef.current ?? memoRef.current)?.focus(), 0);
+    setTimeout(
+      () => (categoryTriggerRef.current ?? amountInput(null) ?? memoRef.current)?.focus(),
+      0
+    );
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -179,7 +206,17 @@ export function RegisterRowFields({
                 // it is a keystroke.
                 defaultValue={categoryOptions.find((c) => c.id === fields.categoryId)?.label}
               >
-                <CommandInput placeholder="Search categories..." />
+                <CommandInput
+                  placeholder="Search categories..."
+                  onKeyDown={(e) => {
+                    // With a search typed, Tab picks the closest match and
+                    // onSelect moves on. With none, it keeps what the row holds.
+                    if (e.key !== "Tab" || e.shiftKey || e.currentTarget.value.trim()) return;
+                    e.preventDefault();
+                    setCategoryOpen(false);
+                    focusAmount(fields.categoryId);
+                  }}
+                />
                 <CommandList>
                   <CommandEmpty>No categories found.</CommandEmpty>
                   <CommandGroup>
@@ -190,7 +227,7 @@ export function RegisterRowFields({
                         onSelect={() => {
                           onChange({ categoryId: c.id });
                           setCategoryOpen(false);
-                          setTimeout(() => memoRef.current?.focus(), 0);
+                          focusAmount(c.id);
                         }}
                       >
                         {c.label}
@@ -208,19 +245,43 @@ export function RegisterRowFields({
         <UnderlineInput
           type="text"
           ref={memoRef}
-          tabIndex={tab(4)}
+          tabIndex={-1}
           autoFocus={autoFocus}
           aria-label="Memo"
           placeholder="Memo"
           value={fields.memo}
           onChange={(e) => onChange({ memo: e.target.value })}
-          onKeyDown={handleKeyDown}
+          onKeyDown={(e) => {
+            handleKeyDown(e);
+            if (e.key !== "Tab") return;
+            // With the amount locked there is nowhere of ours to go, so the
+            // browser takes Tab on to the next stop.
+            if (!e.shiftKey) {
+              const amount = amountInput(fields.categoryId);
+              if (!amount) return;
+              e.preventDefault();
+              amount.focus();
+            } else if (categoryTriggerRef.current) {
+              e.preventDefault();
+              categoryTriggerRef.current.focus();
+            }
+          }}
         />
       </td>
 
       {[
-        { label: "Outflow", value: fields.outflow, set: (outflow: string) => onChange({ outflow }) },
-        { label: "Inflow", value: fields.inflow, set: (inflow: string) => onChange({ inflow }) },
+        {
+          label: "Outflow",
+          ref: outflowRef,
+          value: fields.outflow,
+          set: (outflow: string) => onChange({ outflow }),
+        },
+        {
+          label: "Inflow",
+          ref: inflowRef,
+          value: fields.inflow,
+          set: (inflow: string) => onChange({ inflow }),
+        },
       ].map((column, i) => (
         <td key={column.label} className="px-4 py-2">
           {locks.amount ? (
@@ -230,6 +291,7 @@ export function RegisterRowFields({
           ) : (
             <MoneyInput
               variant="underline"
+              ref={column.ref}
               tabIndex={tab(5 + i)}
               aria-label={column.label}
               value={column.value}

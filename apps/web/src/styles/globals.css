@@ -125,3 +125,25 @@ body {
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
+
+/* A register row just saved, tinted the category group orange and faded out
+   so it can be seen where it landed. Reduced motion holds the tint and drops
+   it without the fade; either way animationend clears the marker. */
+@keyframes row-flash {
+  from {
+    background-color: hsl(var(--group));
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+tr[data-flash] {
+  animation: row-flash 1.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  tr[data-flash] {
+    animation-timing-function: steps(1, end);
+  }
+}

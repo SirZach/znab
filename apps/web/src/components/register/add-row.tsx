@@ -7,6 +7,9 @@ import type { RegisterLookups } from "@/hooks/useRegisterLookups";
 import type { AmountColumn } from "@/lib/amount-column";
 import type { RegisterFields } from "@/lib/register-row";
 
+/** The row's first tab stop: it sits ahead of the rest of the page. */
+const FIRST_STOP = 1;
+
 /** The sticky row under the register that enters a new transaction. */
 export function AddRow({
   fields,
@@ -51,11 +54,13 @@ export function AddRow({
             autofill={autofillForPayee}
             locks={locks}
             onSubmit={onSave}
-            tabIndexBase={1}
+            tabIndexBase={FIRST_STOP}
             dateInputRef={dateInputRef}
             columnForCategory={columnForCategory}
           />
-          {/* Spans the cleared column too, so both buttons fit on one line. */}
+          {/* Spans the cleared column too, so both buttons fit on one line.
+              Save is the stop after Inflow; without a tab index of their own
+              the buttons came after every other control on the page. */}
           <td colSpan={2} className="px-2 py-2">
             <div className="flex justify-end gap-1.5 whitespace-nowrap">
               <ActionButton
@@ -63,10 +68,16 @@ export function AddRow({
                 className="text-xs px-2 py-1"
                 onClick={onCancel}
                 disabled={isSaving}
+                tabIndex={FIRST_STOP + 8}
               >
                 Cancel
               </ActionButton>
-              <ActionButton className="text-xs px-2 py-1" onClick={onSave} disabled={isSaving}>
+              <ActionButton
+                className="text-xs px-2 py-1"
+                onClick={onSave}
+                disabled={isSaving}
+                tabIndex={FIRST_STOP + 7}
+              >
                 Save
               </ActionButton>
             </div>

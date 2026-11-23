@@ -89,6 +89,8 @@ export function RegisterRowFields({
   const [categoryOpen, setCategoryOpen] = useState(false);
 
   const categoryTriggerRef = useRef<HTMLButtonElement>(null);
+  const categoryListRef = useRef<HTMLDivElement>(null);
+  const skipFocusOpen = useRef(false);
   const memoRef = useRef<HTMLInputElement>(null);
   const outflowRef = useRef<HTMLInputElement>(null);
   const inflowRef = useRef<HTMLInputElement>(null);
@@ -97,11 +99,13 @@ export function RegisterRowFields({
 
   // Memo is rarely used, so it is out of the Tab order: the category hands
   // straight to whichever money column it usually takes, and the memo is only
-  // ever clicked into. The memo when the amount is locked, since nothing else
-  // in the row is left to type in.
+  // ever clicked into. An amount already typed keeps its own column. The memo
+  // when the amount is locked, since nothing else in the row is left to type in.
   function amountInput(categoryId: RegisterFields["categoryId"]) {
-    const column = columnForCategory(categoryId) === "inflow" ? inflowRef : outflowRef;
-    return column.current;
+    const inflow =
+      !fields.outflow.trim() &&
+      (fields.inflow.trim() !== "" || columnForCategory(categoryId) === "inflow");
+    return (inflow ? inflowRef : outflowRef).current;
   }
 
   function focusAmount(categoryId: RegisterFields["categoryId"]) {
@@ -116,6 +120,16 @@ export function RegisterRowFields({
       () => (categoryTriggerRef.current ?? amountInput(null) ?? memoRef.current)?.focus(),
       0
     );
+  }
+
+  // Tab from anywhere in the category cell (its button, its empty search, or
+  // a clicked into memo) goes to the money column, never to whatever the
+  // browser's next stop is. Left to the browser when the amount is locked.
+  function tabToAmount(e: React.KeyboardEvent) {
+    if (e.key !== "Tab" || e.shiftKey || !amountInput(fields.categoryId)) return;
+    e.preventDefault();
+    setCategoryOpen(false);
+    focusAmount(fields.categoryId);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -135,6 +149,9 @@ export function RegisterRowFields({
         <DateEntryInput
           ref={dateInputRef}
           tabIndex={tab(1)}
+          // A row opened for editing starts where the add row does, not in the
+          // memo, which Tab never reaches.
+          autoFocus={autoFocus}
           aria-label="Date"
           placeholder="Date"
           value={fields.date}
@@ -181,15 +198,37 @@ export function RegisterRowFields({
             {locks.category.label}
           </span>
         ) : (
-          <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
+          <Popover
+            open={categoryOpen}
+            onOpenChange={(next, details) => {
+              if (details.reason === "escape-key") skipFocusOpen.current = true;
+              setCategoryOpen(next);
+            }}
+          >
             <PopoverTrigger
+              onKeyDown={tabToAmount}
+              // Tabbing in opens the picker. A click opens it by itself, and
+              // focus handed back by the picker (Escape, Shift+Tab) leaves it
+              // shut; opening on those too toggled a click shut again and made
+              // Escape reopen it.
+              onPointerDown={() => {
+                skipFocusOpen.current = true;
+              }}
+              onPointerUp={() => {
+                skipFocusOpen.current = false;
+              }}
+              onFocus={(e) => {
+                const skip =
+                  skipFocusOpen.current || categoryListRef.current?.contains(e.relatedTarget);
+                skipFocusOpen.current = false;
+                if (!skip) setCategoryOpen(true);
+              }}
               render={
                 <Button
                   ref={categoryTriggerRef}
                   tabIndex={tab(3)}
                   variant="ghost"
                   role="combobox"
-                  onFocus={() => setCategoryOpen(true)}
                   className="w-full justify-start text-left text-sm font-normal h-auto py-0.5 px-1 text-foreground"
                 />
               }
@@ -202,6 +241,7 @@ export function RegisterRowFields({
             </PopoverTrigger>
             <PopoverContent className="w-72 p-0" align="start">
               <Command
+                ref={categoryListRef}
                 // Opens on the category the row already holds, so confirming
                 // it is a keystroke.
                 defaultValue={categoryOptions.find((c) => c.id === fields.categoryId)?.label}
@@ -211,10 +251,7 @@ export function RegisterRowFields({
                   onKeyDown={(e) => {
                     // With a search typed, Tab picks the closest match and
                     // onSelect moves on. With none, it keeps what the row holds.
-                    if (e.key !== "Tab" || e.shiftKey || e.currentTarget.value.trim()) return;
-                    e.preventDefault();
-                    setCategoryOpen(false);
-                    focusAmount(fields.categoryId);
+                    if (!e.currentTarget.value.trim()) tabToAmount(e);
                   }}
                 />
                 <CommandList>
@@ -246,22 +283,14 @@ export function RegisterRowFields({
           type="text"
           ref={memoRef}
           tabIndex={-1}
-          autoFocus={autoFocus}
           aria-label="Memo"
           placeholder="Memo"
           value={fields.memo}
           onChange={(e) => onChange({ memo: e.target.value })}
           onKeyDown={(e) => {
             handleKeyDown(e);
-            if (e.key !== "Tab") return;
-            // With the amount locked there is nowhere of ours to go, so the
-            // browser takes Tab on to the next stop.
-            if (!e.shiftKey) {
-              const amount = amountInput(fields.categoryId);
-              if (!amount) return;
-              e.preventDefault();
-              amount.focus();
-            } else if (categoryTriggerRef.current) {
+            tabToAmount(e);
+            if (e.key === "Tab" && e.shiftKey && categoryTriggerRef.current) {
               e.preventDefault();
               categoryTriggerRef.current.focus();
             }

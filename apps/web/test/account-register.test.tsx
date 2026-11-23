@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { formatDateISO } from "@/lib/utils";
@@ -158,6 +158,31 @@ describe("register row editing", () => {
     const input = inputsTo("transaction.update")[0] as Record<string, unknown>;
     expect(input).toMatchObject({ id: 1, payeeId: 201 });
     expect("categoryId" in input).toBe(false);
+  });
+});
+
+describe("a saved row flashes where it landed", () => {
+  test("a new row, by the id the save returns, until its fade ends", async () => {
+    await renderRoute("/budgets/1/accounts/10", {
+      fixtures: { ...fixtures, "transaction.create": { id: 1 } },
+    });
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Outflow"), "5{Enter}");
+
+    const tr = screen.getByText("Grocer").closest("tr")!;
+    await waitFor(() => expect(tr.hasAttribute("data-flash")).toBe(true));
+    expect(document.querySelectorAll("tr[data-flash]")).toHaveLength(1);
+
+    fireEvent.animationEnd(tr);
+    expect(tr.hasAttribute("data-flash")).toBe(false);
+  });
+
+  test("an edited row", async () => {
+    const { user, tr } = await openRow("Grocer");
+    await user.type(within(tr).getByLabelText("Memo"), "{Enter}");
+    await waitFor(() =>
+      expect(screen.getByText("Grocer").closest("tr")!.hasAttribute("data-flash")).toBe(true)
+    );
   });
 });
 

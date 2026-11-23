@@ -2,6 +2,8 @@ import { describe, expect, mock, test } from "bun:test";
 import { useState } from "react";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { IMMEDIATE_INCOME } from "@znab/shared";
+import { INCOME_OPTIONS } from "@/lib/category-options";
 import { emptyFields } from "@/lib/register-edit";
 import type { RegisterFields } from "@/lib/register-row";
 import { renderWithTrpc } from "../../../test/trpc";
@@ -32,6 +34,37 @@ function renderAddRow(props: { isSaving?: boolean; error?: string | null } = {})
     />
   );
   return { onSave, onCancel, onChange };
+}
+
+/** An add row over its own draft, with a payee that autofills income. */
+function renderIncomeRow() {
+  function Stateful() {
+    const [fields, setFields] = useState(emptyFields);
+    return (
+      <AddRow
+        fields={fields}
+        onChange={(patch) => setFields((prev) => ({ ...prev, ...patch }))}
+        payeeList={[
+          {
+            id: 5,
+            name: "Employer",
+            autofillCategoryId: IMMEDIATE_INCOME,
+            autofillMemo: null,
+            targetAccountId: null,
+          },
+        ]}
+        categoryOptions={[...INCOME_OPTIONS, ...categoryOptions]}
+        autofillForPayee={() => ({ categoryId: IMMEDIATE_INCOME })}
+        locks={{}}
+        onSave={() => {}}
+        onCancel={() => {}}
+        isSaving={false}
+        error={null}
+        dateInputRef={null}
+      />
+    );
+  }
+  renderWithTrpc(<Stateful />);
 }
 
 describe("AddRow", () => {
@@ -185,6 +218,54 @@ describe("AddRow", () => {
     await userEvent.click(screen.getByText("Payee"));
     await userEvent.type(await screen.findByPlaceholderText("Search payees..."), "sav{Enter}");
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Outflow")));
+  });
+
+  // ZNAB #25: with the category picker closed, Tab from its button was left to
+  // the browser, which always went to Outflow, the next stop in the row.
+  test("Tab from the closed category picker goes to Inflow for income", async () => {
+    renderIncomeRow();
+    await userEvent.click(screen.getByText("Payee"));
+    await userEvent.type(await screen.findByPlaceholderText("Search payees..."), "emp{Enter}");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByPlaceholderText("Search categories...")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByText("Income for this month").closest("button"));
+    await userEvent.keyboard("{Tab}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Inflow")));
+  });
+
+  for (const [how, key] of [
+    ["Enter", "{Enter}"],
+    ["Tab", "{Tab}"],
+  ] as const) {
+    test(`a payee that autofills income goes to Inflow on ${how}`, async () => {
+      renderIncomeRow();
+      await userEvent.click(screen.getByText("Payee"));
+      await userEvent.type(await screen.findByPlaceholderText("Search payees..."), "emp{Enter}");
+      const search = await screen.findByPlaceholderText("Search categories...");
+      await waitFor(() => expect(document.activeElement).toBe(search));
+      await userEvent.keyboard(key);
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Inflow")));
+    });
+  }
+
+  test("clicking the category picker opens it", async () => {
+    renderIncomeRow();
+    await userEvent.click(screen.getByText("Category"));
+    expect(await screen.findByPlaceholderText("Search categories...")).toBeTruthy();
+  });
+
+  test("an ordinary category goes to Outflow", async () => {
+    renderIncomeRow();
+    act(() => screen.getByText("Category").closest("button")?.focus());
+    await userEvent.type(await screen.findByPlaceholderText("Search categories..."), "groc{Tab}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Outflow")));
+  });
+
+  test("Tab from Inflow goes to Save", async () => {
+    renderIncomeRow();
+    act(() => screen.getByLabelText("Inflow").focus());
+    await userEvent.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save" }));
   });
 
   test("Tab from memo with the amount locked leaves memo", async () => {

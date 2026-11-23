@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { RegisterTransaction } from "@/hooks/useRegisterPages";
 import { renderWithTrpc } from "../../../test/trpc";
@@ -80,6 +80,28 @@ describe("EditCells", () => {
     const { onCycleCleared, user } = renderCells();
     await user.click(screen.getByTitle("Uncleared"));
     expect(onCycleCleared).toHaveBeenCalledTimes(1);
+  });
+
+  test("opens on the date, as the add row does, not the memo", () => {
+    renderCells();
+    expect(document.activeElement).toBe(screen.getByLabelText("Date"));
+  });
+
+  test("Tab from the category goes to the column the row's amount is in", async () => {
+    const { user } = renderCells({ amount: "25.00" });
+    await user.click(screen.getByText("Everyday: Food"));
+    await screen.findByPlaceholderText("Search categories...");
+    await user.keyboard("{Tab}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Inflow")));
+  });
+
+  test("Tab from the closed category picker goes to the money column", async () => {
+    const { user } = renderCells();
+    await user.click(screen.getByText("Everyday: Food"));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByPlaceholderText("Search categories...")).toBeNull());
+    await user.keyboard("{Tab}");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Outflow")));
   });
 
   test("a split's payee picker offers no transfer payees", async () => {

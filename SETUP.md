@@ -4,7 +4,7 @@
 
 - **Bun** ≥ 1.1: [bun.sh](https://bun.sh) (`curl -fsSL https://bun.sh/install | bash`)
 - **Docker**, for running PostgreSQL locally
-- YNAB 4 exports (`Budget.yfull`, `Budget-Fiona.yfull`, `Demo.yfull`) in
+- YNAB 4 exports (`Budget.yfull`, `Budget-Partner.yfull`, `Demo.yfull`) in
   `./seed-data/`. The folder is gitignored, so copy them in yourself.
 
 ---
@@ -46,7 +46,7 @@ bun import
 ```
 
 This seeds the two users (`zach` and `demo`), imports `Budget.yfull` and
-`Budget-Fiona.yfull` under the `zach` user, and creates a Demo budget under
+`Budget-Partner.yfull` under the `zach` user, and creates a Demo budget under
 the `demo` user. The script is fully idempotent, so it is safe to run again.
 
 Expected output:
@@ -56,15 +56,15 @@ Expected output:
 ╚══════════════════════════════════════╝
 
 Step 1: Seeding users...
-  ✓ Users ready (zach: id=1, demo: id=2)
+  ✓ Users ready (owner: id=1, demo: id=2)
 
-Step 2: Importing Budget.yfull (Zach)...
+Step 2: Importing Budget.yfull (Primary)...
   ...
-  ✓ Zach's budget imported
+  ✓ Primary budget imported
 
-Step 3: Importing Budget-Fiona.yfull (Fiona)...
+Step 3: Importing Budget-Partner.yfull (Partner)...
   ...
-  ✓ Fiona's budget imported
+  ✓ Partner budget imported
 
 Step 4: Importing Demo budget...
   ...
@@ -82,16 +82,22 @@ Master Budgets, the household split) are kept.
 ```bash
 sudo apt install rclone
 rclone authorize dropbox            # on a machine with a browser; copy the token
-rclone config                       # on this host: new remote "dropbox", paste the token
+rclone config                       # on this host: new remote, paste the token
+mkdir -p ~/.config/znab && cat > ~/.config/znab/ynab4-sync.env <<'EOF'
+YNAB4_REMOTE=myremote:YNAB
+YNAB4_PRIMARY=Primary.ynab4
+YNAB4_PARTNER=Partner.ynab4
+EOF
 cp scripts/ynab4-sync.service scripts/ynab4-sync.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now ynab4-sync.timer
-sudo loginctl enable-linger zach    # keep running while logged out
+sudo loginctl enable-linger "$USER"    # keep running while logged out
 ```
 
-The packages are expected at `myremote:YNAB/`; override with `YNAB4_REMOTE` in
-`~/.config/znab/ynab4-sync.env`. `bun run ynab:reset` syncs and re-imports now,
-even when nothing changed, which wipes znab edits immediately.
+`YNAB4_REMOTE` is the rclone folder holding the packages and `YNAB4_PRIMARY` /
+`YNAB4_PARTNER` are their folder names; the sync refuses to run without them.
+`bun run ynab:reset` syncs and re-imports now, even when nothing changed, which
+wipes znab edits immediately (export the three variables first).
 
 Cutover, once znab takes over: create the sentinel, then disable the timer.
 With the sentinel present the sync and `bun import` refuse to run unless
@@ -144,15 +150,15 @@ restarts the web dev server.
 
 `scripts/backup.sh` (`bun run backup`) dumps the DB to
 `~/.local/share/znab/backups/znab-daily-*.dump`, keeps 14 daily, 8 weekly and
-12 monthly, and `rclone sync`s those to `myremote:znab-backups` (unencrypted).
-Pre-deploy dumps are kept to the newest 10, local only.
+12 monthly, and `rclone sync`s those to `ZNAB_BACKUP_REMOTE` (unencrypted;
+required, set it empty to skip). Pre-deploy dumps are kept to the newest 10, local only.
 `scripts/restore-check.sh` (`bun run backup:check`) restores the newest dump
 into a scratch DB and compares row counts. Both report to Uptime Kuma push
 monitors when the URLs are set.
 
 ```bash
 mkdir -p ~/.config/znab && cp scripts/backup.env.example ~/.config/znab/backup.env
-chmod 600 ~/.config/znab/backup.env    # fill in the push URLs
+chmod 600 ~/.config/znab/backup.env    # set ZNAB_BACKUP_REMOTE and the push URLs
 # set the timezone in both .timer files first
 cp scripts/znab-backup.{service,timer} scripts/znab-restore-check.{service,timer} ~/.config/systemd/user/
 systemctl --user daemon-reload

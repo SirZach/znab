@@ -20,7 +20,7 @@
 #   systemctl --user enable --now znab
 #
 #   # Without this it stops when you log out and does not come back on reboot.
-#   sudo loginctl enable-linger zach
+#   sudo loginctl enable-linger "$USER"
 #
 #   systemctl --user status znab
 #   journalctl --user -u znab -f

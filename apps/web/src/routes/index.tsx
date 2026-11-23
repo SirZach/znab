@@ -18,8 +18,8 @@ export const Route = createFileRoute("/")({
 const USERS = [
   {
     slug: "zach",
-    displayName: "Zach",
-    description: "Personal budget — Zach & Fiona",
+    displayName: "Household",
+    description: "Household budgets",
     emoji: "👤",
   },
   {

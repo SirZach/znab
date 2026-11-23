@@ -92,8 +92,8 @@ describe("payee writes run in one transaction against a locked payee", () => {
       expect(grocer!.name).toBe("Corner Grocer");
 
       expect(
-        await caller.payee.rename({ budgetId: seed.budgetId, id: extra!.id, name: "  Lakeside Inn Hotels  " })
-      ).toEqual({ id: extra!.id, name: "Lakeside Inn Hotels" });
+        await caller.payee.rename({ budgetId: seed.budgetId, id: extra!.id, name: "  Lakeside Hotels  " })
+      ).toEqual({ id: extra!.id, name: "Lakeside Hotels" });
     });
   });
 

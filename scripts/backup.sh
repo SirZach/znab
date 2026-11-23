@@ -9,7 +9,7 @@
 # newest months. deploy.sh's znab-predeploy-*.dump are kept to the newest
 # ZNAB_KEEP_PREDEPLOY (10) and never uploaded.
 #
-# The remote (ZNAB_BACKUP_REMOTE, default myremote:znab-backups) is an
+# The remote (ZNAB_BACKUP_REMOTE, required; empty skips offsite) is an
 # `rclone sync` of the kept daily dumps only, so it prunes the same way and
 # nothing else under it is touched. Dumps are not encrypted.
 #
@@ -23,7 +23,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/backup-lib.sh
 . "$ROOT/scripts/backup-lib.sh"
-REMOTE="${ZNAB_BACKUP_REMOTE-myremote:znab-backups}"
+REMOTE="${ZNAB_BACKUP_REMOTE-}"
 PUSH_URL="${ZNAB_BACKUP_PUSH_URL:-}"
 KEEP_DAILY="${ZNAB_KEEP_DAILY:-14}"
 KEEP_WEEKLY="${ZNAB_KEEP_WEEKLY:-8}"
@@ -80,7 +80,12 @@ main() {
   count="$(wc -l <<<"$keep")"
   size="$(du -h "$BACKUP_DIR/$name" | cut -f1)"
 
-  if [ -n "$REMOTE" ]; then
+  if [ -z "${ZNAB_BACKUP_REMOTE+set}" ]; then
+    # Unset is a mistake, not a choice: the dump stays local and this fails loudly.
+    run "Checking ZNAB_BACKUP_REMOTE"
+    echo "    ZNAB_BACKUP_REMOTE is not set; set an rclone destination, or empty to skip offsite" >&2
+    return 1
+  elif [ -n "$REMOTE" ]; then
     run "Syncing daily dumps to $REMOTE"
     # The filter limits both what is copied and what sync may delete on the
     # remote, so only top level znab-daily-*.dump files there are managed.

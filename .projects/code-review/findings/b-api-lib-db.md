@@ -63,7 +63,7 @@ The pure lib modules are in good shape: small, free of DB imports, and well test
 ## Low
 
 ### Unused exports in packages/shared
-- `USER_SLUGS` (`types.ts:95`) is unused, and `import-yfull.ts:614-618` and `web/src/routes/index.tsx:20,26` hard-code `"zach"`/`"demo"` instead. `SPECIAL_CATEGORY_IDS` (`:84`) and `AssignableClearedValue` (`:13`) are only used internally. All seven `z.infer` types (`schemas.ts:124-130`) have no importers.
+- `USER_SLUGS` (`types.ts:95`) is unused, and `import-yfull.ts:614-618` and `web/src/routes/index.tsx:20,26` hard-code the owner and demo slugs instead. `SPECIAL_CATEGORY_IDS` (`:84`) and `AssignableClearedValue` (`:13`) are only used internally. All seven `z.infer` types (`schemas.ts:124-130`) have no importers.
 - Fix: use `USER_SLUGS` in the importer and the web route, and delete the rest.
 
 ### Unused or over-wide lib exports

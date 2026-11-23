@@ -8,7 +8,7 @@ afterEach(() => useUserStore.getState().clearUser());
 
 describe("ExportCsvButton", () => {
   test("fetches the export as the signed-in user and saves it under the server's name", async () => {
-    useUserStore.getState().setUser("zach");
+    useUserStore.getState().setUser("household");
     const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("Account\r\n", {
         headers: { "Content-Disposition": 'attachment; filename="Home-transactions.csv"' },
@@ -25,7 +25,7 @@ describe("ExportCsvButton", () => {
 
     const [url, init] = fetchSpy.mock.calls[0]!;
     expect(String(url)).toEndWith("/export/7/transactions.csv");
-    expect(init?.headers).toEqual({ "x-user-slug": "zach" });
+    expect(init?.headers).toEqual({ "x-user-slug": "household" });
     expect(click).toHaveBeenCalledTimes(1);
     fetchSpy.mockRestore();
     click.mockRestore();

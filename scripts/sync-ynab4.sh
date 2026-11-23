@@ -23,11 +23,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REMOTE="${YNAB4_REMOTE:-myremote:YNAB}"
 DEST="${YNAB4_DIR:-$HOME/.local/share/znab/ynab4}"
-ZACH="Zach's Budget~PRIMARY.ynab4"
-ZACH="${YNAB4_ZACH:-$ZACH}"
-FIONA="${YNAB4_FIONA:-Fiona Budget~PARTNER.ynab4}"
 STATE="$DEST/.last-imported"
 FOLDERS="$DEST/.data-folders"
 RETIRED="${ZNAB_YNAB4_RETIRED_FILE:-$HOME/.config/znab/ynab4-retired}"
@@ -37,13 +33,18 @@ if [ -e "$RETIRED" ] && [ "${YNAB_IMPORT_AFTER_CUTOVER:-}" != "yes-overwrite-zna
   exit 0
 fi
 
+# Where the packages live; set in ~/.config/znab/ynab4-sync.env (see SETUP.md).
+REMOTE="${YNAB4_REMOTE:?set YNAB4_REMOTE to the rclone folder holding the packages}"
+PRIMARY="${YNAB4_PRIMARY:?set YNAB4_PRIMARY to the primary .ynab4 package folder name}"
+PARTNER="${YNAB4_PARTNER:?set YNAB4_PARTNER to the partner .ynab4 package folder name}"
+
 fingerprint() {
   find "$DEST" -mindepth 2 -type f -printf '%P %s %T@\n' | sort | sha1sum | cut -d' ' -f1
 }
 
 mkdir -p "$DEST"
 
-for pkg in "$ZACH" "$FIONA"; do
+for pkg in "$PRIMARY" "$PARTNER"; do
   echo "==> Syncing $pkg"
   # The Backup_*.y4backup.zip files are YNAB's own snapshots; the importer
   # never reads them and they are most of the bytes.
@@ -59,7 +60,7 @@ fi
 # YNAB 4 starts a new data folder (data1 -> data2) when a budget is restored
 # from a backup or rebuilt. The mirror deletes whatever YNAB stops sending, so
 # a switch needs a person to look before it is trusted. FORCE=1 accepts it.
-folders="$(for pkg in "$ZACH" "$FIONA"; do
+folders="$(for pkg in "$PRIMARY" "$PARTNER"; do
   printf '%s %s\n' "$pkg" "$(grep -o '"relativeDataFolderName"[^,}]*' "$DEST/$pkg/Budget.ymeta")"
 done)"
 if [ -z "${FORCE:-}" ] && [ -f "$FOLDERS" ] && [ "$folders" != "$(cat "$FOLDERS")" ]; then
@@ -73,7 +74,7 @@ fi
 
 echo "==> Importing"
 cd "$ROOT/apps/api"
-YNAB_SKIP_DEMO=1 YNAB_MIRROR=1 YNAB_ZACH_PACKAGE="$DEST/$ZACH" YNAB_FIONA_PACKAGE="$DEST/$FIONA" bun src/scripts/import-yfull.ts
+YNAB_SKIP_DEMO=1 YNAB_MIRROR=1 YNAB_PRIMARY_PACKAGE="$DEST/$PRIMARY" YNAB_PARTNER_PACKAGE="$DEST/$PARTNER" bun src/scripts/import-yfull.ts
 echo "$current" > "$STATE"
 echo "$folders" > "$FOLDERS"
 echo "==> Imported"

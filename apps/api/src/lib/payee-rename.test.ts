@@ -18,12 +18,12 @@ describe("matchesRenameRule: each operator compares the way YNAB 4 does", () => 
 
   test("Contains looks anywhere in the string", () => {
     expect(matchesRenameRule("POS DEBIT Lucky Noodle 0412", "Contains", "Lucky Noodle")).toBe(true);
-    expect(matchesRenameRule("POS DEBIT Thai Taste 0412", "Contains", "Lucky Noodle")).toBe(false);
+    expect(matchesRenameRule("POS DEBIT Happy Noodle 0412", "Contains", "Lucky Noodle")).toBe(false);
   });
 
   test("StartsWith anchors to the front", () => {
-    expect(matchesRenameRule("Google Pay 8812", "StartsWith", "Google Pay")).toBe(true);
-    expect(matchesRenameRule("SQ Google Pay", "StartsWith", "Google Pay")).toBe(false);
+    expect(matchesRenameRule("Pocket Pay 8812", "StartsWith", "Pocket Pay")).toBe(true);
+    expect(matchesRenameRule("SQ Pocket Pay", "StartsWith", "Pocket Pay")).toBe(false);
   });
 
   test("EndsWith anchors to the end", () => {
@@ -42,7 +42,7 @@ describe("matchesRenameRule: comparison ignores case and surrounding whitespace"
     expect(matchesRenameRule("  Lucky Noodle \n", "Is", "Lucky Noodle")).toBe(true);
   });
 
-  test("the real tab-prefixed operand still matches the payee it was saved for", () => {
+  test("a tab-prefixed operand still matches the payee it was saved for", () => {
     expect(matchesRenameRule(
       "Acme Heating & Air Cond",
       "Is",
@@ -71,7 +71,7 @@ describe("matchesRenameRule: an operator outside the vocabulary claims nothing",
 
   test("an unrecognised operator matches no name", () => {
     expect(matchesRenameRule("Lucky Noodle", unknown, "Lucky Noodle")).toBe(false);
-    expect(matchesRenameRule("Lucky Noodle", unknown, "China")).toBe(false);
+    expect(matchesRenameRule("Lucky Noodle", unknown, "Lucky")).toBe(false);
   });
 
   test("and never claims a payee during resolution", () => {
@@ -81,7 +81,7 @@ describe("matchesRenameRule: an operator outside the vocabulary claims nothing",
 
 describe("resolveRenamedPayee: the tightest matching rule wins", () => {
   const exact = rule(1, "Is", "Lucky Noodle");
-  const loose = rule(2, "Contains", "China");
+  const loose = rule(2, "Contains", "Lucky");
 
   test("an exact rule beats another payee's Contains rule when listed second", () => {
     expect(resolveRenamedPayee("Lucky Noodle", [loose, exact])).toBe(1);
@@ -92,18 +92,18 @@ describe("resolveRenamedPayee: the tightest matching rule wins", () => {
   });
 
   test("the loose rule still claims strings the exact rule does not", () => {
-    expect(resolveRenamedPayee("China Garden", [loose, exact])).toBe(2);
+    expect(resolveRenamedPayee("Lucky Garden", [loose, exact])).toBe(2);
   });
 
   test("an anchored rule beats a Contains rule", () => {
-    const anchored = rule(3, "StartsWith", "China T");
+    const anchored = rule(3, "StartsWith", "Lucky N");
     expect(resolveRenamedPayee("Lucky Noodle Express", [loose, anchored])).toBe(3);
   });
 
   test("rules of the same operator are settled by list order", () => {
     expect(resolveRenamedPayee("Lucky Noodle Express", [
-      rule(4, "Contains", "Taste"),
-      rule(5, "Contains", "China"),
+      rule(4, "Contains", "Noodle"),
+      rule(5, "Contains", "Lucky"),
     ])).toBe(4);
   });
 });
@@ -116,7 +116,7 @@ describe("resolveRenamedPayee: an unclaimed name renames to nothing", () => {
   test("rules that all miss return null", () => {
     expect(resolveRenamedPayee("Hilltop Cabs", [
       rule(1, "Is", "Lucky Noodle"),
-      rule(2, "Contains", "Google Pay"),
+      rule(2, "Contains", "Pocket Pay"),
     ])).toBeNull();
   });
 });

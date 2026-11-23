@@ -10,8 +10,8 @@ const settings = {
   partnerBudgetId: 2,
   savingsPercent: 20,
   budgets: [
-    { id: 1, name: "Zach", groups: [{ id: 5, name: "Bills", inMasterBudgets: true }] },
-    { id: 2, name: "Fiona", groups: [] },
+    { id: 1, name: "Alex", groups: [{ id: 5, name: "Bills", inMasterBudgets: true }] },
+    { id: 2, name: "Sam", groups: [] },
   ],
 } as unknown as HouseholdSplitOutputs["settings"];
 

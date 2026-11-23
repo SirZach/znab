@@ -250,17 +250,17 @@ describe("rename rules and monthly budgets", () => {
 });
 
 describe("importTargets", () => {
-  const users = { zach: 1, demo: 2 };
+  const users = { owner: 1, demo: 2 };
   const root = "/repo";
 
-  test("defaults to the packages under seed-data, Demo included", () => {
+  test("defaults to placeholder packages under seed-data, Demo included", () => {
     const targets = importTargets({}, users, root);
     expect(targets.map((t) => [t.label, t.ynabId, t.userId, t.overwrite])).toEqual([
-      ["Zach", "zach-main", 1, true],
-      ["Fiona", "fiona-main", 1, true],
+      ["Primary", "zach-main", 1, true],
+      ["Partner", "fiona-main", 1, true],
       ["Demo", "demo-main", 2, false],
     ]);
-    expect(targets[0]!.source).toBe(path.join(root, "seed-data", "Zach_s Budget~PRIMARY.ynab4"));
+    expect(targets[0]!.source).toBe(path.join(root, "seed-data", "Primary.ynab4"));
     expect(targets[2]!.source).toBe(path.join(root, "seed-data", "Demo.yfull"));
   });
 
@@ -268,13 +268,13 @@ describe("importTargets", () => {
     const env = {
       YNAB_SKIP_DEMO: "1",
       YNAB_MIRROR: "1",
-      YNAB_ZACH_PACKAGE: "/sync/Zach.ynab4",
-      YNAB_FIONA_PACKAGE: "relative/Fiona.ynab4",
+      YNAB_PRIMARY_PACKAGE: "/sync/Primary.ynab4",
+      YNAB_PARTNER_PACKAGE: "relative/Partner.ynab4",
     };
     const targets = importTargets(env, users, root);
     expect(targets.map((t) => [t.label, t.source])).toEqual([
-      ["Zach", "/sync/Zach.ynab4"],
-      ["Fiona", path.join(root, "relative/Fiona.ynab4")],
+      ["Primary", "/sync/Primary.ynab4"],
+      ["Partner", path.join(root, "relative/Partner.ynab4")],
     ]);
     expect(mirrorRequested(env)).toBe(true);
     expect(mirrorRequested({})).toBe(false);

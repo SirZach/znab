@@ -4,8 +4,8 @@
  * Usage (from the repo root):
  *   bun import
  *
- * Zach's and Fiona's budgets are read from live `.ynab4` packages, as synced
- * from Dropbox, set by YNAB_ZACH_PACKAGE and YNAB_FIONA_PACKAGE (relative paths
+ * The primary and partner budgets are read from live `.ynab4` packages, as synced
+ * from Dropbox, set by YNAB_PRIMARY_PACKAGE and YNAB_PARTNER_PACKAGE (relative paths
  * resolve from the repo root). Each defaults to its package under seed-data/,
  * and a path ending in .yfull is read as a flat snapshot instead.
  *
@@ -468,15 +468,15 @@ export async function main(env: Record<string, string | undefined> = process.env
 
   console.log("Seeding users...");
   await db.insert(schema.users).values([
-    { slug: "zach", displayName: "Zach" },
+    { slug: "zach", displayName: "Household" },
     { slug: "demo", displayName: "Demo" },
   ]).onConflictDoNothing();
-  const [zachUser] = await db.select().from(schema.users).where(eq(schema.users.slug, "zach"));
+  const [ownerUser] = await db.select().from(schema.users).where(eq(schema.users.slug, "zach"));
   const [demoUser] = await db.select().from(schema.users).where(eq(schema.users.slug, "demo"));
-  if (!zachUser || !demoUser) throw new Error("Failed to seed users");
-  console.log(`  Users ready (zach: id=${zachUser.id}, demo: id=${demoUser.id})\n`);
+  if (!ownerUser || !demoUser) throw new Error("Failed to seed users");
+  console.log(`  Users ready (owner: id=${ownerUser.id}, demo: id=${demoUser.id})\n`);
 
-  const targets = importTargets(env, { zach: zachUser.id, demo: demoUser.id }, REPO_ROOT);
+  const targets = importTargets(env, { owner: ownerUser.id, demo: demoUser.id }, REPO_ROOT);
   const mirror = mirrorRequested(env);
   if (mirror) console.log("Mirror mode: edits made in znab to the YNAB budgets are undone\n");
 

@@ -1,6 +1,6 @@
 # Runs scripts/sync-ynab4.sh once; ynab4-sync.timer decides when.
 #
-# Install (needs an rclone remote named "dropbox", see SETUP.md):
+# Install (needs an rclone remote and ynab4-sync.env, see SETUP.md):
 #
 #   cp scripts/ynab4-sync.service scripts/ynab4-sync.timer ~/.config/systemd/user/
 #   systemctl --user daemon-reload
@@ -18,7 +18,7 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=%h/workspace/znab
 EnvironmentFile=%h/workspace/znab/apps/api/.env
-# Optional overrides for YNAB4_REMOTE, YNAB4_ZACH, YNAB4_FIONA, YNAB4_DIR.
+# YNAB4_REMOTE, YNAB4_PRIMARY and YNAB4_PARTNER (required), YNAB4_DIR (optional).
 EnvironmentFile=-%h/.config/znab/ynab4-sync.env
 Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/workspace/znab/scripts/sync-ynab4.sh

@@ -1,9 +1,9 @@
 # Runs scripts/backup.sh once; znab-backup.timer decides when.
 #
-# Install (offsite copy needs an rclone remote named "dropbox", see SETUP.md):
+# Install (offsite copy needs an rclone remote, see SETUP.md):
 #
 #   mkdir -p ~/.config/znab && cp scripts/backup.env.example ~/.config/znab/backup.env
-#   chmod 600 ~/.config/znab/backup.env    # then fill in the push URLs
+#   chmod 600 ~/.config/znab/backup.env    # then set ZNAB_BACKUP_REMOTE and the push URLs
 #   cp scripts/znab-backup.service scripts/znab-backup.timer ~/.config/systemd/user/
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now znab-backup.timer
@@ -19,7 +19,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=%h/workspace/znab
-# Optional: push URLs, ZNAB_BACKUP_REMOTE, retention counts.
+# ZNAB_BACKUP_REMOTE (required), push URLs, retention counts.
 EnvironmentFile=-%h/.config/znab/backup.env
 Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/workspace/znab/scripts/backup.sh

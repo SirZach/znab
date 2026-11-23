@@ -369,17 +369,18 @@ type Env = Record<string, string | undefined>;
 
 /**
  * The budgets a run imports, as the environment asks. `scripts/sync-ynab4.sh`
- * depends on these names: YNAB_ZACH_PACKAGE and YNAB_FIONA_PACKAGE point at
+ * depends on these names: YNAB_PRIMARY_PACKAGE and YNAB_PARTNER_PACKAGE point at
  * the live packages (a relative path resolves from the repo root), and
- * YNAB_SKIP_DEMO=1 leaves the Demo budget out.
+ * YNAB_SKIP_DEMO=1 leaves the Demo budget out. Unset, each falls back to a
+ * placeholder under seed-data/ that fails that budget's import if missing.
  */
-export function importTargets(env: Env, users: { zach: number; demo: number }, repoRoot: string): ImportTarget[] {
+export function importTargets(env: Env, users: { owner: number; demo: number }, repoRoot: string): ImportTarget[] {
   const seedData = path.join(repoRoot, "seed-data");
   const source = (envVar: string, fallback: string) =>
     path.resolve(repoRoot, env[envVar] || path.join(seedData, fallback));
   const targets: ImportTarget[] = [
-    { label: "Zach", ynabId: "zach-main", userId: users.zach, name: "Zach's Budget", source: source("YNAB_ZACH_PACKAGE", "Zach_s Budget~PRIMARY.ynab4"), overwrite: true },
-    { label: "Fiona", ynabId: "fiona-main", userId: users.zach, name: "Fiona's Budget", source: source("YNAB_FIONA_PACKAGE", "Fiona Budget~PARTNER.ynab4"), overwrite: true },
+    { label: "Primary", ynabId: "zach-main", userId: users.owner, name: "Primary Budget", source: source("YNAB_PRIMARY_PACKAGE", "Primary.ynab4"), overwrite: true },
+    { label: "Partner", ynabId: "fiona-main", userId: users.owner, name: "Partner Budget", source: source("YNAB_PARTNER_PACKAGE", "Partner.ynab4"), overwrite: true },
     { label: "Demo", ynabId: "demo-main", userId: users.demo, name: "Demo Budget", source: path.join(seedData, "Demo.yfull"), overwrite: false },
   ];
   return targets.filter((b) => b.label !== "Demo" || env.YNAB_SKIP_DEMO !== "1");

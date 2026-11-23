@@ -28,6 +28,6 @@ describe("payeeNameKey", () => {
   });
 
   test("keeps different names apart", () => {
-    expect(payeeNameKey("Lakeside Inn")).not.toBe(payeeNameKey("Lakeside Inn Garden"));
+    expect(payeeNameKey("Lakeside Inn")).not.toBe(payeeNameKey("Lakeside Inn Suites"));
   });
 });

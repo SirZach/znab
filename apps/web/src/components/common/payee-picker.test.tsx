@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { PayeePicker } from "./payee-picker";
 
 const payees = [
-  { id: 1, name: "Amazon" },
+  { id: 1, name: "Amberly Books" },
   { id: 2, name: "Warehouse Club" },
   { id: 3, name: "A Savvy Choice" },
   { id: 4, name: "Transfer : Savings" },
@@ -25,19 +25,19 @@ async function typeInPicker(text: string, list = payees) {
 
 describe("PayeePicker", () => {
   test("Enter on a partial name picks the closest payee", async () => {
-    const { onPick, onCreate } = await typeInPicker("amaz{Enter}");
+    const { onPick, onCreate } = await typeInPicker("ambe{Enter}");
     expect(onPick).toHaveBeenCalledWith(payees[0]);
     expect(onCreate).not.toHaveBeenCalled();
   });
 
   test("Tab on a partial name picks the closest payee", async () => {
-    const { onPick, onCreate } = await typeInPicker("cost{Tab}");
+    const { onPick, onCreate } = await typeInPicker("ware{Tab}");
     expect(onPick).toHaveBeenCalledWith(payees[1]);
     expect(onCreate).not.toHaveBeenCalled();
   });
 
   test("a transfer matches on its account name, as if the Transfer prefix were not there", async () => {
-    const { onPick } = await typeInPicker("bett{Enter}");
+    const { onPick } = await typeInPicker("sav{Enter}");
     expect(onPick).toHaveBeenCalledWith(payees[3]);
   });
 
@@ -51,7 +51,7 @@ describe("PayeePicker", () => {
   });
 
   test("a payee whose name has surrounding spaces is still the closest match", async () => {
-    const { onPick } = await typeInPicker("briar{Tab}");
+    const { onPick } = await typeInPicker("maple{Tab}");
     expect(onPick).toHaveBeenCalledWith(payees[4]);
   });
 
@@ -70,7 +70,7 @@ describe("PayeePicker", () => {
   });
 
   test("Escape throws the search away", async () => {
-    const { onPick, onCreate } = await typeInPicker("amaz{Escape}");
+    const { onPick, onCreate } = await typeInPicker("ambe{Escape}");
     expect(onPick).not.toHaveBeenCalled();
     expect(onCreate).not.toHaveBeenCalled();
   });

@@ -124,7 +124,7 @@ describe("AddRow", () => {
     renderWithTrpc(<Stateful />);
 
     await userEvent.click(screen.getByText("Payee"));
-    await userEvent.type(await screen.findByPlaceholderText("Search payees..."), "cost{Enter}");
+    await userEvent.type(await screen.findByPlaceholderText("Search payees..."), "ware{Enter}");
 
     const search = await screen.findByPlaceholderText("Search categories...");
     await waitFor(() => expect(document.activeElement).toBe(search));

@@ -26,7 +26,7 @@ export type MonthSummary = {
   overspentPrev: number; // cash overspending in the previous month (positive)
   income: number; // income available to budget this month
   budgeted: number; // total budgeted across all categories this month
-  budgetedFuture: number; // total budgeted in every month after this one
+  budgetedFuture: number; // future budgeting that later months cannot cover themselves
   availableToBudget: number;
 };
 
@@ -96,7 +96,7 @@ function rollCategory(
 
 /**
  * Reproduces YNAB4's budget math by walking every month from the budget's start
- * to the target month, carrying each category's balance forward. Returns both
+ * to the last month with data, carrying each category's balance forward. Returns both
  * the "Available to Budget" summary and each category's end-of-month state for
  * the target month, so the grid and the header share one engine.
  *
@@ -154,21 +154,19 @@ export function computeBudgetMonth(args: {
     return { summary: zeroSummary(targetMonth), categories: new Map() };
   }
 
-  // Money already committed to later months is not available to budget now.
-  // This is a display-only adjustment for the target month: it must not feed
-  // the carry-forward, or the same dollars would be subtracted again when that
-  // later month is viewed and counts them as its own "Budgeted".
-  let budgetedFuture = 0;
-  for (const [m, amt] of budgetedTotal) {
-    if (monthIndex(m) > targetIdx) budgetedFuture += amt;
-  }
-
   const balances = new Map<number, number>(); // categoryId -> carried cents
   const confinedById = new Map<number, boolean>(); // sticky overspending handling
   let available = 0; // To-be-Budgeted carried into the current month
   let prevCashOverspent = 0;
 
-  for (let idx = startIdx; idx <= targetIdx; idx++) {
+  // Walk past the target to the last month with any data, so later months'
+  // own income and carry-forward can be weighed against what is budgeted there.
+  const endIdx = Math.max(targetIdx, ...allMonths.map(monthIndex));
+  let result: { summary: Omit<MonthSummary, "budgetedFuture" | "availableToBudget">; categories: Map<number, CategoryMonth> } | undefined;
+  let targetAvailable = 0;
+  let minLater = Infinity; // lowest raw Available(k) over months after the target
+
+  for (let idx = startIdx; idx <= endIdx; idx++) {
     const m = monthFromIndex(idx);
     const inc = incomeByMonth.get(m) ?? 0;
     const bud = budgetedTotal.get(m) ?? 0;
@@ -210,18 +208,19 @@ export function computeBudgetMonth(args: {
           confined,
         });
       }
-      return {
+      targetAvailable = available;
+      result = {
         summary: {
           month: targetMonth,
           notBudgeted: fromCents(prevAvailable),
           overspentPrev: fromCents(prevCashOverspent),
           income: fromCents(inc),
           budgeted: fromCents(bud),
-          budgetedFuture: fromCents(budgetedFuture),
-          availableToBudget: fromCents(available - budgetedFuture),
         },
         categories,
       };
+    } else if (idx > targetIdx) {
+      minLater = Math.min(minLater, available);
     }
 
     // Roll category balances forward and tally overspending, which is deducted
@@ -236,8 +235,22 @@ export function computeBudgetMonth(args: {
     prevCashOverspent = cashOverspent;
   }
 
-  // Unreachable: the loop returns at targetIdx.
-  return { summary: zeroSummary(targetMonth), categories: new Map() };
+  // Money budgeted in later months that those months cannot cover themselves
+  // (from their own income and carry-forward) is not available to budget now.
+  // This is a display-only adjustment for the target month: it is computed after
+  // the walk and never feeds the carry-forward, or the same dollars would be
+  // subtracted again when that later month is viewed.
+  const budgetedFuture =
+    minLater === Infinity ? 0 : Math.max(0, targetAvailable - minLater);
+
+  return {
+    summary: {
+      ...result!.summary,
+      budgetedFuture: fromCents(budgetedFuture),
+      availableToBudget: fromCents(targetAvailable - budgetedFuture),
+    },
+    categories: result!.categories,
+  };
 }
 
 // ─── Category Goals ───────────────────────────────────────────────────────────

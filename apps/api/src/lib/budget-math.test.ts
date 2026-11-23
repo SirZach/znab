@@ -167,6 +167,81 @@ describe("computeBudgetMonth: money committed to later months", () => {
   });
 });
 
+describe("computeBudgetMonth: later months that cover themselves", () => {
+  const run = (
+    targetMonth: string,
+    inc: ReturnType<typeof income>[],
+    bud: ReturnType<typeof budgeted>[]
+  ) => computeBudgetMonth({ income: inc, budgeted: bud, activity: [], targetMonth }).summary;
+
+  test("a future month funded by its own income takes nothing from now", () => {
+    const s = run(
+      "2026-01",
+      [income("2026-01", 1000), income("2026-02", 1000)],
+      [budgeted("2026-01", 1, 100), budgeted("2026-02", 1, 900)]
+    );
+
+    expect(s.budgetedFuture).toBe(0);
+    expect(s.availableToBudget).toBe(900);
+  });
+
+  test("only the part a future month cannot cover is subtracted", () => {
+    const s = run(
+      "2026-01",
+      [income("2026-01", 1000), income("2026-02", 200)],
+      [budgeted("2026-01", 1, 100), budgeted("2026-02", 1, 500)]
+    );
+
+    expect(s.budgetedFuture).toBe(300);
+    expect(s.availableToBudget).toBe(600);
+  });
+
+  test("a shortfall two months out counts even with an income month between", () => {
+    const inc = [income("2026-01", 1000), income("2026-02", 500)];
+    const bud = [
+      budgeted("2026-01", 1, 100),
+      budgeted("2026-03", 1, 2000),
+    ];
+
+    // Raw available: Jan 900, Feb 1400, Mar -600.
+    const jan = run("2026-01", inc, bud);
+    expect(jan.budgetedFuture).toBe(1500);
+    expect(jan.availableToBudget).toBe(-600);
+
+    const feb = run("2026-02", inc, bud);
+    expect(feb.budgetedFuture).toBe(2000);
+    expect(feb.availableToBudget).toBe(-600);
+  });
+
+  test("a past month whose later months are fully funded shows nothing committed", () => {
+    const s = run(
+      "2026-01",
+      [income("2026-01", 1000), income("2026-02", 1000), income("2026-03", 1000)],
+      [
+        budgeted("2026-01", 1, 1000),
+        budgeted("2026-02", 1, 1000),
+        budgeted("2026-03", 1, 1000),
+      ]
+    );
+
+    expect(s.budgetedFuture).toBe(0);
+    expect(s.availableToBudget).toBe(0);
+  });
+
+  test("a month that funds itself leaves the earlier month's surplus available", () => {
+    const inc = [income("2026-10", 14231.38), income("2026-11", 14127.02)];
+    const bud = [budgeted("2026-10", 1, 8943.77), budgeted("2026-11", 1, 6103.37)];
+
+    const oct = run("2026-10", inc, bud);
+    expect(oct.budgetedFuture).toBe(0);
+    expect(oct.availableToBudget).toBe(5287.61);
+
+    const nov = run("2026-11", inc, bud);
+    expect(nov.notBudgeted).toBe(5287.61);
+    expect(nov.availableToBudget).toBe(13311.26);
+  });
+});
+
 describe("computeQuickBudget", () => {
   const history = {
     income: [income("2025-10", 5000), income("2025-11", 5000), income("2025-12", 5000)],

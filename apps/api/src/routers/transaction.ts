@@ -157,7 +157,7 @@ export const transactionRouter = router({
           .returning();
 
         await audit(tx, ctx.user.id, "transaction", { after: [txn!] });
-        return txn;
+        return txn!;
       });
     }),
 

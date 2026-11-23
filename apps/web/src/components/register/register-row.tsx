@@ -11,6 +11,8 @@ export function RegisterRow({
   editing,
   selected,
   focused,
+  flash,
+  onFlashEnd,
   rowRef,
   onClick,
   error,
@@ -20,6 +22,9 @@ export function RegisterRow({
   selected: boolean;
   /** The row a link opened the register on. */
   focused: boolean;
+  /** Just saved: tinted for a moment so it can be seen where it landed. */
+  flash?: boolean;
+  onFlashEnd?: () => void;
   rowRef?: Ref<HTMLTableRowElement>;
   onClick: (event: React.MouseEvent) => void;
   error: string | null;
@@ -31,6 +36,11 @@ export function RegisterRow({
         ref={rowRef}
         onClick={editing ? undefined : onClick}
         aria-selected={editing || selected}
+        data-flash={flash || undefined}
+        // Only the row's own fade, not an animation bubbling up from a cell.
+        onAnimationEnd={(e) => {
+          if (e.target === e.currentTarget) onFlashEnd?.();
+        }}
         className={cn(
           "border-b border-border/50 transition-colors",
           !editing && "cursor-pointer",

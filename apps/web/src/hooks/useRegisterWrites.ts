@@ -30,8 +30,8 @@ export function useRegisterWrites({
   transferKeepsCategory: (transferAccountId: number | null) => boolean;
   /** The account a payee stands in for, or null for an ordinary payee. */
   transferTargetOf: (payeeId: number | null) => number | null;
-  /** After a new row is saved and the register has refetched. */
-  onCreated?: () => void;
+  /** After a new row is saved and the register has refetched, with its id. */
+  onCreated?: (id: number) => void;
 }) {
   const utils = trpc.useUtils();
   const invalidate = () => invalidateMoney(utils);
@@ -67,9 +67,9 @@ export function useRegisterWrites({
   const updateMutation = trpc.transaction.update.useMutation({ onSuccess: invalidate });
   const deleteMutation = trpc.transaction.delete.useMutation({ onSuccess: invalidate });
   const createMutation = trpc.transaction.create.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (created) => {
       await invalidate();
-      onCreated?.();
+      onCreated?.(created.id);
     },
   });
 

@@ -57,6 +57,8 @@ function AccountRegisterPage() {
   const [reconciling, setReconciling] = useState(false);
   /** The reconciled row waiting to be told to open anyway. */
   const [warningId, setWarningId] = useState<number | null>(null);
+  /** The row just saved, tinted until its fade ends. */
+  const [flashId, setFlashId] = useState<number | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   /** The row a link opened the register on, to bring into view once it loads. */
@@ -82,22 +84,31 @@ function AccountRegisterPage() {
   const reconcile = useReconcile(ids);
   const selection = useRegisterSelection(transactions);
   const { selectedRows } = selection;
+  // Called once the save's refetch is in, so the row is already where it now
+  // sorts. Brought into view once it has rendered with its marker.
+  function flashRow(id: number, ifNotShown?: () => void) {
+    setFlashId(id);
+    setTimeout(() => {
+      const row = scrollContainerRef.current?.querySelector("tr[data-flash]");
+      if (row) row.scrollIntoView({ block: "nearest" });
+      else ifNotShown?.();
+    }, 0);
+  }
   const transferTargetOf = (payeeId: number | null) =>
     payeeList?.find((p) => p.id === payeeId)?.targetAccountId ?? null;
   const writes = useRegisterWrites({
     ...ids,
     transferKeepsCategory,
     transferTargetOf,
-    onCreated: () => {
+    onCreated: (id) => {
       // A refetch rather than a patch puts a back-dated row in the middle, so
+      // the row is flashed where it landed, or, when it is not on the page,
       // the view goes to the bottom where the newest rows are.
-      setTimeout(
-        () =>
-          scrollContainerRef.current?.scrollTo({
-            top: scrollContainerRef.current.scrollHeight,
-            behavior: "smooth",
-          }),
-        0
+      flashRow(id, () =>
+        scrollContainerRef.current?.scrollTo({
+          top: scrollContainerRef.current.scrollHeight,
+          behavior: "smooth",
+        })
       );
       // A run of entries is usually off the same receipt or statement, so the
       // next row starts on the date of the one just entered.
@@ -164,7 +175,13 @@ function AccountRegisterPage() {
     // columns is a real edit here rather than an unfinished one.
     const reason = unsaveableReason(fields, { allowZero: true });
     setEditBlocked(reason);
-    if (!reason) writes.updateTransaction(txn, fields, () => setEditingId(null));
+    if (!reason) {
+      writes.updateTransaction(txn, fields, () => {
+        setEditingId(null);
+        // A new date or payee can move the row in the sort.
+        flashRow(txn.id);
+      });
+    }
   }
 
   /**
@@ -357,6 +374,8 @@ function AccountRegisterPage() {
                       editing={editing}
                       selected={selection.isSelected(txn.id)}
                       focused={txn.id === focusId}
+                      flash={txn.id === flashId}
+                      onFlashEnd={() => setFlashId(null)}
                       rowRef={txn.id === focusId ? focusRowRef : undefined}
                       onClick={(e) => clickRow(e, txn)}
                       error={editError}
